@@ -17,11 +17,16 @@
 // string (without dump), table, math (without random) and utf8 libraries,
 // the safe basic functions, and
 //   registry   register_block/item/recipe/ore/tree/biome/sound_set(id, def),
-//              get_block(id), get_item(id), recipes() -> {[id] = def};
+//              get_block(id), get_item(id), recipes() -> {[id] = def},
+//              all(section) -> {[id] = def} ("blocks", "trees", ...);
 //              ids without "mod:" get this mod's
 //   events     on(name, function): "tick" (dt), "block_placed" and
-//              "block_broken" (x, y, z, block id)
-//   world      get_block(x, y, z) -> id or nil, set_block(x, y, z, id) -> bool
+//              "block_broken" (x, y, z, block id; by the player),
+//              "block_changed" (x, y, z, new block id; any change, told on
+//              the next tick)
+//   world      get_block(x, y, z) -> id or nil, set_block(x, y, z, id) -> bool,
+//              supported(x, y, z, id) -> whether id could stand there,
+//              drop_item(x, y, z, item, count), grow_tree(x, y, z, tree id) -> bool
 //   game       set_rule(name, function): the game asks this function when it
 //              needs that rule (the last mod to set one wins; game.rule(name)
 //              gets the one before, to wrap it); random() -> 0..1 while playing
@@ -46,6 +51,7 @@
 #include "world/world.h"
 
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -89,8 +95,15 @@ public:
 	// Why mods didn't load, or were turned off: mod id (or folder) -> reason.
 	const std::map<std::string, std::string> &problems() const { return problems_; }
 
-	// While playing: the world mods see (nullptr: none).
+	// While playing: the world mods see (nullptr: none), and what dropping
+	// items and growing trees do there.
 	void attach(World *world, const BlockRules *rules);
+	struct WorldHooks {
+		std::function<void(const BlockPos &, const std::string &, int)> drop_item;
+		std::function<bool(const BlockPos &, const std::string &)> grow_tree;
+	};
+	void set_world_hooks(WorldHooks hooks);
+	void block_changed(const BlockPos &p, const std::string &id);
 	void tick(double dt);
 	void block_placed(const BlockPos &p, const std::string &id);
 	void block_broken(const BlockPos &p, const std::string &id);
@@ -106,6 +119,7 @@ public:
 	//   fuel_seconds(item) -> seconds it burns in a furnace
 	//   fall_damage(blocks) -> health a fall of that many blocks takes
 	//   food(item) -> health eating it gives (0: not food)
+	//   save_plants() -> data for world.json's "plants"; load_plants(data)
 	std::optional<Json> rule(const std::string &name, const Json &args);
 
 	// The sandbox's state, for the tests.

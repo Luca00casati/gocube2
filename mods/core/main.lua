@@ -16,6 +16,7 @@ registry.register_recipe("planks_to_sticks", {
 require("rules.mining")
 require("rules.crafting")
 require("rules.health")
+require("rules.plants")
 
 -- What a new survival player starts with: a torch, in hand.
 game.set_rule("starting_items", function()

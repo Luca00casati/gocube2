@@ -68,6 +68,8 @@ struct GeneratorConfig {
 	std::vector<gocube::BiomeKind> biomes; // empty for worlds older than generator 2
 };
 GeneratorConfig generator_config(const Content &content, int generator_version);
+// The trees the generator knows, by id, in its order (Generator::tree_blocks' kind).
+std::vector<std::string> tree_order(const Content &content);
 // Sets up `generator` for a world (seed and generator version from its meta).
 void configure_generator(gocube::Generator &generator, const Content &content, uint32_t seed,
 		int generator_version);

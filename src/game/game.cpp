@@ -15,11 +15,68 @@ Game::Game(Content &content, const BlockTable &table, const BlockRules &rules, W
 		for (const Stack &s : entities_.block_changed(p, rules_.id_of(id))) {
 			drops_.spawn(s.id, s.count, at);
 		}
+		changed_.push_back({p, id});
 	};
+	Mods::WorldHooks hooks;
+	hooks.drop_item = [this](const BlockPos &p, const std::string &item, int count) {
+		const float at[3] = {p.x + 0.5f, p.y + 0.3f, p.z + 0.5f};
+		drops_.spawn(item, count, at);
+	};
+	hooks.grow_tree = [this](const BlockPos &p, const std::string &tree) { return grow_tree(p, tree); };
+	mods_.set_world_hooks(std::move(hooks));
 }
 
 Game::~Game() {
 	world_.on_block_changed = nullptr;
+	mods_.set_world_hooks({});
+}
+
+bool Game::grow_tree(const BlockPos &pos, const std::string &tree_id) {
+	if (!generator_) {
+		return false;
+	}
+	const std::vector<std::string> order = tree_order(content_);
+	auto it = std::find(order.begin(), order.end(), tree_id);
+	if (it == order.end()) {
+		return false;
+	}
+	std::vector<gocube::TreeBlock> blocks;
+	generator_->tree_blocks(int(it - order.begin()), pos.x, pos.y - 1, pos.z, blocks);
+	if (blocks.empty()) {
+		return false;
+	}
+	// Plants and leaves give way to a growing trunk.
+	auto makes_room = [&](int block) {
+		const Json &d = rules_.def(block);
+		return d.value("replaceable", false) || d.value("leaves", false) || d.value("shape", "") == "cross";
+	};
+	for (const gocube::TreeBlock &b : blocks) {
+		if (!world_.is_loaded(b.x, b.y, b.z)) {
+			return false; // part of it would land in an unloaded chunk
+		}
+		const int here = world_.block_at(b.x, b.y, b.z);
+		if (!b.only_air && !(BlockPos{b.x, b.y, b.z} == pos) && here != 0 && !makes_room(here)) {
+			return false; // no room for its trunk
+		}
+	}
+	for (const gocube::TreeBlock &b : blocks) {
+		const int here = world_.block_at(b.x, b.y, b.z);
+		if (here == 0 || (!b.only_air && (BlockPos{b.x, b.y, b.z} == pos || makes_room(here)))) {
+			world_.set_block({b.x, b.y, b.z}, b.id);
+		}
+	}
+	return true;
+}
+
+Json Game::save_plants() {
+	const std::optional<Json> r = mods_.rule("save_plants", Json::array());
+	return r && r->is_array() ? *r : Json::array();
+}
+
+void Game::load_plants(const Json &data) {
+	if (data.is_array() && !data.empty()) {
+		mods_.rule("load_plants", Json::array({data}));
+	}
 }
 
 void Game::fill_creative() {
@@ -281,6 +338,12 @@ void Game::update(float dt, const GameInput &in) {
 
 void Game::tick(double dt) {
 	entities_.update(dt);
+	// Mods hear about block changes a tick later (their own changes too,
+	// without re-entering them).
+	const auto changes = std::exchange(changed_, {});
+	for (const auto &[p, id] : changes) {
+		mods_.block_changed(p, rules_.id_of(id));
+	}
 	notice_time_ = std::max(0.0f, notice_time_ - float(dt));
 	since_hurt_ += float(dt);
 	if (spawn_pending_ && try_place_on_ground()) {

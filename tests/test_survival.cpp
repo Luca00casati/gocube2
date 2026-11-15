@@ -51,6 +51,7 @@ struct Play {
 		}
 		mods.attach(world.get(), rules.get());
 		game = std::make_unique<gc::Game>(content, table, *rules, *world, mods, player, creative);
+		game->set_generator(&generator);
 		game->start_new_player();
 	}
 	~Play() { mods.attach(nullptr, nullptr); }
@@ -544,4 +545,98 @@ TEST_CASE("right-clicking a bed reports it (for sleeping) every time") {
 		CHECK(p.game->take_bed_used());
 		CHECK_FALSE(p.game->take_bed_used());
 	}
+}
+
+namespace {
+
+// Game and mod ticks (20 a second) for this long.
+void run_ticks(Play &p, float seconds) {
+	for (int i = 0; i < int(seconds * 20); i++) {
+		p.game->tick(0.05);
+		p.mods.tick(0.05);
+	}
+}
+
+int drops_of_item(Play &p, const std::string &item) {
+	int n = 0;
+	for (const auto &d : p.game->drops().drops()) {
+		n += d.item == item ? d.count : 0;
+	}
+	return n;
+}
+
+} // namespace
+
+TEST_CASE("plants (the core mod's Lua): sand falls, unsupported blocks pop off") {
+	Play p;
+	pool(p, "core:air");
+	REQUIRE(p.world->set_block({1, 45, 1}, p.id("core:sand"))); // 5 above the floor (y 40)
+	REQUIRE(p.world->set_block({0, 41, 1}, p.id("core:torch_wall_w"))); // against the west wall (x -1)
+	run_ticks(p, 1.0f);
+	CHECK(p.block(1, 45, 1) == "core:air");
+	CHECK(p.block(1, 40, 1) == "core:sand");
+	CHECK(p.block(0, 41, 1) == "core:torch_wall_w"); // still held by the wall
+	REQUIRE(p.world->set_block({-1, 41, 1}, 0));    // the wall behind it goes
+	run_ticks(p, 0.5f);
+	CHECK(p.block(0, 41, 1) == "core:air");
+	CHECK(drops_of_item(p, "core:torch") == 1);
+}
+
+TEST_CASE("plants: leaves without a log nearby decay") {
+	Play p;
+	pool(p, "core:air");
+	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:log")));
+	for (int x = 0; x <= 2; x++) {
+		REQUIRE(p.world->set_block({x, 41, 1}, p.id("core:leaves")));
+	}
+	REQUIRE(p.world->set_block({1, 42, 1}, p.id("core:leaves_placed"))); // placed by a player: stays
+	run_ticks(p, 4.0f);
+	CHECK(p.block(0, 41, 1) == "core:leaves"); // the log holds them
+	REQUIRE(p.world->set_block({1, 40, 1}, 0));
+	run_ticks(p, 9.0f); // (the leaf above the log first, then its neighbours: up to 3 s each)
+	for (int x = 0; x <= 2; x++) {
+		CHECK(p.block(x, 41, 1) == "core:air");
+	}
+	CHECK(p.block(1, 42, 1) == "core:leaves_placed");
+}
+
+TEST_CASE("plants: crops grow, and what's growing is saved") {
+	Play p;
+	pool(p, "core:air");
+	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:farmland")));
+	REQUIRE(p.world->set_block({1, 41, 1}, p.id("core:wheat_0")));
+	run_ticks(p, 0.2f);
+	const Json saved = p.game->save_plants();
+	REQUIRE(saved.size() == 1);
+	CHECK(saved[0][0] == 1);
+	CHECK(saved[0][1] == 41);
+	CHECK(saved[0][3].get<double>() > 50 * 0.6 - 1); // 50 s, give or take 40%
+	CHECK(saved[0][3].get<double>() < 50 * 1.4);
+	// Loaded with 2 seconds left, it grows into the next stage.
+	Play q;
+	pool(q, "core:air");
+	REQUIRE(q.world->set_block({1, 40, 1}, q.id("core:farmland")));
+	REQUIRE(q.world->set_block({1, 41, 1}, q.id("core:wheat_0")));
+	run_ticks(q, 0.2f); // (it's tracked with a fresh timer: replaced below)
+	q.game->load_plants(Json::array({Json::array({1, 41, 1, 2.0})}));
+	run_ticks(q, 3.5f);
+	CHECK(q.block(1, 41, 1) == "core:wheat_1");
+}
+
+TEST_CASE("a sapling grows into a tree: the generator's shape, where there's room") {
+	Play p;
+	pool(p, "core:air");
+	for (int y = 43; y <= 46; y++) { // (open the pool upwards: trees are tall)
+		for (int x = -1; x <= 3; x++) {
+			for (int z = -1; z <= 3; z++) {
+				REQUIRE(p.world->set_block({x, y, z}, 0));
+			}
+		}
+	}
+	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:grass")));
+	REQUIRE(p.world->set_block({1, 41, 1}, p.id("core:oak_sapling")));
+	CHECK(p.game->grow_tree({1, 41, 1}, "core:oak"));
+	CHECK(p.block(1, 41, 1) == "core:log");
+	CHECK(p.block(1, 42, 1) == "core:log");
+	CHECK_FALSE(p.game->grow_tree({1, 41, 1}, "core:nonexistent"));
 }

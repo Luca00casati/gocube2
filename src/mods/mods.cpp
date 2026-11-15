@@ -31,7 +31,7 @@ using Clock = std::chrono::steady_clock;
 
 namespace {
 
-const char *const EVENTS[] = {"tick", "block_placed", "block_broken"};
+const char *const EVENTS[] = {"tick", "block_placed", "block_broken", "block_changed"};
 const char *const STOPPED_TIME = "it ran too long";
 const char *const STOPPED_MEMORY = "it used too much memory";
 
@@ -194,6 +194,7 @@ struct Mods::Lua {
 	std::mt19937_64 random{std::random_device{}()};
 	World *world = nullptr;
 	const BlockRules *rules = nullptr;
+	Mods::WorldHooks hooks;
 
 	// The mod whose code is running (-1: none) and its limits; why it was
 	// stopped ("" while it may go on).
@@ -539,6 +540,21 @@ struct Mods::Lua {
 		return 1;
 	}
 
+	// registry.all(section): a copy of a whole section, {[id] = def}.
+	static int registry_all(lua_State *L) {
+		Lua *h = of(L);
+		const std::map<std::string, Json> *t = h->content.table(luaL_checkstring(L, 1));
+		if (!t) {
+			return luaL_error(L, "no section '%s' (blocks, items, recipes, ores, trees, biomes, sound_sets)", lua_tostring(L, 1));
+		}
+		lua_createtable(L, 0, int(t->size()));
+		for (const auto &[id, def] : *t) {
+			push_json(L, def);
+			lua_setfield(L, -2, id.c_str());
+		}
+		return 1;
+	}
+
 	// registry.recipes(): a copy of every recipe, {[id] = def}.
 	static int registry_recipes(lua_State *L) {
 		Lua *h = of(L);
@@ -558,7 +574,7 @@ struct Mods::Lua {
 		const std::string event = luaL_checkstring(L, 1);
 		luaL_checktype(L, 2, LUA_TFUNCTION);
 		if (std::find_if(std::begin(EVENTS), std::end(EVENTS), [&](const char *e) { return event == e; }) == std::end(EVENTS)) {
-			return luaL_error(L, "no event '%s' (there are: tick, block_placed, block_broken)", event.c_str());
+			return luaL_error(L, "no event '%s' (there are: tick, block_placed, block_broken, block_changed)", event.c_str());
 		}
 		lua_pushvalue(L, 2);
 		h->handlers.push_back({mod, event, luaL_ref(L, LUA_REGISTRYINDEX)});
@@ -632,6 +648,40 @@ struct Mods::Lua {
 			return luaL_error(L, "no block '%s'", id);
 		}
 		lua_pushboolean(L, w->set_block(p, gocube::BlockId(index)));
+		return 1;
+	}
+
+	static BlockPos check_pos(lua_State *L) {
+		return {int(luaL_checkinteger(L, 1)), int(luaL_checkinteger(L, 2)), int(luaL_checkinteger(L, 3))};
+	}
+
+	static int world_supported(lua_State *L) {
+		World *w = need_world(L);
+		const BlockPos p = check_pos(L);
+		lua_pushboolean(L, of(L)->rules->supported(*w, luaL_checkstring(L, 4), p));
+		return 1;
+	}
+
+	static int world_drop_item(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		const BlockPos p = check_pos(L);
+		const std::string item = luaL_checkstring(L, 4);
+		const int count = int(luaL_optinteger(L, 5, 1));
+		if (!h->content.items.count(item) && !h->content.blocks.count(item)) {
+			return luaL_error(L, "no item '%s'", item.c_str());
+		}
+		if (h->hooks.drop_item && count > 0) {
+			h->hooks.drop_item(p, item, std::min(count, 64 * 36));
+		}
+		return 0;
+	}
+
+	static int world_grow_tree(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		const BlockPos p = check_pos(L);
+		lua_pushboolean(L, h->hooks.grow_tree && h->hooks.grow_tree(p, luaL_checkstring(L, 4)));
 		return 1;
 	}
 
@@ -710,6 +760,8 @@ struct Mods::Lua {
 		}
 		lua_pushcfunction(L, &Lua::registry_recipes);
 		lua_setfield(L, -2, "recipes");
+		lua_pushcfunction(L, &Lua::registry_all);
+		lua_setfield(L, -2, "all");
 		lua_setfield(L, -2, "registry");
 
 		lua_newtable(L); // events
@@ -722,6 +774,12 @@ struct Mods::Lua {
 		lua_setfield(L, -2, "get_block");
 		lua_pushcfunction(L, &Lua::world_set_block);
 		lua_setfield(L, -2, "set_block");
+		lua_pushcfunction(L, &Lua::world_supported);
+		lua_setfield(L, -2, "supported");
+		lua_pushcfunction(L, &Lua::world_drop_item);
+		lua_setfield(L, -2, "drop_item");
+		lua_pushcfunction(L, &Lua::world_grow_tree);
+		lua_setfield(L, -2, "grow_tree");
 		lua_setfield(L, -2, "world");
 
 		lua_newtable(L); // game
@@ -1010,6 +1068,20 @@ std::optional<Json> Mods::rule(const std::string &name, const Json &args) {
 void Mods::attach(World *world, const BlockRules *rules) {
 	lua_->world = world;
 	lua_->rules = rules;
+}
+
+void Mods::set_world_hooks(WorldHooks hooks) {
+	lua_->hooks = std::move(hooks);
+}
+
+void Mods::block_changed(const BlockPos &p, const std::string &id) {
+	lua_State *L = lua_->L;
+	lua_->fire("block_changed", 4, [&] {
+		lua_pushinteger(L, p.x);
+		lua_pushinteger(L, p.y);
+		lua_pushinteger(L, p.z);
+		lua_pushstring(L, id.c_str());
+	}, problems_);
 }
 
 void Mods::tick(double dt) {

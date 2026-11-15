@@ -427,13 +427,7 @@ GeneratorConfig generator_config(const Content &content, int generator_version) 
 	// Trees with a known log and leaves (or a cactus), sorted by id: biomes
 	// refer to them by index in this order.
 	static const char *const STYLES[] = {"oak", "big_oak", "birch", "spruce", "cactus", "round_oak"};
-	std::vector<std::string> tree_order;
-	for (const auto &[id, def] : content.trees) {
-		if (content.block_index(str(def, "log")) > 0 &&
-				(content.block_index(str(def, "leaves")) > 0 || str(def, "style") == "cactus")) {
-			tree_order.push_back(id);
-		}
-	}
+	const std::vector<std::string> tree_order = gc::tree_order(content);
 	for (const std::string &id : tree_order) {
 		const Json &def = content.trees.at(id);
 		gocube::TreeKind t;
@@ -500,6 +494,17 @@ GeneratorConfig generator_config(const Content &content, int generator_version) 
 		}
 	}
 	return g;
+}
+
+std::vector<std::string> tree_order(const Content &content) {
+	std::vector<std::string> out;
+	for (const auto &[id, def] : content.trees) {
+		if (content.block_index(str(def, "log")) > 0 &&
+				(content.block_index(str(def, "leaves")) > 0 || str(def, "style") == "cactus")) {
+			out.push_back(id);
+		}
+	}
+	return out;
 }
 
 void configure_generator(gocube::Generator &generator, const Content &content, uint32_t seed,

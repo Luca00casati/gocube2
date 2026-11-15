@@ -68,8 +68,17 @@ public:
 
 	// Once a frame: hotbar, mining, breaking, placing, picking.
 	void update(float dt, const GameInput &input);
-	// Once a frame: furnaces, notices.
+	// Once a frame: furnaces, notices, telling mods about block changes.
 	void tick(double dt);
+	// The world's generator (trees grow in its shapes).
+	void set_generator(const gocube::Generator *generator) { generator_ = generator; }
+	// A sapling at `pos` grows into tree `tree_id`, as the generator would
+	// make it there. False (nothing changed) without room or loaded ground.
+	bool grow_tree(const BlockPos &pos, const std::string &tree_id);
+	// Growing crops and saplings (the mods' save_plants/load_plants rules),
+	// for world.json's "plants".
+	Json save_plants();
+	void load_plants(const Json &data);
 
 	// --- Health (survival) ---
 	static constexpr int MAX_HEALTH = 20;
@@ -130,6 +139,8 @@ private:
 	BlockEntities entities_;
 	std::optional<BlockPos> opened_;
 	bool bed_used_ = false;
+	const gocube::Generator *generator_ = nullptr;
+	std::vector<std::pair<BlockPos, gocube::BlockId>> changed_; // for the mods' block_changed, next tick
 	std::optional<std::vector<Recipe>> recipes_;
 	bool try_place_on_ground();
 	void unstuck();

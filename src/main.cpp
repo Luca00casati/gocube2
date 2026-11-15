@@ -525,10 +525,12 @@ int main(int argc, char **argv) {
 	gc::BlockPos container; // (Screen::CONTAINER)
 	const bool creative = (save ? save->mode() : options.mode) == "creative";
 	gc::Game game(content, table, rules, *world, mods, player, creative);
+	game.set_generator(&generator);
 	if (save) {
 		game.load_player(save->player());
 		game.block_entities().deserialize(save->field("block_entities"));
 		game.set_world_spawn(save->field("spawn"));
+		game.load_plants(save->field("plants"));
 	} else {
 		game.start_new_player();
 	}
@@ -569,6 +571,7 @@ int main(int argc, char **argv) {
 			state.update(game.save_player());
 			save->set_field("block_entities", game.block_entities().serialize());
 			save->set_field("time", day.time);
+			save->set_field("plants", game.save_plants());
 			if (const auto &spawn = game.world_spawn()) {
 				save->set_field("spawn", {(*spawn)[0], (*spawn)[1], (*spawn)[2]});
 			}
