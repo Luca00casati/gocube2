@@ -21,6 +21,11 @@
 //   events     on(name, function): "tick" (dt), "block_placed" and
 //              "block_broken" (x, y, z, block id)
 //   world      get_block(x, y, z) -> id or nil, set_block(x, y, z, id) -> bool
+//   game       set_rule(name, function): the game asks this function when it
+//              needs that rule (the last mod to set one wins; game.rule(name)
+//              gets the one before, to wrap it); random() -> 0..1 while playing
+//              (not while loading: what mods register must depend only on
+//              their files). Rules the game asks: see Mods::rule.
 //   mod        {id, version}
 //   print      to the game's log
 //   require    another .lua file of this mod (text only)
@@ -42,6 +47,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -87,6 +93,14 @@ public:
 	void tick(double dt);
 	void block_placed(const BlockPos &p, const std::string &id);
 	void block_broken(const BlockPos &p, const std::string &id);
+
+	// Asks rule `name` (set by a mod with game.set_rule), with these arguments
+	// (a JSON array); its first result, or nothing if no mod set it, it failed
+	// or ran too long (the caller then uses its own default). Rules:
+	//   mine_seconds(block, tool) -> seconds to break block holding tool ("" = hand)
+	//   drops(block, tool) -> {item ids} breaking it gives (one each)
+	//   starting_items() -> {{id=, count=}} a new survival player gets
+	std::optional<Json> rule(const std::string &name, const Json &args);
 
 	// The sandbox's state, for the tests.
 	size_t memory_in_use() const;

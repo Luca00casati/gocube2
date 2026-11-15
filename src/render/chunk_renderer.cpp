@@ -43,12 +43,7 @@ struct DrawConstants {
 	float pad;
 };
 
-struct Vertex {
-	float pos[3];
-	float normal[3];
-	float uv[2];
-	float color[4];
-};
+using Vertex = WorldVertex;
 
 // A plane a*x + b*y + c*z + d (inside where >= 0), from the view-projection
 // matrix's columns (row-vector convention: clip = v * M).
@@ -153,20 +148,28 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 	td.Height = UINT(atlas.height);
 	td.MipLevels = 0; // the full chain
 	td.ArraySize = 1;
-	td.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	td.Format = DXGI_FORMAT_R8G8B8A8_TYPELESS; // sRGB view for the world, plain one for ImGui
 	td.SampleDesc.Count = 1;
 	td.Usage = D3D11_USAGE_DEFAULT;
 	td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 	td.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
 	ComPtr<ID3D11Texture2D> tex;
+	D3D11_SHADER_RESOURCE_VIEW_DESC sv = {};
+	sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+	sv.Texture2D.MipLevels = UINT(-1);
+	sv.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	D3D11_SHADER_RESOURCE_VIEW_DESC uv = sv;
+	uv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	if (!ok(device->CreateTexture2D(&td, nullptr, &tex), "CreateTexture2D(atlas)") ||
-			!ok(device->CreateShaderResourceView(tex.Get(), nullptr, &atlas_), "CreateShaderResourceView(atlas)")) {
+			!ok(device->CreateShaderResourceView(tex.Get(), &sv, &atlas_), "CreateShaderResourceView(atlas)") ||
+			!ok(device->CreateShaderResourceView(tex.Get(), &uv, &ui_atlas_), "CreateShaderResourceView(ui atlas)")) {
 		return false;
 	}
 	ComPtr<ID3D11DeviceContext> ctx;
 	device->GetImmediateContext(&ctx);
 	ctx->UpdateSubresource(tex.Get(), 0, nullptr, atlas.rgba.data(), UINT(atlas.width) * 4, 0);
-	ctx->GenerateMips(atlas_.Get());
+	// (Mipmaps averaged in sRGB, as the Godot version's Image.generate_mipmaps does.)
+	ctx->GenerateMips(ui_atlas_.Get());
 
 	D3D11_SAMPLER_DESC sd = {};
 	sd.Filter = D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR; // crisp pixels, smooth with distance
@@ -228,6 +231,57 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 	dd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
 	device->CreateDepthStencilState(&dd, &depth_less_equal_);
 	return true;
+}
+
+void ChunkRenderer::draw_triangles(ID3D11DeviceContext *ctx, const std::vector<WorldVertex> &vertices) {
+	if (vertices.empty()) {
+		return;
+	}
+	if (vertices.size() > dynamic_capacity_) {
+		ComPtr<ID3D11Device> device;
+		ctx->GetDevice(&device);
+		dynamic_capacity_ = UINT(vertices.size() * 2);
+		D3D11_BUFFER_DESC bd = {};
+		bd.Usage = D3D11_USAGE_DYNAMIC;
+		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		bd.ByteWidth = dynamic_capacity_ * sizeof(WorldVertex);
+		dynamic_vertices_.Reset();
+		if (FAILED(device->CreateBuffer(&bd, nullptr, &dynamic_vertices_))) {
+			dynamic_capacity_ = 0;
+			return;
+		}
+	}
+	D3D11_MAPPED_SUBRESOURCE m;
+	if (FAILED(ctx->Map(dynamic_vertices_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+		return;
+	}
+	std::memcpy(m.pData, vertices.data(), vertices.size() * sizeof(WorldVertex));
+	ctx->Unmap(dynamic_vertices_.Get(), 0);
+	const DrawConstants d = {{0, 0, 0}, 0}; // already in world coordinates
+	if (SUCCEEDED(ctx->Map(draw_cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+		std::memcpy(m.pData, &d, sizeof(d));
+		ctx->Unmap(draw_cb_.Get(), 0);
+	}
+	ID3D11Buffer *cbs[] = {frame_cb_.Get(), draw_cb_.Get()};
+	ctx->VSSetConstantBuffers(0, 2, cbs);
+	ctx->PSSetConstantBuffers(0, 2, cbs);
+	ctx->IASetInputLayout(layout_.Get());
+	ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	const UINT stride = sizeof(WorldVertex), offset = 0;
+	ID3D11Buffer *vb = dynamic_vertices_.Get();
+	ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+	ctx->VSSetShader(vs_.Get(), nullptr, 0);
+	ctx->PSSetShader(ps_cutout_.Get(), nullptr, 0);
+	ID3D11ShaderResourceView *srvs[] = {atlas_.Get()};
+	ctx->PSSetShaderResources(0, 1, srvs);
+	ID3D11SamplerState *samplers[] = {sampler_.Get()};
+	ctx->PSSetSamplers(0, 1, samplers);
+	ctx->RSSetState(cull_none_.Get());
+	ctx->OMSetDepthStencilState(depth_write_.Get(), 0);
+	ctx->Draw(UINT(vertices.size()), 0);
+	ctx->RSSetState(nullptr);
+	ctx->OMSetDepthStencilState(nullptr, 0);
 }
 
 void ChunkRenderer::draw_outline(ID3D11DeviceContext *ctx, const std::vector<gocube::Box> &boxes) {

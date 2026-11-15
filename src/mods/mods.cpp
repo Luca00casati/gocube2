@@ -20,6 +20,7 @@
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <random>
 #include <set>
 #include <sstream>
 
@@ -177,6 +178,10 @@ struct Mods::Lua {
 		std::string event;
 		int ref;
 	};
+	struct Rule {
+		int mod;
+		int ref;
+	};
 
 	Content &content;
 	ModLimits limits;
@@ -184,7 +189,9 @@ struct Mods::Lua {
 	size_t used = 0;
 	std::vector<ModState> mods;
 	std::vector<Handler> handlers;
+	std::map<std::string, Rule> game_rules; // game.set_rule
 	bool registry_open = true;
+	std::mt19937_64 random{std::random_device{}()};
 	World *world = nullptr;
 	const BlockRules *rules = nullptr;
 
@@ -267,8 +274,9 @@ struct Mods::Lua {
 	}
 
 	// Calls the function under `nargs` arguments as mod `mod`'s code, with a
-	// time budget. "" or what went wrong.
-	std::string call(int mod, int nargs, double budget_ms) {
+	// time budget; `nresults` results are left on the stack if it succeeds.
+	// "" or what went wrong.
+	std::string call(int mod, int nargs, double budget_ms, int nresults = 0) {
 		current = mod;
 		stopped = nullptr;
 		deadline = Clock::now() + std::chrono::microseconds(int64_t(budget_ms * 1000));
@@ -276,7 +284,7 @@ struct Mods::Lua {
 		const int base = lua_gettop(L) - nargs;
 		lua_pushcfunction(L, &Lua::traceback);
 		lua_insert(L, base);
-		const int status = lua_pcall(L, nargs, 0, base);
+		const int status = lua_pcall(L, nargs, nresults, base);
 		std::string error;
 		if (status != LUA_OK) {
 			if (stopped == STOPPED_TIME) {
@@ -546,6 +554,45 @@ struct Mods::Lua {
 		return 0;
 	}
 
+	// game.set_rule(name, fn): while loading.
+	static int game_set_rule(lua_State *L) {
+		Lua *h = of(L);
+		const int mod = int(lua_tointeger(L, lua_upvalueindex(1)));
+		const std::string name = luaL_checkstring(L, 1);
+		luaL_checktype(L, 2, LUA_TFUNCTION);
+		if (!h->registry_open) {
+			return luaL_error(L, "rules can only be set while mods load");
+		}
+		lua_pushvalue(L, 2);
+		auto it = h->game_rules.find(name);
+		if (it != h->game_rules.end()) {
+			luaL_unref(L, LUA_REGISTRYINDEX, it->second.ref); // (a wrapper keeps its own reference)
+		}
+		h->game_rules[name] = {mod, luaL_ref(L, LUA_REGISTRYINDEX)};
+		return 0;
+	}
+
+	// game.rule(name): the function set for it so far, or nil.
+	static int game_rule(lua_State *L) {
+		Lua *h = of(L);
+		auto it = h->game_rules.find(luaL_checkstring(L, 1));
+		if (it == h->game_rules.end()) {
+			lua_pushnil(L);
+		} else {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, it->second.ref);
+		}
+		return 1;
+	}
+
+	static int game_random(lua_State *L) {
+		Lua *h = of(L);
+		if (h->registry_open) {
+			return luaL_error(L, "random() only works while playing (what mods register must depend only on their files)");
+		}
+		lua_pushnumber(L, std::uniform_real_distribution<double>(0.0, 1.0)(h->random));
+		return 1;
+	}
+
 	static World *need_world(lua_State *L) {
 		Lua *h = of(L);
 		if (!h->world || !h->rules) {
@@ -664,6 +711,15 @@ struct Mods::Lua {
 		lua_setfield(L, -2, "set_block");
 		lua_setfield(L, -2, "world");
 
+		lua_newtable(L); // game
+		push_closure(&Lua::game_set_rule, mod);
+		lua_setfield(L, -2, "set_rule");
+		lua_pushcfunction(L, &Lua::game_rule);
+		lua_setfield(L, -2, "rule");
+		lua_pushcfunction(L, &Lua::game_random);
+		lua_setfield(L, -2, "random");
+		lua_setfield(L, -2, "game");
+
 		lua_newtable(L); // mod
 		lua_pushstring(L, mods[mod].info.id.c_str());
 		lua_setfield(L, -2, "id");
@@ -699,6 +755,14 @@ struct Mods::Lua {
 
 	// Forgets everything of a mod that failed or was turned off.
 	void drop(int mod) {
+		for (auto it = game_rules.begin(); it != game_rules.end();) {
+			if (it->second.mod == mod) {
+				luaL_unref(L, LUA_REGISTRYINDEX, it->second.ref);
+				it = game_rules.erase(it);
+			} else {
+				++it;
+			}
+		}
 		for (auto it = handlers.begin(); it != handlers.end();) {
 			if (it->mod == mod) {
 				luaL_unref(L, LUA_REGISTRYINDEX, it->ref);
@@ -892,6 +956,42 @@ void Mods::load_all(const std::vector<fs::path> &dirs) {
 		log("Mod %s %s loaded (%s)", id.c_str(), info.version.c_str(), info.fingerprint.c_str());
 	}
 	lua_->registry_open = false;
+}
+
+std::optional<Json> Mods::rule(const std::string &name, const Json &args) {
+	Lua &h = *lua_;
+	auto it = h.game_rules.find(name);
+	if (it == h.game_rules.end() || h.mods[it->second.mod].disabled) {
+		return std::nullopt;
+	}
+	const int mod = it->second.mod;
+	lua_State *L = h.L;
+	const int top = lua_gettop(L);
+	lua_rawgeti(L, LUA_REGISTRYINDEX, it->second.ref);
+	for (const Json &a : args) {
+		Lua::push_json(L, a);
+	}
+	const std::string error = h.call(mod, int(args.size()), h.limits.callback_ms, 1);
+	if (!error.empty()) {
+		log("Mod '%s': its %s rule failed: %s", h.mods[mod].info.id.c_str(), name.c_str(), error.c_str());
+		lua_settop(L, top);
+		return std::nullopt;
+	}
+	std::optional<Json> out;
+	// (Converting can raise a Lua error for a value that can't be data: protected.)
+	lua_pushcfunction(L, [](lua_State *L) -> int {
+		auto *result = static_cast<std::optional<Json> *>(lua_touserdata(L, 2));
+		*result = Lua::to_json(L, 1, 0);
+		return 0;
+	});
+	lua_insert(L, -2);
+	lua_pushlightuserdata(L, &out);
+	if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+		log("Mod '%s': its %s rule returned something that isn't data", h.mods[mod].info.id.c_str(), name.c_str());
+		out.reset();
+	}
+	lua_settop(L, top);
+	return out;
 }
 
 void Mods::attach(World *world, const BlockRules *rules) {

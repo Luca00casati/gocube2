@@ -54,6 +54,11 @@ public:
 	void remove(const ChunkPos &pos);
 	// Draws into the bound render target and depth buffer.
 	void draw(ID3D11DeviceContext *context, const Camera &camera, float aspect, const SkyParams &sky);
+	// After draw(): triangles in world coordinates (dropped items), drawn like
+	// cutout blocks, from both sides.
+	void draw_triangles(ID3D11DeviceContext *context, const std::vector<WorldVertex> &vertices);
+	// The block atlas for Dear ImGui (a plain view: ImGui draws without sRGB).
+	ID3D11ShaderResourceView *ui_atlas() const { return ui_atlas_.Get(); }
 	// After draw(): the edges of these boxes (world coordinates), just outside
 	// them so the lines don't fight with the faces.
 	void draw_outline(ID3D11DeviceContext *context, const std::vector<gocube::Box> &boxes);
@@ -76,7 +81,9 @@ private:
 	ComPtr<ID3D11PixelShader> ps_opaque_, ps_cutout_, ps_fluid_;
 	ComPtr<ID3D11InputLayout> layout_;
 	ComPtr<ID3D11Buffer> frame_cb_, draw_cb_;
-	ComPtr<ID3D11ShaderResourceView> atlas_;
+	ComPtr<ID3D11ShaderResourceView> atlas_, ui_atlas_;
+	ComPtr<ID3D11Buffer> dynamic_vertices_;
+	UINT dynamic_capacity_ = 0;
 	ComPtr<ID3D11SamplerState> sampler_;
 	ComPtr<ID3D11RasterizerState> cull_back_, cull_none_;
 	ComPtr<ID3D11DepthStencilState> depth_write_, depth_test_only_;

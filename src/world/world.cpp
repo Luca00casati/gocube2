@@ -132,6 +132,15 @@ void World::run(Job &job, Result &r) const {
 	r.mesh->pos = job.pos;
 	mesh_chunk(*hood[neighbourhood_index(0, 0, 0)], faces, hood, blocks_, atlas_, &light, options, r.mesh->opaque,
 			r.mesh->cutout, r.mesh->fluid);
+	auto packed = std::make_shared<std::vector<uint8_t>>(CHUNK_VOLUME);
+	for (int y = 0; y < CHUNK; y++) {
+		for (int z = 0; z < CHUNK; z++) {
+			for (int x = 0; x < CHUNK; x++) {
+				(*packed)[(y * CHUNK + z) * CHUNK + x] = uint8_t(light.sky_at(x, y, z) << 4 | light.block_at(x, y, z));
+			}
+		}
+	}
+	r.light = std::move(packed);
 }
 
 // --- Main thread ---------------------------------------------------------------
@@ -176,6 +185,7 @@ void World::update(float viewer_x, float /*viewer_y*/, float viewer_z) {
 			}
 			c.mesh_queued = false;
 			c.meshed_version = res.version;
+			c.light = std::move(res.light);
 			meshes_.push_back(std::move(*res.mesh));
 		}
 	}
@@ -352,6 +362,19 @@ int World::block_id_at(int x, int y, int z) const {
 BlockId World::block_at(int x, int y, int z) const {
 	const int id = block_id_at(x, y, z);
 	return id < 0 ? AIR : BlockId(id);
+}
+
+void World::light_at(int x, int y, int z, int &sky, int &block) const {
+	const int cx = floor_div(x, CHUNK), cy = floor_div(y, CHUNK), cz = floor_div(z, CHUNK);
+	auto it = chunks_.find(key(cx, cy, cz));
+	if (it == chunks_.end() || !it->second.light) {
+		sky = LIGHT_MAX; // not lit yet (or above the world): open sky
+		block = 0;
+		return;
+	}
+	const uint8_t v = (*it->second.light)[((y - cy * CHUNK) * CHUNK + (z - cz * CHUNK)) * CHUNK + (x - cx * CHUNK)];
+	sky = v >> 4;
+	block = v & 15;
 }
 
 bool World::is_loaded(int x, int y, int z) const {

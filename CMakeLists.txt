@@ -47,6 +47,12 @@ add_library(gocube_core STATIC
 target_sources(gocube_core PRIVATE
 	src/game/blocks.cpp
 	src/game/blocks.h
+	src/game/drops.cpp
+	src/game/drops.h
+	src/game/game.cpp
+	src/game/game.h
+	src/game/inventory.cpp
+	src/game/inventory.h
 	src/game/player.cpp
 	src/game/player.h
 	src/mods/mods.cpp
@@ -117,6 +123,7 @@ add_executable(gocube_tests
 	tests/test_mods.cpp
 	tests/test_player.cpp
 	tests/test_save.cpp
+	tests/test_survival.cpp
 	tests/test_worldgen.cpp
 )
 target_link_libraries(gocube_tests PRIVATE gocube_core doctest::doctest bcrypt)

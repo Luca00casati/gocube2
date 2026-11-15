@@ -44,6 +44,15 @@ struct ChunkMesh {
 	gocube::Surface opaque, cutout, fluid;
 };
 
+// A vertex of the world's meshes (chunk.hlsl's input): position, normal, uv,
+// colour (sky light, block light, occlusion, marks).
+struct WorldVertex {
+	float pos[3];
+	float normal[3];
+	float uv[2];
+	float color[4];
+};
+
 struct WorldStats {
 	int loaded = 0;  // chunks with block data
 	int meshed = 0;  // chunks with a mesh
@@ -94,6 +103,9 @@ public:
 	// The same with AIR for unloaded chunks.
 	gocube::BlockId block_at(int x, int y, int z) const;
 	bool is_loaded(int x, int y, int z) const;
+	// Sky and block light (0..15 each) at a block, as of its chunk's last
+	// mesh; open sky where it isn't known.
+	void light_at(int x, int y, int z, int &sky, int &block) const;
 	// Changes a block; false if its chunk isn't loaded.
 	bool set_block(const BlockPos &p, gocube::BlockId id);
 	// Writes every edited chunk to its file; returns how many.
@@ -131,6 +143,7 @@ private:
 		std::shared_ptr<const gocube::ChunkData> data;
 		std::array<int8_t, gocube::CHUNK_AREA> local_tops{};
 		std::unique_ptr<ChunkMesh> mesh;
+		std::shared_ptr<const std::vector<uint8_t>> light; // sky << 4 | block, per block
 	};
 	struct Chunk {
 		uint64_t serial = 0; // tells a reloaded chunk from the one a job was made for
@@ -140,6 +153,7 @@ private:
 		uint64_t meshed_version = 0; // of the mesh handed out (0: none yet)
 		bool mesh_queued = false;
 		bool dirty = false; // edited since it was last saved
+		std::shared_ptr<const std::vector<uint8_t>> light; // of the last mesh
 	};
 
 	static int64_t key(int x, int y, int z);

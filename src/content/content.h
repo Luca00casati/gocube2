@@ -81,13 +81,34 @@ struct Atlas {
 	int width = 0, height = 0;
 	std::vector<uint8_t> rgba; // width * height * 4, mip level 0
 	std::vector<std::vector<uint8_t>> tiles; // TILE * TILE * 4 each
+
+	// A tile's uv rectangle (u0, v0, u1, v1): the copy faces use inside its cell.
+	void tile_uv(int tile, float uv[4]) const {
+		const float cw = 1.0f / float(layout.cols), ch = 1.0f / float(layout.rows);
+		uv[0] = (float(tile % layout.cols) + float(layout.face_x) / float(layout.cell)) * cw;
+		uv[1] = (float(tile / layout.cols) + float(layout.face_y) / float(layout.cell)) * ch;
+		uv[2] = uv[0] + cw / float(layout.cell);
+		uv[3] = uv[1] + ch / float(layout.cell);
+	}
 };
 
 struct BlockTable {
 	std::vector<gocube::BlockInfo> blocks; // index = block id
 	Atlas atlas;
+	// Atlas tile of every item's and placeable block's icon (its "icon" or
+	// "texture" image, a block's side face, else its colour).
+	std::map<std::string, int> icons;
+	int icon(const std::string &id) const {
+		auto it = icons.find(id);
+		return it == icons.end() ? 0 : it->second;
+	}
 };
 BlockTable build_block_table(const Content &content);
+
+// What players see an item or block called: its "name", else its id without
+// the mod, words capitalised ("core:wood_pickaxe" -> "Wood Pickaxe"), as the
+// Godot version's String.capitalize.
+std::string display_name(const Content &content, const std::string &id);
 
 // Godot's String::hash (djb2): the ore salts in the Godot version came from it.
 uint32_t godot_string_hash(const std::string &s);

@@ -133,7 +133,9 @@ for i = 1, 100000000 do t[i] = string.rep('y', 100000) .. i end -- (100 KB a ste
 	make_mod(root, "catcher", R"(
 for i = 1, 100 do pcall(function() local s = string.rep('z', 1 << 28) end) end
 )");
-	Loaded l(root, quick());
+	gc::ModLimits limits = quick();
+	limits.load_ms = 5000; // (only memory may stop them here, even in a slow debug build)
+	Loaded l(root, limits);
 	CHECK(l.problem("huge").find("too much memory") != std::string::npos);
 	CHECK(l.problem("greedy").find("too much memory") != std::string::npos);
 	CHECK(l.problem("catcher").find("too much memory") != std::string::npos);

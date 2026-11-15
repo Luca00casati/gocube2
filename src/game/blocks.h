@@ -18,6 +18,7 @@ class BlockRules {
 public:
 	explicit BlockRules(const Content &content);
 
+	const Content &content() const { return content_; }
 	const std::string &id_of(int block) const; // "" if unknown
 	int index_of(const std::string &id) const { return content_.block_index(id); }
 	const Json &def(const std::string &id) const; // {} if unknown

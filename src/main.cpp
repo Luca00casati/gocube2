@@ -34,6 +34,7 @@
 
 #include "content/content.h"
 #include "game/blocks.h"
+#include "game/game.h"
 #include "game/player.h"
 #include "log.h"
 #include "mods/mods.h"
@@ -75,6 +76,8 @@ struct Options {
 	float pos[3] = {0, 0, 0};
 	bool has_look = false;
 	float look[2] = {0, 0};
+	std::string mode = "survival"; // for a new world
+	std::vector<std::string> drop; // items dropped in front of the player at the start
 };
 
 std::filesystem::path utf8_path(const char *s) {
@@ -114,6 +117,17 @@ Options parse(int argc, char **argv) {
 			o.seed = uint32_t(strtoll(v, nullptr, 10));
 		} else if ((v = value("--generator="))) {
 			o.generator = int(strtol(v, nullptr, 10));
+		} else if ((v = value("--drop="))) {
+			std::string list = v;
+			for (size_t from = 0, to; from <= list.size(); from = to + 1) {
+				to = list.find(',', from);
+				to = to == std::string::npos ? list.size() : to;
+				if (to > from) {
+					o.drop.push_back(list.substr(from, to - from));
+				}
+			}
+		} else if ((v = value("--mode="))) {
+			o.mode = v;
 		} else if ((v = value("--view="))) {
 			o.view = int(strtol(v, nullptr, 10));
 		} else if ((v = value("--pos="))) {
@@ -161,8 +175,71 @@ std::filesystem::path user_dir() {
 
 struct Controls {
 	bool fly_key_was_down = false;
-	int selected = 0; // index into the placeable blocks
+	bool number_was_down[10] = {};
 };
+
+// Number keys 1..9 pressed this frame (0: none).
+int number_pressed(const gc::Window &window, Controls &controls) {
+	int pressed = 0;
+	for (int k = 1; k <= 9; k++) {
+		const bool down = window.mouse_captured() && window.key_down('0' + k);
+		if (down && !controls.number_was_down[k]) {
+			pressed = k;
+		}
+		controls.number_was_down[k] = down;
+	}
+	return pressed;
+}
+
+// The hotbar, the mining bar and the crosshair.
+void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::ChunkRenderer &chunks,
+		const gc::BlockRules &rules, bool captured) {
+	const ImGuiIO &io = ImGui::GetIO();
+	ImDrawList *dl = ImGui::GetForegroundDrawList();
+	const ImVec2 c(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
+	if (captured) {
+		const ImU32 col = IM_COL32(255, 255, 255, 200);
+		dl->AddLine(ImVec2(c.x - 8, c.y), ImVec2(c.x + 9, c.y), col, 2.0f);
+		dl->AddLine(ImVec2(c.x, c.y - 8), ImVec2(c.x, c.y + 9), col, 2.0f);
+	}
+	if (game.mining_progress() > 0) {
+		const float w = 60, h = 6, y = c.y + 22;
+		dl->AddRectFilled(ImVec2(c.x - w / 2, y), ImVec2(c.x + w / 2, y + h), IM_COL32(0, 0, 0, 140));
+		dl->AddRectFilled(ImVec2(c.x - w / 2, y), ImVec2(c.x - w / 2 + w * game.mining_progress(), y + h),
+				IM_COL32(255, 255, 255, 220));
+	}
+	const float slot = 48, gap = 4;
+	const float total = gc::Inventory::HOTBAR * slot + (gc::Inventory::HOTBAR - 1) * gap;
+	const float x0 = c.x - total / 2, y0 = io.DisplaySize.y - slot - 12;
+	const ImTextureID atlas = ImTextureID(chunks.ui_atlas());
+	for (int i = 0; i < gc::Inventory::HOTBAR; i++) {
+		const ImVec2 a(x0 + i * (slot + gap), y0), b(a.x + slot, a.y + slot);
+		const bool chosen = i == game.selected();
+		dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 120), 4.0f);
+		dl->AddRect(a, b, chosen ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 255, 255, 60), 4.0f, 0,
+				chosen ? 3.0f : 1.0f);
+		const gc::Stack &s = game.inventory().slots[i];
+		if (s.empty()) {
+			continue;
+		}
+		float uv[4];
+		table.atlas.tile_uv(table.icon(s.id), uv);
+		dl->AddImage(atlas, ImVec2(a.x + 8, a.y + 8), ImVec2(b.x - 8, b.y - 8), ImVec2(uv[0], uv[1]), ImVec2(uv[2], uv[3]));
+		if (!game.creative() && s.count > 1) {
+			const std::string n = std::to_string(s.count);
+			const ImVec2 size = ImGui::CalcTextSize(n.c_str());
+			dl->AddText(ImVec2(b.x - size.x - 3, b.y - size.y - 1), IM_COL32(0, 0, 0, 255), n.c_str());
+			dl->AddText(ImVec2(b.x - size.x - 4, b.y - size.y - 2), IM_COL32(255, 255, 255, 255), n.c_str());
+		}
+	}
+	// The held item's name above the hotbar.
+	const gc::Stack &held = game.inventory().slots[game.selected()];
+	if (!held.empty()) {
+		const std::string name = gc::display_name(rules.content(), held.id);
+		const ImVec2 size = ImGui::CalcTextSize(name.c_str());
+		dl->AddText(ImVec2(c.x - size.x / 2, y0 - size.y - 6), IM_COL32(255, 255, 255, 230), name.c_str());
+	}
+}
 
 gc::PlayerInput read_input(const gc::Window &window) {
 	gc::PlayerInput in;
@@ -178,7 +255,7 @@ gc::PlayerInput read_input(const gc::Window &window) {
 }
 
 void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::World &world,
-		const gc::ChunkRenderer &chunks, const gc::WorldSave *save, uint32_t seed, const std::string &block,
+		const gc::ChunkRenderer &chunks, const gc::WorldSave *save, uint32_t seed, const gc::Game &game,
 		const gc::Mods &mods, bool captured) {
 	const ImGuiIO &io = ImGui::GetIO();
 	ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
@@ -199,7 +276,8 @@ void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::W
 		} else {
 			ImGui::TextDisabled("World not saved (use --world=NAME)");
 		}
-		ImGui::Text("Block: %s  (wheel to change, middle click to pick)", block.c_str());
+		ImGui::Text("%s  -  %d items lying around", game.creative() ? "Creative" : "Survival",
+				int(game.drops().drops().size()));
 		std::string names;
 		for (const gc::ModInfo &m : mods.loaded()) {
 			names += (names.empty() ? "" : ", ") + m.id + " " + m.version;
@@ -209,17 +287,11 @@ void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::W
 			ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "Mod %s: %s", id.c_str(), why.c_str());
 		}
 		if (!captured) {
-			ImGui::TextDisabled("Click to play. W A S D, Space, Shift, Ctrl, F to fly; left click breaks, right click places");
+			ImGui::TextDisabled("Click to play. W A S D, Space, Shift, Ctrl, F to fly. Left click breaks (hold it in");
+			ImGui::TextDisabled("survival), right click places, 1-9 or the wheel choose a hotbar slot, middle click picks (creative)");
 		}
 	}
 	ImGui::End();
-	if (captured) { // crosshair
-		ImDrawList *dl = ImGui::GetForegroundDrawList();
-		const ImVec2 c(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
-		const ImU32 col = IM_COL32(255, 255, 255, 200);
-		dl->AddLine(ImVec2(c.x - 8, c.y), ImVec2(c.x + 9, c.y), col, 2.0f);
-		dl->AddLine(ImVec2(c.x, c.y - 8), ImVec2(c.x, c.y + 9), col, 2.0f);
-	}
 }
 
 gc::Json player_state(const gc::Player &p) {
@@ -277,7 +349,7 @@ int main(int argc, char **argv) {
 	int generator_version = options.generator;
 	if (!dir.empty()) {
 		save.emplace();
-		if (std::string e = save->open(dir, options.seed); !e.empty()) {
+		if (std::string e = save->open(dir, options.seed, options.mode); !e.empty()) {
 			gc::log("Can't open the world in %s: %s", utf8_string(dir).c_str(), e.c_str());
 			return 1;
 		}
@@ -345,9 +417,20 @@ int main(int argc, char **argv) {
 	float previous_position[3];
 	std::copy(player.position, player.position + 3, previous_position);
 	Controls controls;
-	if (const auto &list = rules.placeable(); !list.empty()) {
-		auto it = std::find(list.begin(), list.end(), "core:stone");
-		controls.selected = it != list.end() ? int(it - list.begin()) : 0;
+	const bool creative = (save ? save->mode() : options.mode) == "creative";
+	gc::Game game(content, table, rules, *world, mods, player, creative);
+	if (save) {
+		game.load_player(save->player());
+	} else {
+		game.start_new_player();
+	}
+	for (size_t i = 0; i < options.drop.size(); i++) { // (for trying things out)
+		float look[3];
+		player.look(look);
+		const float side = (float(i) - float(options.drop.size() - 1) * 0.5f) * 0.6f;
+		const float at[3] = {player.position[0] + look[0] * 4.0f - look[2] * side, player.position[1] + 1.0f,
+				player.position[2] + look[2] * 4.0f + look[0] * side}; // (beyond the magnet radius)
+		game.drop_item(options.drop[i], 1, at);
 	}
 
 	gc::Camera camera;
@@ -360,7 +443,9 @@ int main(int argc, char **argv) {
 	auto save_all = [&] {
 		if (save) {
 			const int chunks_saved = world->save_modified();
-			save->save(player_state(player));
+			gc::Json state = player_state(player);
+			state.update(game.save_player());
+			save->save(state);
 			gc::log("Saved the world (%d chunks)", chunks_saved);
 		}
 	};
@@ -414,45 +499,26 @@ int main(int argc, char **argv) {
 		while (accumulator >= gc::Player::STEP) {
 			std::copy(player.position, player.position + 3, previous_position);
 			player.step(input, *world, rules);
+			game.physics_step(gc::Player::STEP);
 			accumulator -= gc::Player::STEP;
 		}
 		const float alpha = accumulator / gc::Player::STEP;
 
-		// Breaking, placing and picking.
-		const auto &placeable = rules.placeable();
-		if (!placeable.empty() && wheel != 0 && captured) {
-			const int n = int(placeable.size());
-			controls.selected = ((controls.selected - int(wheel)) % n + n) % n;
-		}
-		const std::string block = placeable.empty() ? "" : placeable[controls.selected];
-		std::vector<gc::BlockChange> changes;
-		if (captured && left) {
-			player.break_target(*world, rules, &changes);
-		}
-		if (captured && right) {
-			player.use_or_place(*world, rules, block, window.key_down(VK_SHIFT), &changes);
-		}
-		for (const gc::BlockChange &c : changes) {
-			if (c.placed) {
-				mods.block_placed(c.pos, c.id);
-			} else {
-				mods.block_broken(c.pos, c.id);
-			}
-		}
+		// Hotbar, mining, breaking, placing and picking.
+		gc::GameInput gin;
+		gin.captured = captured;
+		gin.break_held = captured && window.key_down(VK_LBUTTON);
+		gin.break_pressed = captured && left;
+		gin.use_pressed = captured && right;
+		gin.pick_pressed = captured && middle;
+		gin.sneak = window.key_down(VK_SHIFT);
+		gin.wheel = -int(wheel); // (rolled towards you: the next slot)
+		gin.number_key = number_pressed(window, controls);
+		game.update(dt, gin);
 		tick_accumulator += dt;
 		while (tick_accumulator >= TICK) {
 			mods.tick(TICK);
 			tick_accumulator -= TICK;
-		}
-		if (captured && middle) {
-			const gc::RayHit hit = player.target(*world);
-			if (hit.hit) {
-				const std::string base = rules.base_of(rules.id_of(hit.block));
-				auto it = std::find(placeable.begin(), placeable.end(), base);
-				if (it != placeable.end()) {
-					controls.selected = int(it - placeable.begin());
-				}
-			}
 		}
 
 		camera.position = {previous_position[0] + (player.position[0] - previous_position[0]) * alpha,
@@ -477,12 +543,18 @@ int main(int argc, char **argv) {
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 		draw_ui(renderer, player, *world, chunks, save ? &*save : nullptr, seed,
-				placeable.empty() ? "" : placeable[controls.selected], mods, window.mouse_captured());
+				game, mods, window.mouse_captured());
+		draw_hud(game, table, chunks, rules, window.mouse_captured());
 		ImGui::Render();
 
 		sky.time = std::chrono::duration<float>(now - start).count();
 		renderer.begin_frame(clear);
 		chunks.draw(renderer.context(), camera, float(renderer.width()) / float(std::max(1, renderer.height())), sky);
+		{
+			std::vector<gc::WorldVertex> drop_mesh;
+			game.drops().build_mesh(*world, table, content, sky.time, drop_mesh);
+			chunks.draw_triangles(renderer.context(), drop_mesh);
+		}
 		if (const gc::RayHit hit = player.target(*world); hit.hit) {
 			std::vector<gocube::Box> boxes;
 			world->block_boxes(hit.position.x, hit.position.y, hit.position.z, hit.block, false, boxes);

@@ -244,6 +244,28 @@ bool parse_html_color(std::string s, uint8_t out[4]) {
 
 } // namespace
 
+std::string display_name(const Content &content, const std::string &id) {
+	for (const auto *table : {&content.items, &content.blocks}) {
+		auto it = table->find(id);
+		if (it != table->end() && it->second.contains("name") && it->second["name"].is_string()) {
+			return it->second["name"].get<std::string>();
+		}
+	}
+	const size_t colon = id.find(':');
+	std::string out;
+	bool word_start = true;
+	for (char c : id.substr(colon == std::string::npos ? 0 : colon + 1)) {
+		if (c == '_') {
+			out += ' ';
+			word_start = true;
+		} else {
+			out += word_start && c >= 'a' && c <= 'z' ? char(c - 'a' + 'A') : c;
+			word_start = false;
+		}
+	}
+	return out;
+}
+
 uint32_t godot_string_hash(const std::string &s) {
 	uint32_t h = 5381;
 	for (unsigned char c : s) { // ids are ASCII: bytes are code points
@@ -547,6 +569,33 @@ struct AtlasBuilder {
 		return out;
 	}
 
+	// A tile from an image of the mod (key: its path), or -1 if it can't be read.
+	int image_tile(const Json &def, const std::string &rel) {
+		const std::filesystem::path full = content.asset_path(def, rel);
+		const std::string key = full.string();
+		if (auto it = index.find(key); it != index.end()) {
+			return it->second;
+		}
+		Pixels px;
+		if (full.empty() || !load_png(full, px)) {
+			fprintf(stderr, "Image not found: %s (%s)\n", rel.c_str(), str(def, "id").c_str());
+			return -1;
+		}
+		return add(key, std::move(px));
+	}
+
+	// A flat tile of the definition's "color" (else `fallback`).
+	int color_tile(const Json &def, const char *fallback) {
+		uint8_t c[4] = {255, 0, 255, 255};
+		parse_html_color(def.contains("color") ? str(def, "color") : fallback, c);
+		char key[16];
+		snprintf(key, sizeof(key), "#%02x%02x%02x%02x", c[0], c[1], c[2], c[3]);
+		if (auto it = index.find(key); it != index.end()) {
+			return it->second;
+		}
+		return add(key, flat(c));
+	}
+
 	// One face's tile: its texture ("side"/"top"/"bottom", else "all"), else the
 	// block's colour, else magenta.
 	int face_tile(const Json &def, const char *face, int turns) {
@@ -675,7 +724,23 @@ BlockTable build_block_table(const Content &content) {
 		if (!has_collision && b.solid) {
 			b.collision.push_back({{0, 0, 0}, {1, 1, 1}});
 		}
+		// Its icon: an "icon" image, else its side face.
+		if (def.contains("icon") && def["icon"].is_string()) {
+			if (const int t = atlas.image_tile(def, def["icon"].get<std::string>()); t >= 0) {
+				table.icons[id] = t;
+			}
+		}
+		if (!table.icons.count(id)) {
+			table.icons[id] = b.tiles[0] ? b.tiles[0] : atlas.color_tile(def, "#ff00ff");
+		}
 		table.blocks.push_back(std::move(b));
+	}
+	for (const auto &[id, def] : content.items) {
+		int t = -1;
+		if (def.contains("texture") && def["texture"].is_string()) {
+			t = atlas.image_tile(def, def["texture"].get<std::string>());
+		}
+		table.icons[id] = t >= 0 ? t : atlas.color_tile(def, "#b0a080");
 	}
 	atlas.build();
 	return table;
