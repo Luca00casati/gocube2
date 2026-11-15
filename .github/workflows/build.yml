@@ -1,0 +1,32 @@
+name: build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up the MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
+          cmake --preset windows
+
+      - name: Build
+        run: |
+          cmake --build --preset debug
+          cmake --build --preset release
+
+      # The smoke test runs on WARP (no GPU on the runner); the runner has no
+      # Graphics Tools, so the debug layer is skipped there.
+      - name: Test
+        run: |
+          ctest --preset debug
+          ctest --preset release
