@@ -4,11 +4,11 @@ Voxel sandbox for Windows, in C++20 with Direct3D 11, gameplay and mods in Lua.
 A rewrite of the Godot version of GoCube; the plan is in the
 [GoCube Native Rewrite Plan](https://claude.ai/artifact/CMdng1jnMGWsAb7X84FHoy).
 
-Status: milestone 4. Walk, fly, break and place blocks in a world that is saved in
-the Godot version's format: worlds it saved open here, and worlds saved here open
-there. Generation is exactly the Godot version's. Content and code come from mods,
-in sandboxed Lua; the base game is one (`mods/core`). (Survival, inventories and
-menus come with the next milestone; editing is creative-style for now.)
+Status: milestone 5. Survival: mining, drops, crafting, chests and furnaces,
+health, the day and night, growing plants; creative; a title menu and pause menu.
+Worlds are saved in the Godot version's format (worlds it saved open here, and the
+other way round) and generated exactly as it does. The rules of the game are the
+base game's Lua (`mods/core`), sandboxed like every mod.
 
 ## Requirements
 - Windows 10 or 11, x64
@@ -35,10 +35,12 @@ The game is `build\Debug\gocube.exe` (`build\Release\gocube.exe`); it finds `mod
 in its folder or a folder above it.
 
 ## Playing
+Run `gocube` for the title menu: your worlds (play, delete to the Recycle Bin),
+worlds the Godot version saved (in its own folder), and a new world (name, seed,
+survival or creative). Or straight into a world:
+
     gocube --world=MyWorld                # %APPDATA%\GoCube\worlds\MyWorld (made if new)
     gocube --world-dir="%APPDATA%\Godot\app_userdata\GoCube\worlds\MyWorld"   # a Godot version world
-
-Click in the window to play (Esc lets the mouse go).
 
 | Key | |
 | --- | --- |
@@ -47,21 +49,34 @@ Click in the window to play (Esc lets the mouse go).
 | Shift | Sneak (fly down; landing ends flight) |
 | Ctrl | Sprint |
 | F | Fly |
-| Left click | Break the block aimed at (a door or bed goes whole) |
-| Right click | Place the selected block (or open and close a door; sneak to place against it) |
-| Wheel, middle click | Choose the block to place; pick the one aimed at |
+| Left button | Break the block aimed at (hold it in survival; doors and beds go whole) |
+| Right button | Place the held block; open a chest or furnace, use a door or bed, eat (sneak to place against them) |
+| 1-9, wheel | Choose a hotbar slot |
+| Middle button | Creative: take the block aimed at |
+| E | Inventory and crafting (creative: every block and item) |
+| Esc | Pause menu (save and quit) |
 
-The world is saved every minute and when the game closes: edited chunks to
-`chunks\`, the player to `world.json`.
+Survival as in the Godot version: mining takes time (faster with the right tool,
+some blocks need one), broken blocks drop items, crafting from the inventory,
+chests and furnaces (smelting with fuel), health (falls, lava, drowning; healing
+with time and food), death and respawn at your bed or the world spawn, a day that
+lasts a real day by default and a bed to sleep through the night, falling sand,
+growing crops and saplings, decaying leaves. The world is saved every minute and
+when you quit.
 
 | Option | What it does |
 | --- | --- |
+| `--mode=survival\|creative` | Mode for a new world (default survival) |
 | `--world=NAME` | Play the world NAME in `%APPDATA%\GoCube\worlds` (a new one is made if needed) |
 | `--world-dir=DIR` | Play the world in this folder (for example one the Godot version saved) |
 | `--seed=N` | Seed for a new world (default 777) |
 | `--generator=N` | World generator version for an unsaved world: 1 (before biomes), 2, 3 (default, the newest) |
 | `--view=N` | View distance in blocks (default 128) |
 | `--pos=X,Y,Z`, `--look=YAW,PITCH` | Start flying at this position (feet), and view direction in degrees |
+| `--time=0..1` | Start at this time of day (0.5: noon) |
+| `--drop=ID,...` | Drop these items in front of the player (trying things out) |
+| `--screen=inventory` | Open the inventory at the start (screenshots) |
+| `--menu` | The title menu even with testing options (`--frames`, `--screenshot` apply to it) |
 | `--warp` | Render on WARP, Windows' software adapter (no GPU needed) |
 | `--hidden` | Don't show the window (tests) |
 | `--frames=N` | Quit after N frames; exit code 1 if the debug layer reported errors or warnings |
@@ -73,7 +88,10 @@ The world is saved every minute and when the game closes: edited chunks to
 A mod is a folder with `mod.json`, optional JSON content files and an optional
 `main.lua`; the game loads `mods/` next to it (the base game first) and
 `%APPDATA%/GoCube/mods`. `src/mods/mods.h` describes the format and the Lua API
-(`registry`, `events`, `world`); `mods/core/main.lua` is a small example.
+(`registry`, `events`, `world`, `game`). The base game is the example: its
+`main.lua` and `rules/` set the game's rules (mining time, drops, crafting,
+smelting, fuel, fall damage, food, plants) with `game.set_rule`; a mod can replace
+one, or wrap it (`game.rule(name)` gives the one before).
 
 Mods are sandboxed: no files, OS, network or debug access, no bytecode, no
 `load`; a mod's code is stopped when it runs too long or asks for too much

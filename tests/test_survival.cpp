@@ -640,3 +640,87 @@ TEST_CASE("a sapling grows into a tree: the generator's shape, where there's roo
 	CHECK(p.block(1, 42, 1) == "core:log");
 	CHECK_FALSE(p.game->grow_tree({1, 41, 1}, "core:nonexistent"));
 }
+
+TEST_CASE("milestone 5: from a new survival world to a crafted tool and a container") {
+	Play p; // a new survival player: just the starting torch
+	CHECK(p.game->inventory().count_of("core:torch") == 1);
+	// A tree trunk (4 logs) two blocks ahead, on a stone floor.
+	const int h = 40;
+	for (int x = -1; x <= 1; x++) {
+		for (int z = -3; z <= 1; z++) {
+			REQUIRE(p.world->set_block({x, h, z}, p.id("core:stone")));
+			for (int y = h + 1; y <= h + 6; y++) {
+				REQUIRE(p.world->set_block({x, y, z}, 0));
+			}
+		}
+	}
+	for (int y = h + 1; y <= h + 4; y++) {
+		REQUIRE(p.world->set_block({0, y, -2}, p.id("core:log")));
+	}
+	p.player.position[0] = 0.5f;
+	p.player.position[1] = float(h + 1);
+	p.player.position[2] = 0.5f;
+	p.player.yaw = 0;
+
+	// Mine the logs by holding the button (hand: 2.0 hardness x 0.75 = 1.5 s each),
+	// standing still; the drops fall and come to the player.
+	gc::GameInput hold;
+	hold.captured = true;
+	hold.break_held = true;
+	for (int y = h + 1; y <= h + 4; y++) {
+		p.player.pitch = std::atan2(float(y) + 0.5f - (float(h + 1) + gc::Player::EYE_HEIGHT), 1.5f);
+		for (int i = 0; i < 200 && p.block(0, y, -2) == "core:log"; i++) {
+			p.game->update(1.0f / 60.0f, hold);
+			p.game->physics_step(1.0f / 60.0f);
+		}
+		CHECK(p.block(0, y, -2) == "core:air");
+	}
+	for (int i = 0; i < 180; i++) { // let the last ones arrive
+		p.game->physics_step(1.0f / 60.0f);
+	}
+	gc::Game &g = *p.game;
+	auto &inv = g.inventory();
+	REQUIRE(inv.count_of("core:log") == 4);
+
+	// Craft: 16 planks, 4 sticks, a wooden pickaxe, a chest.
+	const gc::Recipe *planks = find_recipe(g, "core:log_to_planks");
+	const gc::Recipe *sticks = find_recipe(g, "core:planks_to_sticks");
+	const gc::Recipe *pickaxe = find_recipe(g, "core:wood_pickaxe");
+	const gc::Recipe *chest = find_recipe(g, "core:chest");
+	REQUIRE((planks && sticks && pickaxe && chest));
+	for (int i = 0; i < 4; i++) {
+		REQUIRE(g.craft(*planks));
+	}
+	REQUIRE(g.craft(*sticks));
+	REQUIRE(g.craft(*pickaxe));
+	REQUIRE(g.craft(*chest));
+	CHECK(inv.count_of("core:wood_pickaxe") == 1);
+	CHECK(inv.count_of("core:chest") == 1);
+
+	// Put the chest in the hand and place it on the floor ahead, then open it.
+	int slot = -1;
+	for (int i = 0; i < gc::Inventory::SIZE; i++) {
+		if (inv.slots[i].id == "core:chest") {
+			slot = i;
+		}
+	}
+	REQUIRE(slot >= 0);
+	std::swap(inv.slots[slot], inv.slots[2]);
+	gc::GameInput in;
+	in.captured = true;
+	in.number_key = 3;
+	g.update(0.016f, in);
+	CHECK(g.selected_item() == "core:chest");
+	p.player.pitch = -std::atan2(gc::Player::EYE_HEIGHT, 2.0f); // the floor two blocks ahead
+	in.number_key = 0;
+	in.use_pressed = true;
+	g.update(0.016f, in);
+	CHECK(p.block(0, h + 1, -2) == "core:chest");
+	CHECK(inv.count_of("core:chest") == 0);
+	REQUIRE(g.block_entities().at({0, h + 1, -2}));
+	p.player.pitch = -0.42f; // at the chest
+	g.update(0.016f, in);
+	const auto opened = g.take_opened();
+	REQUIRE(opened);
+	CHECK(*opened == BlockPos{0, h + 1, -2});
+}

@@ -1,6 +1,8 @@
-// GoCube (milestone 4): walk, fly, break and place blocks in a world that is
-// saved in the same format as the Godot version; content and code come from
-// mods (Lua, sandboxed), the base game ("core") first.
+// GoCube: a voxel sandbox. The title menu lists the worlds (play, create,
+// delete); a world is saved in the Godot version's format; content and code
+// come from mods (Lua, sandboxed), the base game ("core") first. Esc pauses.
+// Started with --world, --world-dir or a testing option, it goes straight
+// into that world.
 //
 // Controls: click to look around with the mouse (Esc lets go). W A S D walk,
 // Space jumps (swims up, flies up), Shift sneaks (flies down), Ctrl sprints,
@@ -50,6 +52,7 @@
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
 
+#include <shellapi.h>
 #include <shlobj.h>
 
 #include <algorithm>
@@ -58,9 +61,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <optional>
+#include <random>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -82,6 +88,7 @@ struct Options {
 	std::vector<std::string> drop; // items dropped in front of the player at the start
 	std::string screen;            // a screen open at the start ("inventory")
 	double time = -1;              // time of day to start at (0..1; -1: the world's)
+	bool menu = false;             // the title menu even with testing options (--frames, --screenshot: of it)
 };
 
 std::filesystem::path utf8_path(const char *s) {
@@ -130,6 +137,8 @@ Options parse(int argc, char **argv) {
 					o.drop.push_back(list.substr(from, to - from));
 				}
 			}
+		} else if (!strcmp(a, "--menu")) {
+			o.menu = true;
 		} else if ((v = value("--time="))) {
 			o.time = strtod(v, nullptr);
 		} else if ((v = value("--screen="))) {
@@ -195,7 +204,7 @@ struct Controls {
 	}
 };
 
-enum class Screen { NONE, INVENTORY, CONTAINER };
+enum class Screen { NONE, INVENTORY, CONTAINER, PAUSE };
 
 // Number keys 1..9 pressed this frame (0: none).
 int number_pressed(const gc::Window &window, Controls &controls) {
@@ -423,15 +432,255 @@ void restore_player(gc::Player &p, const gc::Json &s) {
 
 } // namespace
 
-int main(int argc, char **argv) {
-	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-	const Options options = parse(argc, argv);
+enum class End { QUIT, MENU, FAILED };
 
+// What to play: a world folder (empty: not saved), and for a new one its seed and mode.
+struct WorldChoice {
+	std::filesystem::path dir;
+	uint32_t seed = 777;
+	std::string mode = "survival";
+};
+
+enum class PauseChoice { NONE, RESUME, QUIT };
+
+// The pause menu (single player: the world waits behind it).
+PauseChoice pause_menu(bool saved, bool from_menu) {
+	const ImGuiIO &io = ImGui::GetIO();
+	ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 120));
+	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+	ImGui::Begin("Paused", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
+	PauseChoice choice = PauseChoice::NONE;
+	if (ImGui::Button("Resume", ImVec2(260, 36))) {
+		choice = PauseChoice::RESUME;
+	}
+	const char *quit = from_menu ? (saved ? "Save and quit to title" : "Quit to title") : (saved ? "Save and quit" : "Quit");
+	if (ImGui::Button(quit, ImVec2(260, 36))) {
+		choice = PauseChoice::QUIT;
+	}
+	ImGui::TextDisabled("Esc to resume");
+	ImGui::End();
+	return choice;
+}
+
+// A world in the title menu's list.
+struct WorldEntry {
+	std::filesystem::path dir;
+	std::string name, mode, saved, seed;
+	bool godot = false; // saved by the Godot version (its user data folder)
+};
+
+struct TitleMenu {
+	bool refresh = true;
+	std::vector<WorldEntry> worlds;
+	int selected = -1;
+	bool confirm_delete = false;
+	char new_name[64] = "New World";
+	char new_seed[24] = "";
+	int new_mode = 0; // 0 survival, 1 creative
+};
+
+std::vector<WorldEntry> find_worlds() {
+	std::vector<WorldEntry> out;
+	PWSTR appdata = nullptr;
+	std::filesystem::path godot;
+	if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appdata))) {
+		godot = std::filesystem::path(appdata) / "Godot" / "app_userdata" / "GoCube" / "worlds";
+	}
+	CoTaskMemFree(appdata);
+	for (const auto &[root, from_godot] : {std::pair{user_dir() / "worlds", false}, std::pair{godot, true}}) {
+		std::error_code ec;
+		std::vector<WorldEntry> found;
+		for (const auto &e : std::filesystem::directory_iterator(root, ec)) {
+			const std::filesystem::path meta_path = e.path() / "world.json";
+			if (!e.is_directory(ec) || !std::filesystem::exists(meta_path, ec)) {
+				continue;
+			}
+			std::ifstream f(meta_path, std::ios::binary);
+			const gc::Json meta = gc::Json::parse(f, nullptr, false);
+			WorldEntry w;
+			w.dir = e.path();
+			w.name = utf8_string(e.path().filename());
+			w.godot = from_godot;
+			if (meta.is_object()) {
+				w.mode = meta.value("mode", "creative");
+				w.saved = meta.value("saved", meta.value("created", ""));
+				if (meta.contains("seed") && meta["seed"].is_number()) {
+					w.seed = std::to_string(int64_t(meta["seed"].get<double>()));
+				}
+			} else {
+				w.mode = "(damaged)";
+			}
+			found.push_back(w);
+		}
+		std::sort(found.begin(), found.end(), [](const WorldEntry &a, const WorldEntry &b) { return a.saved > b.saved; });
+		out.insert(out.end(), found.begin(), found.end());
+	}
+	return out;
+}
+
+// Moves a folder to the Recycle Bin.
+bool to_recycle_bin(const std::filesystem::path &dir) {
+	std::wstring from = dir.wstring();
+	from.push_back(L'\0'); // (a double-null-terminated list)
+	SHFILEOPSTRUCTW op = {};
+	op.wFunc = FO_DELETE;
+	op.pFrom = from.c_str();
+	op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI;
+	return SHFileOperationW(&op) == 0 && !op.fAnyOperationsAborted;
+}
+
+// A folder name for a new world, or why it can't be one.
+std::string name_problem(const std::string &name) {
+	if (name.empty() || name.find_first_not_of(' ') == std::string::npos) {
+		return "Give the world a name.";
+	}
+	if (name.find_first_of("<>:\"/\\|?*") != std::string::npos || name.back() == '.' || name.back() == ' ') {
+		return "A world's name can't have < > : \" / \\ | ? * or end with a dot or space.";
+	}
+	std::error_code ec;
+	if (std::filesystem::exists(user_dir() / "worlds" / utf8_path(name.c_str()), ec)) {
+		return "There's already a world with that name.";
+	}
+	return "";
+}
+
+// One frame of the title menu at a time, until a world is chosen (true) or
+// the window closes (false).
+bool title_menu(const Options &options, gc::Window &window, gc::Renderer &renderer, TitleMenu &menu,
+		std::string &problem, std::optional<WorldChoice> &choice) {
+	long frame = 0;
+	while (window.pump()) {
+		if (window.take_resized()) {
+			renderer.resize(window.width(), window.height());
+		}
+		if (window.minimized()) {
+			Sleep(16);
+			continue;
+		}
+		if (menu.refresh) {
+			menu.worlds = find_worlds();
+			menu.selected = menu.worlds.empty() ? -1 : 0;
+			menu.refresh = false;
+		}
+		ImGui_ImplDX11_NewFrame();
+		ImGui_ImplWin32_NewFrame();
+		ImGui::NewFrame();
+		const ImGuiIO &io = ImGui::GetIO();
+		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowSize(ImVec2(std::min(760.0f, io.DisplaySize.x - 40), std::min(560.0f, io.DisplaySize.y - 40)));
+		ImGui::Begin("GoCube", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+				ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
+		ImGui::SetWindowFontScale(2.0f);
+		ImGui::TextUnformatted("GoCube");
+		ImGui::SetWindowFontScale(1.0f);
+		ImGui::TextDisabled("%s", GOCUBE_VERSION);
+		ImGui::Separator();
+
+		ImGui::TextUnformatted("Worlds");
+		ImGui::BeginChild("worlds", ImVec2(0, 250), ImGuiChildFlags_Borders);
+		bool any_godot = false;
+		for (int i = 0; i < int(menu.worlds.size()); i++) {
+			const WorldEntry &w = menu.worlds[i];
+			if (w.godot && !any_godot) {
+				any_godot = true;
+				ImGui::Separator();
+				ImGui::TextDisabled("Saved by the Godot version (played and saved in its folder)");
+			}
+			ImGui::PushID(i);
+			const std::string label = w.name + "##world";
+			if (ImGui::Selectable(label.c_str(), menu.selected == i, ImGuiSelectableFlags_AllowDoubleClick)) {
+				menu.selected = i;
+				menu.confirm_delete = false;
+				if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+					choice = WorldChoice{w.dir, 0, w.mode};
+				}
+			}
+			ImGui::SameLine(300);
+			ImGui::TextDisabled("%s  -  seed %s  -  %s", w.mode.c_str(), w.seed.c_str(), w.saved.c_str());
+			ImGui::PopID();
+		}
+		if (menu.worlds.empty()) {
+			ImGui::TextDisabled("No worlds yet: create one below.");
+		}
+		ImGui::EndChild();
+		const bool has = menu.selected >= 0 && menu.selected < int(menu.worlds.size());
+		ImGui::BeginDisabled(!has);
+		if (ImGui::Button("Play", ImVec2(120, 32)) && has) {
+			choice = WorldChoice{menu.worlds[menu.selected].dir, 0, menu.worlds[menu.selected].mode};
+		}
+		ImGui::SameLine();
+		if (!menu.confirm_delete) {
+			if (ImGui::Button("Delete...", ImVec2(120, 32))) {
+				menu.confirm_delete = true;
+			}
+		} else if (has) {
+			ImGui::TextColored(ImVec4(1, 0.6f, 0.4f, 1), "Move \"%s\" to the Recycle Bin?", menu.worlds[menu.selected].name.c_str());
+			ImGui::SameLine();
+			if (ImGui::Button("Delete")) {
+				if (!to_recycle_bin(menu.worlds[menu.selected].dir)) {
+					problem = "The world couldn't be moved to the Recycle Bin.";
+				}
+				menu.confirm_delete = false;
+				menu.refresh = true;
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Keep it")) {
+				menu.confirm_delete = false;
+			}
+		}
+		ImGui::EndDisabled();
+
+		ImGui::Dummy(ImVec2(0, 8));
+		ImGui::Separator();
+		ImGui::TextUnformatted("New world");
+		ImGui::SetNextItemWidth(260);
+		ImGui::InputText("Name", menu.new_name, sizeof(menu.new_name));
+		ImGui::SetNextItemWidth(260);
+		ImGui::InputTextWithHint("Seed", "random", menu.new_seed, sizeof(menu.new_seed), ImGuiInputTextFlags_CharsDecimal);
+		ImGui::SetNextItemWidth(260);
+		ImGui::Combo("Mode", &menu.new_mode, "Survival\0Creative\0");
+		const std::string why = name_problem(menu.new_name);
+		ImGui::BeginDisabled(!why.empty());
+		if (ImGui::Button("Create and play", ImVec2(200, 32)) && why.empty()) {
+			WorldChoice c;
+			c.dir = user_dir() / "worlds" / utf8_path(menu.new_name);
+			c.seed = menu.new_seed[0] ? uint32_t(strtoull(menu.new_seed, nullptr, 10)) : uint32_t(std::random_device{}());
+			c.mode = menu.new_mode == 1 ? "creative" : "survival";
+			choice = c;
+		}
+		ImGui::EndDisabled();
+		if (!why.empty()) {
+			ImGui::SameLine();
+			ImGui::TextDisabled("%s", why.c_str());
+		}
+		if (!problem.empty()) {
+			ImGui::TextColored(ImVec4(1, 0.6f, 0.4f, 1), "%s", problem.c_str());
+		}
+		ImGui::End();
+		ImGui::Render();
+		const float clear[4] = {0.18f, 0.32f, 0.62f, 1.0f};
+		renderer.begin_frame(clear);
+		const bool last_frame = options.frames > 0 && ++frame >= options.frames; // (testing)
+		renderer.end_frame(last_frame && !options.screenshot.empty() ? options.screenshot.c_str() : nullptr);
+		if (choice) {
+			return true;
+		}
+		if (last_frame) {
+			return false;
+		}
+	}
+	return false;
+}
+
+// Plays a world until the player quits (to the title menu, or the game).
+End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::Window &window,
+		gc::Renderer &renderer, std::string &problem) {
 	// Content: the mods (the base game first).
 	const std::filesystem::path builtin_mods = find_mods();
 	if (builtin_mods.empty()) {
 		gc::log("Couldn't find the mods folder (with the base game, mods\\core)");
-		return 1;
+		return End::FAILED;
 	}
 	gc::Content content;
 	gc::Mods mods(content);
@@ -439,22 +688,20 @@ int main(int argc, char **argv) {
 	if (mods.loaded().empty() || mods.loaded().front().id != "core") {
 		auto it = mods.problems().find("core");
 		gc::log("Couldn't load the base game: %s", it != mods.problems().end() ? it->second.c_str() : "it's missing");
-		return 1;
+		return End::FAILED;
 	}
 
 	// The world: its folder decides the seed, generator and block ids.
 	std::optional<gc::WorldSave> save;
-	std::filesystem::path dir = options.world_dir;
-	if (dir.empty() && !options.world_name.empty()) {
-		dir = user_dir() / "worlds" / utf8_path(options.world_name.c_str());
-	}
-	uint32_t seed = options.seed;
+	const std::filesystem::path &dir = choice.dir;
+	uint32_t seed = choice.seed;
 	int generator_version = options.generator;
 	if (!dir.empty()) {
 		save.emplace();
-		if (std::string e = save->open(dir, options.seed, options.mode); !e.empty()) {
+		if (std::string e = save->open(dir, choice.seed, choice.mode); !e.empty()) {
 			gc::log("Can't open the world in %s: %s", utf8_string(dir).c_str(), e.c_str());
-			return 1;
+			problem = e;
+			return End::FAILED;
 		}
 		seed = save->seed();
 		generator_version = save->generator();
@@ -471,31 +718,10 @@ int main(int argc, char **argv) {
 	gc::configure_generator(generator, content, seed, generator_version);
 	gc::log("%zu blocks, %zu atlas tiles", table.blocks.size(), table.atlas.tiles.size());
 
-	gc::Window window;
-	if (!window.create(L"GoCube", 1280, 720, !options.hidden)) {
-		gc::log("Couldn't create the window");
-		return 1;
-	}
-	gc::Renderer renderer;
-	if (!renderer.init(window.hwnd(), window.width(), window.height(), options.renderer)) {
-		gc::log("Couldn't start Direct3D 11");
-		return 1;
-	}
 	gc::ChunkRenderer chunks;
 	if (!chunks.init(renderer.device(), table.atlas)) {
 		gc::log("Couldn't set up the terrain renderer");
-		return 1;
-	}
-
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGui::GetIO().IniFilename = nullptr; // no imgui.ini next to the game
-	ImGui::StyleColorsDark();
-	ImGui::GetStyle().DisabledAlpha = 0.35f; // (what can't be done now looks it)
-	ImGui_ImplWin32_Init(window.hwnd());
-	if (!renderer.init_imgui()) {
-		gc::log("Couldn't start Dear ImGui's Direct3D 11 backend");
-		return 1;
+		return End::FAILED;
 	}
 
 	auto world = std::make_unique<gc::World>(table.blocks, table.atlas.layout, generator,
@@ -523,7 +749,7 @@ int main(int argc, char **argv) {
 	Controls controls;
 	Screen screen = options.screen == "inventory" ? Screen::INVENTORY : Screen::NONE;
 	gc::BlockPos container; // (Screen::CONTAINER)
-	const bool creative = (save ? save->mode() : options.mode) == "creative";
+	const bool creative = (save ? save->mode() : choice.mode) == "creative";
 	gc::Game game(content, table, rules, *world, mods, player, creative);
 	game.set_generator(&generator);
 	if (save) {
@@ -587,8 +813,13 @@ int main(int argc, char **argv) {
 	double tick_accumulator = 0;
 	constexpr double TICK = 0.05; // mods' tick event: 20 a second
 	long frame = 0;
-	bool ok = true;
-	while (window.pump()) {
+	End end = End::QUIT;
+	bool quit_requested = false;
+	while (true) {
+		if (!window.pump()) {
+			end = End::QUIT;
+			break;
+		}
 		const auto now = clock::now();
 		const float dt = std::min(0.25f, std::chrono::duration<float>(now - last).count());
 		last = now;
@@ -618,12 +849,19 @@ int main(int argc, char **argv) {
 			if (key_e && window.mouse_captured()) {
 				screen = Screen::INVENTORY;
 				window.set_mouse_captured(false);
-			} else if (key_esc && window.mouse_captured()) {
+			} else if (key_esc && !game.dead()) {
+				screen = Screen::PAUSE;
 				window.set_mouse_captured(false);
+			}
+		} else if (screen == Screen::PAUSE) {
+			if (key_esc) {
+				screen = Screen::NONE;
+				window.set_mouse_captured(true);
 			}
 		} else if (key_e || key_esc) {
 			close_screen();
 		}
+		const bool paused = screen == Screen::PAUSE; // (single player: the world waits)
 		const bool captured = window.mouse_captured() && screen == Screen::NONE;
 		if (left && !window.mouse_captured() && screen == Screen::NONE && !ImGui::GetIO().WantCaptureMouse) {
 			window.set_mouse_captured(true); // (that click only captures)
@@ -647,7 +885,7 @@ int main(int argc, char **argv) {
 		}
 		controls.fly_key_was_down = fly_key;
 		const gc::PlayerInput input = read_input(window);
-		accumulator += dt;
+		accumulator += paused ? 0.0f : dt;
 		while (accumulator >= gc::Player::STEP) {
 			std::copy(player.position, player.position + 3, previous_position);
 			if (!game.frozen()) {
@@ -669,9 +907,11 @@ int main(int argc, char **argv) {
 		gin.sneak = window.key_down(VK_SHIFT);
 		gin.wheel = -int(wheel); // (rolled towards you: the next slot)
 		gin.number_key = number_pressed(window, controls);
-		game.update(dt, gin);
-		game.tick(dt);
-		day.update(dt);
+		if (!paused) {
+			game.update(dt, gin);
+			game.tick(dt);
+			day.update(dt);
+		}
 		// A bed used at night: sleep (the screen fades out), then it's morning.
 		if (game.take_bed_used()) {
 			if (day.day_amount() > 0.3f) {
@@ -692,7 +932,7 @@ int main(int argc, char **argv) {
 			screen = Screen::CONTAINER;
 			window.set_mouse_captured(false);
 		}
-		tick_accumulator += dt;
+		tick_accumulator += paused ? 0.0 : dt;
 		while (tick_accumulator >= TICK) {
 			mods.tick(TICK);
 			tick_accumulator -= TICK;
@@ -736,6 +976,19 @@ int main(int argc, char **argv) {
 			close_screen();
 		} else if (screen == Screen::CONTAINER && !gc::container_screen(game, container, icons)) {
 			close_screen();
+		} else if (screen == Screen::PAUSE) {
+			switch (pause_menu(save.has_value(), from_menu)) {
+				case PauseChoice::RESUME:
+					screen = Screen::NONE;
+					window.set_mouse_captured(true);
+					break;
+				case PauseChoice::QUIT:
+					end = from_menu ? End::MENU : End::QUIT;
+					quit_requested = true;
+					break;
+				default:
+					break;
+			}
 		}
 		draw_hud(game, table, chunks, rules, captured);
 		if (sleeping >= 0) {
@@ -775,18 +1028,81 @@ int main(int argc, char **argv) {
 		}
 		const bool last_frame = options.frames > 0 && counting && ++frame >= options.frames;
 		if (!renderer.end_frame(last_frame && !options.screenshot.empty() ? options.screenshot.c_str() : nullptr)) {
-			ok = false;
+			end = End::FAILED;
 			break;
 		}
-		if (last_frame) {
+		if (last_frame || quit_requested) {
 			break;
 		}
 	}
 
 	save_all();
 	mods.attach(nullptr, nullptr);
+	window.set_mouse_captured(false);
 	// (The world's workers stop when it goes, after the game, which uses it:
 	// both at the end of this scope, in that order.)
+	return end;
+}
+
+int main(int argc, char **argv) {
+	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+	const Options options = parse(argc, argv);
+
+	gc::Window window;
+	if (!window.create(L"GoCube", 1280, 720, !options.hidden)) {
+		gc::log("Couldn't create the window");
+		return 1;
+	}
+	gc::Renderer renderer;
+	if (!renderer.init(window.hwnd(), window.width(), window.height(), options.renderer)) {
+		gc::log("Couldn't start Direct3D 11");
+		return 1;
+	}
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGui::GetIO().IniFilename = nullptr; // no imgui.ini next to the game
+	ImGui::StyleColorsDark();
+	ImGui::GetStyle().DisabledAlpha = 0.35f; // (what can't be done now looks it)
+	ImGui_ImplWin32_Init(window.hwnd());
+	if (!renderer.init_imgui()) {
+		gc::log("Couldn't start Dear ImGui's Direct3D 11 backend");
+		return 1;
+	}
+
+	bool ok = true;
+	// Started for a world (or for testing): straight into it.
+	const bool direct = !options.menu && (!options.world_name.empty() || !options.world_dir.empty() || options.hidden ||
+			options.frames > 0 || options.has_pos);
+	if (direct) {
+		WorldChoice choice;
+		choice.dir = options.world_dir;
+		if (choice.dir.empty() && !options.world_name.empty()) {
+			choice.dir = user_dir() / "worlds" / utf8_path(options.world_name.c_str());
+		}
+		choice.seed = options.seed;
+		choice.mode = options.mode;
+		std::string problem;
+		ok = play(options, choice, false, window, renderer, problem) != End::FAILED;
+	} else {
+		TitleMenu menu;
+		std::string problem;
+		while (true) {
+			std::optional<WorldChoice> choice;
+			if (!title_menu(options, window, renderer, menu, problem, choice)) {
+				break; // the window closed
+			}
+			problem.clear();
+			const End end = play(options, *choice, true, window, renderer, problem);
+			if (end == End::QUIT) {
+				break;
+			}
+			if (end == End::FAILED && problem.empty()) {
+				problem = "That world couldn't be opened (see the log).";
+			}
+			menu.refresh = true;
+		}
+	}
+
 	const int messages = renderer.debug_messages();
 	renderer.shutdown();
 	ImGui_ImplWin32_Shutdown();

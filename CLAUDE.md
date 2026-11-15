@@ -39,6 +39,16 @@ mods (a library, a function) needs a check there. Lua runs single-threaded on th
 main thread; never call into it from a worker. Keep `mods/**` and `tests/data/**`
 byte for byte (`.gitattributes`): fingerprints and test expectations hash bytes.
 
+## Where the game's rules live
+Decisions (mining time, drops, recipes, smelting, fuel, fall damage, food, plants)
+are the base game's Lua in `mods/core/rules/`, set with `game.set_rule`; C++
+(`src/game/`) keeps the data (inventory, block entities, drops, health, time) and
+asks `Mods::rule`, with a plain built-in default if no mod answers. Ports of the
+Godot version's GDScript keep its numbers and behaviour; tests in
+`tests/test_survival.cpp` pin them down. Saved data keeps the Godot `world.json`
+fields (`player.inventory`, `health`, `bed`, `block_entities`, `plants`, `spawn`,
+`time`).
+
 ## Seeing the result
 `build\Release\gocube.exe --hidden --frames=10 --screenshot=<file>.png` (add
 `--pos=X,Y,Z --look=YAW,PITCH`) renders once the world around has loaded; read the
