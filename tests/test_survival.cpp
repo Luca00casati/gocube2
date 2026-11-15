@@ -279,3 +279,92 @@ TEST_CASE("crafting into a full inventory changes nothing") {
 	CHECK_FALSE(g.craft(*planks));
 	CHECK(inv.slots == before.slots);
 }
+
+TEST_CASE("a chest: made with its block, holds items, saved in the Godot format, spills when broken") {
+	Play p;
+	const BlockPos at{3, 60, 3};
+	REQUIRE(p.world->set_block(at, p.id("core:chest")));
+	gc::BlockEntities &be = p.game->block_entities();
+	REQUIRE(be.at(at));
+	CHECK(be.at(at)->type == "chest");
+	CHECK(be.at(at)->slots.size() == 27);
+	CHECK(be.click(at, 0, {"core:coal", 5}).empty()); // put in
+	CHECK(be.click(at, 0, {"core:coal", 3}).empty()); // stacked
+	CHECK(be.at(at)->slots[0] == Stack{"core:coal", 8});
+	CHECK(be.click(at, 4, {"core:dirt", 2}).empty());
+
+	const Json saved = be.serialize();
+	CHECK(saved["3,60,3"]["type"] == "chest");
+	CHECK(saved["3,60,3"]["slots"][0] == Json::array({"core:coal", 8}));
+	CHECK(saved["3,60,3"]["slots"][1].is_null());
+	gc::BlockEntities copy(p.content, p.mods);
+	copy.deserialize(saved);
+	REQUIRE(copy.at(at));
+	CHECK(copy.at(at)->slots[4] == Stack{"core:dirt", 2});
+
+	p.game->break_block(at, "core:wood_axe");
+	CHECK_FALSE(be.at(at));
+	int coal = 0, dirt = 0, chests = 0;
+	for (const auto &d : p.game->drops().drops()) {
+		coal += d.item == "core:coal" ? d.count : 0;
+		dirt += d.item == "core:dirt" ? d.count : 0;
+		chests += d.item == "core:chest" ? d.count : 0;
+	}
+	CHECK(coal == 8);
+	CHECK(dirt == 2);
+	CHECK(chests == 1);
+}
+
+TEST_CASE("a furnace smelts with fuel, as the core mod's recipes say") {
+	Play p;
+	const BlockPos at{3, 60, 3};
+	REQUIRE(p.world->set_block(at, p.id("core:furnace")));
+	gc::BlockEntities &be = p.game->block_entities();
+	using B = gc::BlockEntities;
+	CHECK(be.fuel_seconds("core:coal") == 40);
+	CHECK(be.smelting("core:iron_ore") == Stack{"core:iron_ingot", 1});
+	CHECK_FALSE(be.smelting("core:dirt"));
+	CHECK(be.click(at, B::FURNACE_FUEL, {"core:dirt", 1}) == Stack{"core:dirt", 1}); // not fuel: refused
+	CHECK(be.click(at, B::FURNACE_OUTPUT, {"core:iron_ore", 1}) == Stack{"core:iron_ore", 1}); // output: take only
+	CHECK(be.click(at, B::FURNACE_INPUT, {"core:iron_ore", 2}).empty());
+	CHECK(be.click(at, B::FURNACE_FUEL, {"core:coal", 1}).empty());
+	for (int i = 0; i < 44; i++) { // 11 s: two ingots (5 s each)
+		be.update(0.25);
+	}
+	CHECK(be.at(at)->slots[B::FURNACE_OUTPUT] == Stack{"core:iron_ingot", 2});
+	CHECK(be.at(at)->slots[B::FURNACE_INPUT].empty());
+	CHECK(be.at(at)->slots[B::FURNACE_FUEL].empty()); // the coal is burning
+	float burn, progress;
+	B::furnace_status(*be.at(at), burn, progress);
+	CHECK(burn > 0.5f);
+	CHECK(progress == 0.0f);
+}
+
+TEST_CASE("right-clicking a container opens it; sneaking places against it") {
+	Play p;
+	const int h = 40;
+	for (int z = -3; z <= 1; z++) {
+		REQUIRE(p.world->set_block({0, h, z}, p.id("core:stone")));
+		for (int y = h + 1; y <= h + 3; y++) {
+			REQUIRE(p.world->set_block({0, y, z}, 0));
+		}
+	}
+	REQUIRE(p.world->set_block({0, h + 1, -2}, p.id("core:chest")));
+	p.player.position[0] = 0.5f;
+	p.player.position[1] = float(h + 1);
+	p.player.position[2] = 0.5f;
+	p.player.yaw = 0;
+	p.player.pitch = -0.42f; // at the chest's front face (just under its top edge)
+	gc::GameInput in;
+	in.captured = true;
+	in.use_pressed = true;
+	p.game->update(0.016f, in);
+	const auto opened = p.game->take_opened();
+	REQUIRE(opened);
+	CHECK(*opened == BlockPos{0, h + 1, -2});
+	p.game->inventory().slots[0] = {"core:dirt", 1};
+	in.sneak = true;
+	p.game->update(0.016f, in);
+	CHECK_FALSE(p.game->take_opened());
+	CHECK(p.block(0, h + 1, -1) == "core:dirt"); // placed against it
+}

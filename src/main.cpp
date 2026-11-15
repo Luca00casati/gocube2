@@ -191,7 +191,7 @@ struct Controls {
 	}
 };
 
-enum class Screen { NONE, INVENTORY };
+enum class Screen { NONE, INVENTORY, CONTAINER };
 
 // Number keys 1..9 pressed this frame (0: none).
 int number_pressed(const gc::Window &window, Controls &controls) {
@@ -434,10 +434,12 @@ int main(int argc, char **argv) {
 	std::copy(player.position, player.position + 3, previous_position);
 	Controls controls;
 	Screen screen = options.screen == "inventory" ? Screen::INVENTORY : Screen::NONE;
+	gc::BlockPos container; // (Screen::CONTAINER)
 	const bool creative = (save ? save->mode() : options.mode) == "creative";
 	gc::Game game(content, table, rules, *world, mods, player, creative);
 	if (save) {
 		game.load_player(save->player());
+		game.block_entities().deserialize(save->field("block_entities"));
 	} else {
 		game.start_new_player();
 	}
@@ -462,6 +464,7 @@ int main(int argc, char **argv) {
 			const int chunks_saved = world->save_modified();
 			gc::Json state = player_state(player);
 			state.update(game.save_player());
+			save->set_field("block_entities", game.block_entities().serialize());
 			save->save(state);
 			gc::log("Saved the world (%d chunks)", chunks_saved);
 		}
@@ -554,6 +557,12 @@ int main(int argc, char **argv) {
 		gin.wheel = -int(wheel); // (rolled towards you: the next slot)
 		gin.number_key = number_pressed(window, controls);
 		game.update(dt, gin);
+		game.tick(dt);
+		if (auto opened = game.take_opened()) {
+			container = *opened;
+			screen = Screen::CONTAINER;
+			window.set_mouse_captured(false);
+		}
 		tick_accumulator += dt;
 		while (tick_accumulator >= TICK) {
 			mods.tick(TICK);
@@ -586,10 +595,10 @@ int main(int argc, char **argv) {
 					game, mods, window.mouse_captured());
 		}
 		const gc::UiIcons icons{ImTextureID(chunks.ui_atlas()), &table, &content};
-		if (screen == Screen::INVENTORY) {
-			if (!gc::inventory_screen(game, icons)) {
-				close_screen();
-			}
+		if (screen == Screen::INVENTORY && !gc::inventory_screen(game, icons)) {
+			close_screen();
+		} else if (screen == Screen::CONTAINER && !gc::container_screen(game, container, icons)) {
+			close_screen();
 		}
 		draw_hud(game, table, chunks, rules, captured);
 		gc::draw_held(game.inventory().cursor, icons);

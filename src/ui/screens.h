@@ -27,6 +27,10 @@ bool slot_button(const char *id, const Stack &stack, const UiIcons &icons, bool 
 // Draws the inventory screen (an open ImGui frame). False when it asks to close.
 bool inventory_screen(Game &game, const UiIcons &icons);
 
+// A chest or furnace at `pos` and the player's inventory. False when it asks
+// to close (also when the container is gone).
+bool container_screen(Game &game, const BlockPos &pos, const UiIcons &icons);
+
 // The stack the mouse holds, drawn at the mouse (call last in the frame).
 void draw_held(const Stack &held, const UiIcons &icons);
 

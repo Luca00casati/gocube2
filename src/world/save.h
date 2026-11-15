@@ -38,6 +38,10 @@ public:
 
 	// The saved player ("position" is the feet; "rotation" is [pitch, yaw]), or an empty object.
 	const Json &player() const;
+	// Another field of world.json (null if it has none), and setting one
+	// (written with the next save): "block_entities", "plants", "time"...
+	const Json &field(const std::string &key) const;
+	void set_field(const std::string &key, const Json &value) { meta_[key] = value; }
 	// Writes world.json (atomically); `player` replaces the saved player's
 	// fields it has, keeping the others (inventory, health...).
 	bool save(const Json &player = Json::object());

@@ -179,6 +179,101 @@ bool inventory_screen(Game &game, const UiIcons &icons) {
 	return keep_open;
 }
 
+namespace {
+
+// The player's backpack and hotbar rows, for a container screen.
+void inventory_rows(Game &game, const UiIcons &icons) {
+	Inventory &inv = game.inventory();
+	ImGui::TextUnformatted("Inventory");
+	for (int i = Inventory::HOTBAR; i < Inventory::SIZE; i++) {
+		if ((i - Inventory::HOTBAR) % Inventory::HOTBAR != 0) {
+			ImGui::SameLine();
+		}
+		if (slot_button(("inv" + std::to_string(i)).c_str(), inv.slots[i], icons, false, true)) {
+			inv.click(i);
+		}
+	}
+	ImGui::Dummy(ImVec2(0, 4));
+	for (int i = 0; i < Inventory::HOTBAR; i++) {
+		if (i) {
+			ImGui::SameLine();
+		}
+		if (slot_button(("inv" + std::to_string(i)).c_str(), inv.slots[i], icons, i == game.selected(), true)) {
+			inv.click(i);
+		}
+	}
+}
+
+void bar(float fraction, ImVec2 size, ImU32 color) {
+	const ImVec2 a = ImGui::GetCursorScreenPos();
+	ImGui::Dummy(size);
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	dl->AddRectFilled(a, ImVec2(a.x + size.x, a.y + size.y), IM_COL32(0, 0, 0, 160), 3.0f);
+	dl->AddRectFilled(a, ImVec2(a.x + size.x * std::clamp(fraction, 0.0f, 1.0f), a.y + size.y), color, 3.0f);
+}
+
+} // namespace
+
+bool container_screen(Game &game, const BlockPos &pos, const UiIcons &icons) {
+	BlockEntity *e = game.block_entities().at(pos);
+	if (!e) {
+		return false; // it went away
+	}
+	dim_background();
+	Inventory &inv = game.inventory();
+	const ImGuiIO &io = ImGui::GetIO();
+	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowBgAlpha(0.92f);
+	ImGui::Begin("Container", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 4));
+	auto click = [&](int slot) { inv.cursor = game.block_entities().click(pos, slot, inv.cursor); };
+	if (e->type == "furnace") {
+		ImGui::TextUnformatted("Furnace");
+		float burn, progress;
+		BlockEntities::furnace_status(*e, burn, progress);
+		ImGui::BeginGroup();
+		ImGui::TextDisabled("Input");
+		if (slot_button("in", e->slots[BlockEntities::FURNACE_INPUT], icons, false, true)) {
+			click(BlockEntities::FURNACE_INPUT);
+		}
+		bar(burn, ImVec2(48, 6), IM_COL32(255, 140, 40, 255)); // the flame: fuel left
+		ImGui::TextDisabled("Fuel");
+		if (slot_button("fuel", e->slots[BlockEntities::FURNACE_FUEL], icons, false, true)) {
+			click(BlockEntities::FURNACE_FUEL);
+		}
+		ImGui::EndGroup();
+		ImGui::SameLine(0, 16);
+		ImGui::BeginGroup();
+		ImGui::Dummy(ImVec2(0, 34));
+		bar(progress, ImVec2(80, 10), IM_COL32(255, 255, 255, 230)); // smelting
+		ImGui::EndGroup();
+		ImGui::SameLine(0, 16);
+		ImGui::BeginGroup();
+		ImGui::TextDisabled("Output");
+		if (slot_button("out", e->slots[BlockEntities::FURNACE_OUTPUT], icons, false, true)) {
+			click(BlockEntities::FURNACE_OUTPUT);
+		}
+		ImGui::EndGroup();
+	} else {
+		ImGui::TextUnformatted("Chest");
+		for (int i = 0; i < int(e->slots.size()); i++) {
+			if (i % 9) {
+				ImGui::SameLine();
+			}
+			if (slot_button(("c" + std::to_string(i)).c_str(), e->slots[i], icons, false, true)) {
+				click(i);
+			}
+		}
+	}
+	ImGui::Dummy(ImVec2(0, 8));
+	inventory_rows(game, icons);
+	ImGui::TextDisabled("E or Esc to close");
+	ImGui::PopStyleVar();
+	ImGui::End();
+	return true;
+}
+
 void draw_held(const Stack &held, const UiIcons &icons) {
 	if (held.empty()) {
 		return;

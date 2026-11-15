@@ -15,6 +15,7 @@
 
 #include <array>
 #include <condition_variable>
+#include <functional>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -106,6 +107,8 @@ public:
 	// Sky and block light (0..15 each) at a block, as of its chunk's last
 	// mesh; open sky where it isn't known.
 	void light_at(int x, int y, int z, int &sky, int &block) const;
+	// Told about every block change (position, the new block), after it happened.
+	std::function<void(const BlockPos &, gocube::BlockId)> on_block_changed;
 	// Changes a block; false if its chunk isn't loaded.
 	bool set_block(const BlockPos &p, gocube::BlockId id);
 	// Writes every edited chunk to its file; returns how many.

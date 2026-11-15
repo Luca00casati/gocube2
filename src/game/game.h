@@ -5,6 +5,7 @@
 // stand in if no mod gives one.
 
 #include "content/content.h"
+#include "game/block_entities.h"
 #include "game/blocks.h"
 #include "game/drops.h"
 #include "game/inventory.h"
@@ -41,6 +42,9 @@ class Game {
 public:
 	Game(Content &content, const BlockTable &table, const BlockRules &rules, World &world, Mods &mods, Player &player,
 			bool creative);
+	~Game();
+	Game(const Game &) = delete;
+	Game &operator=(const Game &) = delete;
 
 	bool creative() const { return creative_; }
 	Inventory &inventory() { return inventory_; }
@@ -49,6 +53,9 @@ public:
 	const std::string &selected_item() const { return inventory_.slots[selected_].id; }
 	float mining_progress() const { return mining_progress_; } // 0..1 while mining
 	const ItemDrops &drops() const { return drops_; }
+	BlockEntities &block_entities() { return entities_; }
+	// A container the player right-clicked this frame (the caller opens its screen).
+	std::optional<BlockPos> take_opened() { return std::exchange(opened_, std::nullopt); }
 
 	// A brand-new player: survival gets the starting items, creative the
 	// placeable blocks.
@@ -58,6 +65,8 @@ public:
 
 	// Once a frame: hotbar, mining, breaking, placing, picking.
 	void update(float dt, const GameInput &input);
+	// Once a frame: furnaces.
+	void tick(double dt);
 	// Once a physics step: dropped items.
 	void physics_step(float dt);
 	void drop_item(const std::string &item, int count, const float at[3]) { drops_.spawn(item, count, at); }
@@ -87,6 +96,8 @@ private:
 	Inventory inventory_;
 	int selected_ = 0;
 	ItemDrops drops_;
+	BlockEntities entities_;
+	std::optional<BlockPos> opened_;
 	std::optional<std::vector<Recipe>> recipes_;
 	BlockPos mining_target_{1 << 30, 0, 0};
 	float mining_progress_ = 0;

@@ -430,6 +430,9 @@ bool World::set_block(const BlockPos &p, BlockId id) {
 		y_low = std::max(y_low, CHUNK_Y_MIN * CHUNK);
 	}
 	relight_around(p, y_low, y_high);
+	if (on_block_changed) {
+		on_block_changed(p, id);
+	}
 	return true;
 }
 

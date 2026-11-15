@@ -8,7 +8,19 @@ namespace gc {
 Game::Game(Content &content, const BlockTable &table, const BlockRules &rules, World &world, Mods &mods, Player &player,
 		bool creative) :
 		content_(content), table_(table), rules_(rules), world_(world), mods_(mods), player_(player),
-		creative_(creative), inventory_(content) {}
+		creative_(creative), inventory_(content), entities_(content, mods) {
+	// Containers come and go with their blocks; what was in one spills out.
+	world_.on_block_changed = [this](const BlockPos &p, gocube::BlockId id) {
+		const float at[3] = {p.x + 0.5f, p.y + 0.3f, p.z + 0.5f};
+		for (const Stack &s : entities_.block_changed(p, rules_.id_of(id))) {
+			drops_.spawn(s.id, s.count, at);
+		}
+	};
+}
+
+Game::~Game() {
+	world_.on_block_changed = nullptr;
+}
 
 void Game::fill_creative() {
 	// One of every placeable block (counts are never used up).
@@ -204,8 +216,11 @@ void Game::update(float dt, const GameInput &in) {
 		mining_target_ = {1 << 30, 0, 0};
 	}
 
-	// Placing (or using a door) with the selected item; survival uses it up.
-	if (in.use_pressed) {
+	// A container opens (sneak to place against it instead).
+	if (in.use_pressed && hit.hit && !in.sneak && entities_.at(hit.position)) {
+		opened_ = hit.position;
+	} else if (in.use_pressed) {
+		// Placing (or using a door) with the selected item; survival uses it up.
 		std::vector<BlockChange> changes;
 		const std::string item = selected_item();
 		player_.use_or_place(world_, rules_, item, in.sneak, &changes);
@@ -225,6 +240,10 @@ void Game::update(float dt, const GameInput &in) {
 			inventory_.slots[selected_] = {base, 1};
 		}
 	}
+}
+
+void Game::tick(double dt) {
+	entities_.update(dt);
 }
 
 void Game::physics_step(float dt) {

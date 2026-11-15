@@ -45,6 +45,8 @@ add_library(gocube_core STATIC
 	src/voxel/storage.h
 )
 target_sources(gocube_core PRIVATE
+	src/game/block_entities.cpp
+	src/game/block_entities.h
 	src/game/blocks.cpp
 	src/game/blocks.h
 	src/game/drops.cpp

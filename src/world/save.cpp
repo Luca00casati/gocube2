@@ -104,6 +104,12 @@ const Json &WorldSave::player() const {
 	return it != meta_.end() && it->is_object() ? *it : empty;
 }
 
+const Json &WorldSave::field(const std::string &key) const {
+	static const Json none = nullptr;
+	auto it = meta_.find(key);
+	return it != meta_.end() ? *it : none;
+}
+
 bool WorldSave::save(const Json &player) {
 	if (!player.empty()) {
 		Json &saved = meta_["player"];
