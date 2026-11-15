@@ -20,6 +20,16 @@ table and the generator tables in `src/content/` feed into it as much as
 `src/voxel/` does. A real change to generation is a new generator version (old
 worlds keep theirs) with new fingerprints.
 
+## Worlds stay compatible with the Godot version
+A world folder is `world.json` plus `chunks\c.X.Y.Z.bin` (the Godot version's
+format). `tests/test_save.cpp` opens `tests/data/godot_world` (saved by the Godot
+version) and checks its edits, edits and saves it, and checks that world.json keeps
+every field this version doesn't use (inventory, block entities, plants): keep it
+that way, `WorldSave::save` only replaces the player fields it is given. To check
+the other direction, run the test with `GOCUBE_TEST_WORLD_OUT=<dir>`, copy `<dir>`
+into a Godot user data folder's `worlds\_cpp_edited` and run
+`tests/data/check_godot_opens.gd` with the Godot version (headless, `-s`).
+
 ## Seeing the result
 `build\Release\gocube.exe --hidden --frames=10 --screenshot=<file>.png` (add
 `--pos=X,Y,Z --look=YAW,PITCH`) renders once the world around has loaded; read the

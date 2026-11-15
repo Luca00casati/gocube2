@@ -35,7 +35,16 @@ add_library(gocube_core STATIC
 	src/voxel/storage.cpp
 	src/voxel/storage.h
 )
-target_sources(gocube_core PRIVATE src/world/world.cpp src/world/world.h)
+target_sources(gocube_core PRIVATE
+	src/game/blocks.cpp
+	src/game/blocks.h
+	src/game/player.cpp
+	src/game/player.h
+	src/world/save.cpp
+	src/world/save.h
+	src/world/world.cpp
+	src/world/world.h
+)
 target_include_directories(gocube_core PUBLIC src PRIVATE ${Stb_INCLUDE_DIR})
 target_link_libraries(gocube_core PUBLIC nlohmann_json::nlohmann_json)
 target_compile_definitions(gocube_core PUBLIC ${GOCUBE_DEFINES})
@@ -63,6 +72,8 @@ add_shader(shaders/chunk.hlsl vs_main vs_5_0 chunk_vs)
 add_shader(shaders/chunk.hlsl ps_opaque ps_5_0 chunk_ps_opaque)
 add_shader(shaders/chunk.hlsl ps_cutout ps_5_0 chunk_ps_cutout)
 add_shader(shaders/chunk.hlsl ps_fluid ps_5_0 chunk_ps_fluid)
+add_shader(shaders/lines.hlsl vs_main vs_5_0 lines_vs)
+add_shader(shaders/lines.hlsl ps_main ps_5_0 lines_ps)
 
 add_executable(gocube
 	src/main.cpp
@@ -74,11 +85,12 @@ add_executable(gocube
 	src/render/renderer.cpp
 	src/render/renderer.h
 	shaders/chunk.hlsl
+	shaders/lines.hlsl
 	${SHADER_HEADERS}
 )
-set_source_files_properties(shaders/chunk.hlsl PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
+set_source_files_properties(shaders/chunk.hlsl shaders/lines.hlsl PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
 target_include_directories(gocube PRIVATE ${SHADER_DIR} ${Stb_INCLUDE_DIR})
-target_link_libraries(gocube PRIVATE gocube_core imgui::imgui d3d11 dxgi dxguid)
+target_link_libraries(gocube PRIVATE gocube_core imgui::imgui d3d11 dxgi dxguid shell32 ole32)
 target_compile_definitions(gocube PRIVATE
 	GOCUBE_VERSION="${PROJECT_VERSION}"
 	$<$<CONFIG:Debug>:GOCUBE_DEBUG>
@@ -90,10 +102,12 @@ target_link_options(gocube PRIVATE $<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartu
 
 add_executable(gocube_tests
 	tests/main.cpp
+	tests/test_player.cpp
+	tests/test_save.cpp
 	tests/test_worldgen.cpp
 )
 target_link_libraries(gocube_tests PRIVATE gocube_core doctest::doctest bcrypt)
-target_compile_definitions(gocube_tests PRIVATE GOCUBE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(gocube_tests PRIVATE GOCUBE_SOURCE_DIR="${CMAKE_SOURCE_DIR}" _CRT_SECURE_NO_WARNINGS)
 target_compile_options(gocube_tests PRIVATE ${GOCUBE_OPTIONS})
 
 enable_testing()

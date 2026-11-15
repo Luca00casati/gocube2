@@ -37,11 +37,18 @@ public:
 		dy = mouse_dy_;
 		mouse_dx_ = mouse_dy_ = 0;
 	}
-	// True once after a left click in the window.
-	bool take_click() {
-		const bool c = clicked_;
-		clicked_ = false;
-		return c;
+	enum Button { LEFT, RIGHT, MIDDLE, BUTTONS };
+	// True once after that mouse button was pressed in the window.
+	bool take_pressed(Button b) {
+		const bool p = pressed_[b];
+		pressed_[b] = false;
+		return p;
+	}
+	// Mouse wheel notches since the last call (positive: away from you).
+	float take_wheel() {
+		const float w = wheel_;
+		wheel_ = 0;
+		return w;
 	}
 	// Whether a key (a virtual-key code) is held, while the window has focus.
 	bool key_down(int vk) const;
@@ -55,7 +62,8 @@ private:
 	bool resized_ = false;
 	bool open_ = false;
 	bool captured_ = false;
-	bool clicked_ = false;
+	bool pressed_[BUTTONS] = {};
+	float wheel_ = 0;
 	float mouse_dx_ = 0, mouse_dy_ = 0;
 };
 

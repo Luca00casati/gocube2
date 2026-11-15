@@ -1,0 +1,76 @@
+{
+	"edits": [
+		{
+			"id": "core:stone",
+			"pos": [
+				3,
+				3,
+				3
+			]
+		},
+		{
+			"id": "core:stone",
+			"pos": [
+				3,
+				4,
+				3
+			]
+		},
+		{
+			"id": "core:stone",
+			"pos": [
+				3,
+				5,
+				3
+			]
+		},
+		{
+			"id": "core:air",
+			"pos": [
+				0,
+				2,
+				0
+			]
+		},
+		{
+			"id": "core:wood_door",
+			"pos": [
+				6,
+				3,
+				3
+			]
+		},
+		{
+			"id": "core:wood_door_n_upper",
+			"pos": [
+				6,
+				4,
+				3
+			]
+		},
+		{
+			"id": "core:glass",
+			"pos": [
+				-20,
+				0,
+				9
+			]
+		},
+		{
+			"id": "core:torch",
+			"pos": [
+				-20,
+				1,
+				9
+			]
+		},
+		{
+			"id": "core:stone_slab_top",
+			"pos": [
+				-21,
+				0,
+				9
+			]
+		}
+	]
+}

@@ -1,10 +1,13 @@
 #pragma once
-// The voxel world around the player: chunks are generated (or, later, loaded)
-// on worker threads, then lit and meshed once their whole 3x3x3 neighbourhood
-// and the 9 columns around them are there (sky light needs complete columns).
+// The voxel world around the player: chunks are loaded from the world's
+// chunk files or generated, on worker threads, then lit and meshed once their
+// whole 3x3x3 neighbourhood and the 9 columns around them are there (sky
+// light needs complete columns). Edits change a copy of the chunk, are saved
+// to its file, and remesh everything their light can reach.
 // The main thread calls update() once per frame and uploads finished meshes.
 //
-// Scheduling follows the Godot version's GoCubeWorld, without Godot.
+// Scheduling, editing, the raycast and collision follow the Godot version's
+// GoCubeWorld, without Godot.
 
 #include "voxel/generator.h"
 #include "voxel/light.h"
@@ -15,6 +18,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -25,6 +29,12 @@ namespace gc {
 struct ChunkPos {
 	int x = 0, y = 0, z = 0;
 	bool operator==(const ChunkPos &) const = default;
+};
+
+struct BlockPos {
+	int x = 0, y = 0, z = 0;
+	bool operator==(const BlockPos &) const = default;
+	BlockPos operator+(const BlockPos &o) const { return {x + o.x, y + o.y, z + o.z}; }
 };
 
 // A chunk's finished meshes (chunk-local positions; the chunk's minimum corner
@@ -38,17 +48,33 @@ struct WorldStats {
 	int loaded = 0;  // chunks with block data
 	int meshed = 0;  // chunks with a mesh
 	int queued = 0;  // jobs waiting for a worker or running
-	bool settled = false; // everything within view distance is meshed
+	int dirty = 0;   // edited chunks not saved yet
+	bool settled = false; // everything within view distance is meshed and up to date
+};
+
+struct RayHit {
+	bool hit = false;
+	BlockPos position;       // the block hit
+	BlockPos previous;       // the cell in front of the face hit (where a block would go)
+	BlockPos normal;         // the face hit, pointing out of the block
+	gocube::BlockId block = 0;
+	float distance = 0;
+};
+
+struct MoveResult {
+	float position[3] = {0, 0, 0}; // feet, after the move
+	bool on_floor = false, hit_ceiling = false, hit_wall = false;
 };
 
 class World {
 public:
 	static constexpr int CHUNK_Y_MIN = -3, CHUNK_Y_MAX = 3; // the world is 7 chunks (224 blocks) tall
 
-	// `blocks`, `atlas` and `generator` must outlive the world.
+	// `blocks`, `atlas` and `generator` must outlive the world. `save_dir`: the
+	// world's chunks folder ("": nothing is loaded or saved).
 	World(const std::vector<gocube::BlockInfo> &blocks, const gocube::AtlasLayout &atlas,
-			const gocube::Generator &generator, int worker_threads = 0);
-	~World();
+			const gocube::Generator &generator, std::string save_dir = "", int worker_threads = 0);
+	~World(); // (doesn't save: call save_modified() first)
 	World(const World &) = delete;
 	World &operator=(const World &) = delete;
 
@@ -56,14 +82,34 @@ public:
 	int view_distance() const { return view_distance_; }
 
 	// Main thread, once per frame: takes finished work, asks for chunks around
-	// the viewer, forgets far ones and schedules meshing.
+	// the viewer, saves and forgets far ones, schedules meshing.
 	void update(float viewer_x, float viewer_y, float viewer_z);
 	// Meshes finished since the last call, and chunks that went away.
 	std::vector<ChunkMesh> take_meshes();
 	std::vector<ChunkPos> take_unloaded();
 
-	// The block at a world position (0, air, where nothing is loaded).
+	// The block at a world position: AIR above and below the world, -1 where
+	// the chunk isn't loaded.
+	int block_id_at(int x, int y, int z) const;
+	// The same with AIR for unloaded chunks.
 	gocube::BlockId block_at(int x, int y, int z) const;
+	bool is_loaded(int x, int y, int z) const;
+	// Changes a block; false if its chunk isn't loaded.
+	bool set_block(const BlockPos &p, gocube::BlockId id);
+	// Writes every edited chunk to its file; returns how many.
+	int save_modified();
+
+	// The first block a ray meets (fluids are seen through), within max_distance.
+	RayHit raycast(const float origin[3], const float direction[3], float max_distance) const;
+	// Moves a box (feet at `position`, `size` wide/tall/deep, centred on x and z)
+	// by `motion`, stopped by blocks' collision boxes; unloaded chunks are solid.
+	// step_height > 0 lets it walk up that much.
+	MoveResult move_box(const float position[3], const float size[3], const float motion[3], float step_height = 0) const;
+	bool is_box_free(const float position[3], const float size[3]) const;
+	// A block's boxes (world coordinates): collision boxes, or the ones it's
+	// drawn and picked with.
+	void block_boxes(int x, int y, int z, int id, bool collision, std::vector<gocube::Box> &out) const;
+
 	WorldStats stats() const;
 
 private:
@@ -73,6 +119,7 @@ private:
 		ChunkPos pos;
 		float priority = 0; // lower first
 		uint64_t serial = 0; // the chunk entry it was made for
+		uint64_t version = 0; // JOB_MESH: the chunk's mesh_version
 		std::shared_ptr<const gocube::ChunkData> hood[27];
 		std::shared_ptr<const gocube::ColumnTops> tops[9];
 	};
@@ -80,16 +127,19 @@ private:
 		JobKind kind = JOB_GENERATE;
 		ChunkPos pos;
 		uint64_t serial = 0;
+		uint64_t version = 0;
 		std::shared_ptr<const gocube::ChunkData> data;
 		std::array<int8_t, gocube::CHUNK_AREA> local_tops{};
 		std::unique_ptr<ChunkMesh> mesh;
 	};
 	struct Chunk {
 		uint64_t serial = 0; // tells a reloaded chunk from the one a job was made for
-		std::shared_ptr<const gocube::ChunkData> data; // null until generated
+		std::shared_ptr<const gocube::ChunkData> data; // null until generated or loaded
 		std::array<int8_t, gocube::CHUNK_AREA> local_tops{};
+		uint64_t mesh_version = 1;  // goes up when the chunk (or its light) changes
+		uint64_t meshed_version = 0; // of the mesh handed out (0: none yet)
 		bool mesh_queued = false;
-		bool meshed = false;
+		bool dirty = false; // edited since it was last saved
 	};
 
 	static int64_t key(int x, int y, int z);
@@ -101,10 +151,17 @@ private:
 	void push_job(Job &&job);
 	void update_column_tops(int cx, int cz);
 	void schedule_meshing(const ChunkPos &center, int radius);
+	void request_remesh(int cx, int cy, int cz);
+	void relight_around(const BlockPos &p, int y_low, int y_high);
+	bool save_chunk(const ChunkPos &p, Chunk &c);
+	const gocube::ChunkData *chunk_data_at(int x, int y, int z, int &lx, int &ly, int &lz) const;
+	bool fence_connects(int x, int y, int z) const;
+	void collect_collision(const float mn[3], const float mx[3], std::vector<gocube::Box> &out) const;
 
 	const std::vector<gocube::BlockInfo> &blocks_;
 	const gocube::AtlasLayout &atlas_;
 	const gocube::Generator &generator_;
+	const std::string save_dir_;
 	int view_distance_ = 128;
 	uint64_t next_serial_ = 1;
 	ChunkPos center_;  // at the last update
@@ -114,6 +171,7 @@ private:
 	std::unordered_map<int64_t, Chunk> chunks_;
 	std::unordered_map<int64_t, std::shared_ptr<const gocube::ColumnTops>> column_tops_; // key(cx, 0, cz)
 	std::unordered_set<int64_t> mesh_candidates_;
+	std::unordered_set<int64_t> urgent_; // remeshed after an edit: before anything else
 	std::vector<ChunkMesh> meshes_;
 	std::vector<ChunkPos> unloaded_;
 

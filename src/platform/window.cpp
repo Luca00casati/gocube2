@@ -116,7 +116,16 @@ LRESULT Window::handle(UINT msg, WPARAM wp, LPARAM lp) {
 			break; // DefWindowProc cleans up
 		}
 		case WM_LBUTTONDOWN:
-			clicked_ = true;
+			pressed_[LEFT] = true;
+			return 0;
+		case WM_RBUTTONDOWN:
+			pressed_[RIGHT] = true;
+			return 0;
+		case WM_MBUTTONDOWN:
+			pressed_[MIDDLE] = true;
+			return 0;
+		case WM_MOUSEWHEEL:
+			wheel_ += float(GET_WHEEL_DELTA_WPARAM(wp)) / WHEEL_DELTA;
 			return 0;
 		case WM_KILLFOCUS:
 			set_mouse_captured(false);

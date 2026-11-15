@@ -7,6 +7,8 @@
 #include "chunk_ps_fluid.h"
 #include "chunk_ps_opaque.h"
 #include "chunk_vs.h"
+#include "lines_ps.h"
+#include "lines_vs.h"
 
 #include <cmath>
 #include <cstring>
@@ -202,7 +204,77 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 	rt.BlendOpAlpha = D3D11_BLEND_OP_ADD;
 	rt.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 	device->CreateBlendState(&bd, &alpha_blend_);
+
+	// Outline lines.
+	if (!ok(device->CreateVertexShader(g_lines_vs, sizeof(g_lines_vs), nullptr, &line_vs_), "lines_vs") ||
+			!ok(device->CreatePixelShader(g_lines_ps, sizeof(g_lines_ps), nullptr, &line_ps_), "lines_ps")) {
+		return false;
+	}
+	const D3D11_INPUT_ELEMENT_DESC line_layout[] = {
+			{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0}};
+	if (!ok(device->CreateInputLayout(line_layout, 1, g_lines_vs, sizeof(g_lines_vs), &line_layout_), "line layout")) {
+		return false;
+	}
+	D3D11_BUFFER_DESC lb = {};
+	lb.Usage = D3D11_USAGE_DYNAMIC;
+	lb.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	lb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	lb.ByteWidth = MAX_OUTLINE_BOXES * 24 * sizeof(XMFLOAT3);
+	cb.ByteWidth = sizeof(XMFLOAT4);
+	if (!ok(device->CreateBuffer(&lb, nullptr, &line_vertices_), "line buffer") ||
+			!ok(device->CreateBuffer(&cb, nullptr, &line_cb_), "line constants")) {
+		return false;
+	}
+	dd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+	device->CreateDepthStencilState(&dd, &depth_less_equal_);
 	return true;
+}
+
+void ChunkRenderer::draw_outline(ID3D11DeviceContext *ctx, const std::vector<gocube::Box> &boxes) {
+	if (boxes.empty()) {
+		return;
+	}
+	std::vector<XMFLOAT3> v;
+	for (size_t i = 0; i < boxes.size() && i < MAX_OUTLINE_BOXES; i++) {
+		const float g = 0.002f;
+		const float mn[3] = {boxes[i].mn[0] - g, boxes[i].mn[1] - g, boxes[i].mn[2] - g};
+		const float mx[3] = {boxes[i].mx[0] + g, boxes[i].mx[1] + g, boxes[i].mx[2] + g};
+		auto corner = [&](int c) { return XMFLOAT3{c & 1 ? mx[0] : mn[0], c & 2 ? mx[1] : mn[1], c & 4 ? mx[2] : mn[2]}; };
+		for (int c = 0; c < 8; c++) { // each edge once: from a corner along each axis it isn't at the end of
+			for (int bit : {1, 2, 4}) {
+				if (!(c & bit)) {
+					v.push_back(corner(c));
+					v.push_back(corner(c | bit));
+				}
+			}
+		}
+	}
+	D3D11_MAPPED_SUBRESOURCE m;
+	if (FAILED(ctx->Map(line_vertices_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+		return;
+	}
+	std::memcpy(m.pData, v.data(), v.size() * sizeof(XMFLOAT3));
+	ctx->Unmap(line_vertices_.Get(), 0);
+	const XMFLOAT4 color = {0, 0, 0, 0.8f};
+	if (SUCCEEDED(ctx->Map(line_cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+		std::memcpy(m.pData, &color, sizeof(color));
+		ctx->Unmap(line_cb_.Get(), 0);
+	}
+	const UINT stride = sizeof(XMFLOAT3), offset = 0;
+	ID3D11Buffer *vb = line_vertices_.Get();
+	ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+	ctx->IASetInputLayout(line_layout_.Get());
+	ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+	ctx->VSSetShader(line_vs_.Get(), nullptr, 0);
+	ctx->PSSetShader(line_ps_.Get(), nullptr, 0);
+	ID3D11Buffer *cbs[] = {frame_cb_.Get(), line_cb_.Get()};
+	ctx->VSSetConstantBuffers(0, 2, cbs);
+	ctx->PSSetConstantBuffers(0, 2, cbs);
+	ctx->OMSetBlendState(alpha_blend_.Get(), nullptr, 0xffffffff);
+	ctx->OMSetDepthStencilState(depth_less_equal_.Get(), 0);
+	ctx->Draw(UINT(v.size()), 0);
+	ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+	ctx->OMSetDepthStencilState(nullptr, 0);
 }
 
 bool ChunkRenderer::make_surface(ID3D11Device *device, const gocube::Surface &s, GpuSurface &out) {

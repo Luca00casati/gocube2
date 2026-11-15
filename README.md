@@ -4,8 +4,10 @@ Voxel sandbox for Windows, in C++20 with Direct3D 11, gameplay and mods in Lua.
 A rewrite of the Godot version of GoCube; the plan is in the
 [GoCube Native Rewrite Plan](https://claude.ai/artifact/CMdng1jnMGWsAb7X84FHoy).
 
-Status: milestone 2. The world is generated exactly as in the Godot version and
-streamed around a flying camera.
+Status: milestone 3. Walk, fly, break and place blocks in a world that is saved in
+the Godot version's format: worlds it saved open here, and worlds saved here open
+there. Generation is exactly the Godot version's. (Survival, inventories, menus and
+Lua come with the next milestones; editing is creative-style for now.)
 
 ## Requirements
 - Windows 10 or 11, x64
@@ -32,15 +34,33 @@ The game is `build\Debug\gocube.exe` (`build\Release\gocube.exe`); it finds `mod
 in its folder or a folder above it.
 
 ## Playing
-Click in the window to look around with the mouse (Esc lets go). W A S D fly,
-Space goes up, Shift down, Ctrl flies faster.
+    gocube --world=MyWorld                # %APPDATA%\GoCube\worlds\MyWorld (made if new)
+    gocube --world-dir="%APPDATA%\Godot\app_userdata\GoCube\worlds\MyWorld"   # a Godot version world
+
+Click in the window to play (Esc lets the mouse go).
+
+| Key | |
+| --- | --- |
+| W A S D | Walk |
+| Space | Jump (swim up, climb, fly up) |
+| Shift | Sneak (fly down; landing ends flight) |
+| Ctrl | Sprint |
+| F | Fly |
+| Left click | Break the block aimed at (a door or bed goes whole) |
+| Right click | Place the selected block (or open and close a door; sneak to place against it) |
+| Wheel, middle click | Choose the block to place; pick the one aimed at |
+
+The world is saved every minute and when the game closes: edited chunks to
+`chunks\`, the player to `world.json`.
 
 | Option | What it does |
 | --- | --- |
-| `--seed=N` | World seed (default 777) |
-| `--generator=N` | World generator version: 1 (before biomes), 2, 3 (default, the newest) |
+| `--world=NAME` | Play the world NAME in `%APPDATA%\GoCube\worlds` (a new one is made if needed) |
+| `--world-dir=DIR` | Play the world in this folder (for example one the Godot version saved) |
+| `--seed=N` | Seed for a new world (default 777) |
+| `--generator=N` | World generator version for an unsaved world: 1 (before biomes), 2, 3 (default, the newest) |
 | `--view=N` | View distance in blocks (default 128) |
-| `--pos=X,Y,Z`, `--look=YAW,PITCH` | Start position, and view direction in degrees |
+| `--pos=X,Y,Z`, `--look=YAW,PITCH` | Start flying at this position (feet), and view direction in degrees |
 | `--warp` | Render on WARP, Windows' software adapter (no GPU needed) |
 | `--hidden` | Don't show the window (tests) |
 | `--frames=N` | Quit after N frames; exit code 1 if the debug layer reported errors or warnings |
@@ -53,12 +73,18 @@ Space goes up, Shift down, Ctrl flies faster.
   files), copied unchanged from the Godot version's GDExtension (GoCube `4425f46`).
 - `src/content/`: mods' JSON content, block ids, the block table, the texture atlas
   and the generator's tables, as the Godot version builds them.
-- `src/world/`: chunk streaming on worker threads.
+- `src/world/`: chunk streaming on worker threads, editing, the raycast, collision;
+  the world folder (`world.json`, `chunks\`).
+- `src/game/`: the player (movement, breaking, placing) and the block rules
+  (shaped blocks' variants, doors, beds, support).
 - `src/render/`, `shaders/`: Direct3D 11 and the terrain shaders (HLSL, compiled by
   FXC at build time).
 - `mods/core/`: the base game's content and assets. Its `main.gd` (one block and one
   recipe registered from code) is `content/planks.json` until Lua arrives.
-- `tests/`: doctest unit tests, including the generation fingerprints.
+- `tests/`: doctest unit tests: the generation fingerprints, player movement and
+  editing, and saving. `tests/data/godot_world` is a world the Godot version saved
+  (made by `tests/data/make_godot_world.gd`; `check_godot_opens.gd` checks the other
+  way round).
 
 ## Dependencies
 Pinned through `vcpkg.json` (its `builtin-baseline`), linked statically:

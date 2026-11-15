@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <vector>
 
 namespace gc {
 
@@ -47,11 +48,15 @@ struct ChunkRenderStats {
 
 class ChunkRenderer {
 public:
+	static constexpr int MAX_OUTLINE_BOXES = 16;
 	bool init(ID3D11Device *device, const Atlas &atlas);
 	void upload(ID3D11Device *device, const ChunkMesh &mesh); // replaces the chunk's mesh
 	void remove(const ChunkPos &pos);
 	// Draws into the bound render target and depth buffer.
 	void draw(ID3D11DeviceContext *context, const Camera &camera, float aspect, const SkyParams &sky);
+	// After draw(): the edges of these boxes (world coordinates), just outside
+	// them so the lines don't fight with the faces.
+	void draw_outline(ID3D11DeviceContext *context, const std::vector<gocube::Box> &boxes);
 	const ChunkRenderStats &stats() const { return stats_; }
 
 private:
@@ -76,6 +81,11 @@ private:
 	ComPtr<ID3D11RasterizerState> cull_back_, cull_none_;
 	ComPtr<ID3D11DepthStencilState> depth_write_, depth_test_only_;
 	ComPtr<ID3D11BlendState> alpha_blend_;
+	ComPtr<ID3D11VertexShader> line_vs_;
+	ComPtr<ID3D11PixelShader> line_ps_;
+	ComPtr<ID3D11InputLayout> line_layout_;
+	ComPtr<ID3D11Buffer> line_vertices_, line_cb_;
+	ComPtr<ID3D11DepthStencilState> depth_less_equal_;
 	ChunkRenderStats stats_;
 };
 
