@@ -101,6 +101,8 @@ add_executable(gocube
 	src/render/chunk_renderer.h
 	src/render/renderer.cpp
 	src/render/renderer.h
+	src/ui/screens.cpp
+	src/ui/screens.h
 	shaders/chunk.hlsl
 	shaders/lines.hlsl
 	${SHADER_HEADERS}

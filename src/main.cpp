@@ -41,6 +41,7 @@
 #include "platform/window.h"
 #include "render/chunk_renderer.h"
 #include "render/renderer.h"
+#include "ui/screens.h"
 #include "world/save.h"
 #include "world/world.h"
 
@@ -78,6 +79,7 @@ struct Options {
 	float look[2] = {0, 0};
 	std::string mode = "survival"; // for a new world
 	std::vector<std::string> drop; // items dropped in front of the player at the start
+	std::string screen;            // a screen open at the start ("inventory")
 };
 
 std::filesystem::path utf8_path(const char *s) {
@@ -126,6 +128,8 @@ Options parse(int argc, char **argv) {
 					o.drop.push_back(list.substr(from, to - from));
 				}
 			}
+		} else if ((v = value("--screen="))) {
+			o.screen = v;
 		} else if ((v = value("--mode="))) {
 			o.mode = v;
 		} else if ((v = value("--view="))) {
@@ -176,7 +180,18 @@ std::filesystem::path user_dir() {
 struct Controls {
 	bool fly_key_was_down = false;
 	bool number_was_down[10] = {};
+	bool key_was_down[256] = {};
+
+	// A key that went down since the last frame (while the window has focus).
+	bool pressed(const gc::Window &window, int vk) {
+		const bool down = window.key_down(vk);
+		const bool was = key_was_down[vk & 255];
+		key_was_down[vk & 255] = down;
+		return down && !was;
+	}
 };
+
+enum class Screen { NONE, INVENTORY };
 
 // Number keys 1..9 pressed this frame (0: none).
 int number_pressed(const gc::Window &window, Controls &controls) {
@@ -388,6 +403,7 @@ int main(int argc, char **argv) {
 	ImGui::CreateContext();
 	ImGui::GetIO().IniFilename = nullptr; // no imgui.ini next to the game
 	ImGui::StyleColorsDark();
+	ImGui::GetStyle().DisabledAlpha = 0.35f; // (what can't be done now looks it)
 	ImGui_ImplWin32_Init(window.hwnd());
 	if (!renderer.init_imgui()) {
 		gc::log("Couldn't start Dear ImGui's Direct3D 11 backend");
@@ -417,6 +433,7 @@ int main(int argc, char **argv) {
 	float previous_position[3];
 	std::copy(player.position, player.position + 3, previous_position);
 	Controls controls;
+	Screen screen = options.screen == "inventory" ? Screen::INVENTORY : Screen::NONE;
 	const bool creative = (save ? save->mode() : options.mode) == "creative";
 	gc::Game game(content, table, rules, *world, mods, player, creative);
 	if (save) {
@@ -469,12 +486,34 @@ int main(int argc, char **argv) {
 		const bool right = window.take_pressed(gc::Window::RIGHT);
 		const bool middle = window.take_pressed(gc::Window::MIDDLE);
 		const float wheel = window.take_wheel();
-		const bool captured = window.mouse_captured();
-		if (left && !captured && !ImGui::GetIO().WantCaptureMouse) {
-			window.set_mouse_captured(true); // (that click only captures)
+		// Screens: E opens the inventory; E or Esc closes it (what the mouse
+		// held goes back in, or is dropped). While one is open the mouse is free.
+		const bool key_e = controls.pressed(window, 'E');
+		const bool key_esc = controls.pressed(window, VK_ESCAPE);
+		auto close_screen = [&] {
+			const gc::Stack left_over = game.inventory().close_cursor();
+			if (!left_over.empty()) {
+				float look[3];
+				player.look(look);
+				const float at[3] = {player.position[0] + look[0], player.position[1] + 1.2f, player.position[2] + look[2]};
+				game.drop_item(left_over.id, left_over.count, at);
+			}
+			screen = Screen::NONE;
+			window.set_mouse_captured(true);
+		};
+		if (screen == Screen::NONE) {
+			if (key_e && window.mouse_captured()) {
+				screen = Screen::INVENTORY;
+				window.set_mouse_captured(false);
+			} else if (key_esc && window.mouse_captured()) {
+				window.set_mouse_captured(false);
+			}
+		} else if (key_e || key_esc) {
+			close_screen();
 		}
-		if (captured && window.key_down(VK_ESCAPE)) {
-			window.set_mouse_captured(false);
+		const bool captured = window.mouse_captured() && screen == Screen::NONE;
+		if (left && !window.mouse_captured() && screen == Screen::NONE && !ImGui::GetIO().WantCaptureMouse) {
+			window.set_mouse_captured(true); // (that click only captures)
 		}
 		if (window.minimized()) {
 			Sleep(16); // nothing to present to
@@ -542,9 +581,18 @@ int main(int argc, char **argv) {
 		ImGui_ImplDX11_NewFrame();
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
-		draw_ui(renderer, player, *world, chunks, save ? &*save : nullptr, seed,
-				game, mods, window.mouse_captured());
-		draw_hud(game, table, chunks, rules, window.mouse_captured());
+		if (screen == Screen::NONE) {
+			draw_ui(renderer, player, *world, chunks, save ? &*save : nullptr, seed,
+					game, mods, window.mouse_captured());
+		}
+		const gc::UiIcons icons{ImTextureID(chunks.ui_atlas()), &table, &content};
+		if (screen == Screen::INVENTORY) {
+			if (!gc::inventory_screen(game, icons)) {
+				close_screen();
+			}
+		}
+		draw_hud(game, table, chunks, rules, captured);
+		gc::draw_held(game.inventory().cursor, icons);
 		ImGui::Render();
 
 		sky.time = std::chrono::duration<float>(now - start).count();

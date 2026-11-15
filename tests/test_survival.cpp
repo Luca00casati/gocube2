@@ -209,3 +209,73 @@ TEST_CASE("the player's inventory and hotbar slot are saved in world.json's play
 	CHECK(q.game->inventory().slots[4] == Stack{"core:coal", 7});
 	CHECK(q.game->inventory().slots[0] == Stack{"core:torch", 1});
 }
+
+namespace {
+
+const gc::Recipe *find_recipe(gc::Game &game, const std::string &id) {
+	for (const gc::Recipe &r : game.hand_recipes()) {
+		if (r.id == id) {
+			return &r;
+		}
+	}
+	return nullptr;
+}
+
+} // namespace
+
+TEST_CASE("hand crafting: from logs to a pickaxe and a chest, as the core mod's recipes say") {
+	Play p;
+	gc::Game &g = *p.game;
+	CHECK(g.hand_recipes().size() > 20);
+	const gc::Recipe *planks = find_recipe(g, "core:log_to_planks");
+	const gc::Recipe *sticks = find_recipe(g, "core:planks_to_sticks"); // shaped, from main.lua
+	const gc::Recipe *pickaxe = find_recipe(g, "core:wood_pickaxe");
+	const gc::Recipe *chest = find_recipe(g, "core:chest");
+	REQUIRE(planks);
+	REQUIRE(sticks);
+	REQUIRE(pickaxe);
+	REQUIRE(chest);
+	CHECK(sticks->ingredients == std::vector<std::pair<std::string, int>>{{"core:planks", 2}});
+	CHECK(sticks->count == 4);
+	auto &inv = g.inventory();
+	CHECK_FALSE(g.craft(*planks)); // no logs yet
+	inv.add("core:log", 4);
+	for (int i = 0; i < 4; i++) {
+		CHECK(g.craft(*planks));
+	}
+	CHECK(inv.count_of("core:log") == 0);
+	CHECK(inv.count_of("core:planks") == 16);
+	CHECK(g.craft(*sticks));
+	CHECK(inv.count_of("core:stick") == 4);
+	CHECK(g.craft(*pickaxe));
+	CHECK(inv.count_of("core:wood_pickaxe") == 1);
+	CHECK(inv.count_of("core:planks") == 16 - 2 - 3);
+	CHECK(inv.count_of("core:planks") == 11);
+	CHECK(g.craft(*chest)); // 8 planks
+	CHECK(inv.count_of("core:chest") == 1);
+	CHECK(inv.count_of("core:planks") == 3);
+	CHECK_FALSE(g.can_craft(*chest));
+}
+
+TEST_CASE("crafting into a full inventory changes nothing") {
+	Play p;
+	gc::Game &g = *p.game;
+	auto &inv = g.inventory();
+	for (gc::Stack &s : inv.slots) {
+		s = {"core:dirt", 64};
+	}
+	inv.slots[0] = {"core:log", 1};
+	const gc::Recipe *planks = find_recipe(g, "core:log_to_planks");
+	REQUIRE(planks);
+	// Taking the log frees its slot, so the planks fit: allowed.
+	CHECK(g.craft(*planks));
+	CHECK(inv.slots[0] == Stack{"core:planks", 4});
+	// Now a truly full inventory: two logs (one stays in its slot), and room
+	// for just one more plank of the four: refused, nothing lost.
+	inv.slots[0] = {"core:dirt", 64};
+	inv.slots[1] = {"core:log", 2};
+	inv.slots[2] = {"core:planks", 63};
+	const gc::Inventory before = inv;
+	CHECK_FALSE(g.craft(*planks));
+	CHECK(inv.slots == before.slots);
+}

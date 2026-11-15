@@ -539,6 +539,17 @@ struct Mods::Lua {
 		return 1;
 	}
 
+	// registry.recipes(): a copy of every recipe, {[id] = def}.
+	static int registry_recipes(lua_State *L) {
+		Lua *h = of(L);
+		lua_createtable(L, 0, int(h->content.recipes.size()));
+		for (const auto &[id, def] : h->content.recipes) {
+			push_json(L, def);
+			lua_setfield(L, -2, id.c_str());
+		}
+		return 1;
+	}
+
 	// --- events and world ---
 
 	static int events_on(lua_State *L) {
@@ -697,6 +708,8 @@ struct Mods::Lua {
 			lua_pushcclosure(L, &Lua::registry_get, 1);
 			lua_setfield(L, -2, (std::string("get_") + section).c_str());
 		}
+		lua_pushcfunction(L, &Lua::registry_recipes);
+		lua_setfield(L, -2, "recipes");
 		lua_setfield(L, -2, "registry");
 
 		lua_newtable(L); // events

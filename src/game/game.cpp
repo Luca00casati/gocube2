@@ -55,6 +55,66 @@ Json Game::save_player() const {
 	return s;
 }
 
+const std::vector<Recipe> &Game::hand_recipes() {
+	if (!recipes_) {
+		recipes_.emplace();
+		const std::optional<Json> list = mods_.rule("hand_recipes", Json::array());
+		if (list && list->is_array()) {
+			for (const Json &r : *list) {
+				if (!r.is_object() || !r.contains("output") || !r["output"].is_string()) {
+					continue;
+				}
+				Recipe recipe;
+				recipe.id = r.value("id", "");
+				recipe.output = r["output"].get<std::string>();
+				recipe.count = std::max(1, int(r.value("count", 1.0)));
+				const Json ingredients = r.value("ingredients", Json::object()); // (a local: items() of a temporary dangles)
+				for (const auto &[item, n] : ingredients.items()) {
+					if (n.is_number()) {
+						recipe.ingredients.push_back({item, std::max(1, int(n.get<double>()))});
+					}
+				}
+				std::sort(recipe.ingredients.begin(), recipe.ingredients.end());
+				if (!recipe.ingredients.empty()) {
+					recipes_->push_back(std::move(recipe));
+				}
+			}
+		}
+	}
+	return *recipes_;
+}
+
+bool Game::can_craft(const Recipe &r) const {
+	if (creative_) {
+		return true;
+	}
+	for (const auto &[item, n] : r.ingredients) {
+		if (inventory_.count_of(item) < n) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool Game::craft(const Recipe &r) {
+	if (creative_) {
+		inventory_.add(r.output, r.count);
+		return true;
+	}
+	if (!can_craft(r)) {
+		return false;
+	}
+	const Inventory before = inventory_;
+	for (const auto &[item, n] : r.ingredients) {
+		inventory_.remove(item, n);
+	}
+	if (inventory_.add(r.output, r.count) > 0) {
+		inventory_ = before; // no room: undo
+		return false;
+	}
+	return true;
+}
+
 float Game::mine_seconds(const std::string &block, const std::string &tool) {
 	const std::optional<Json> r = mods_.rule("mine_seconds", Json::array({block, tool}));
 	if (r && r->is_number()) {

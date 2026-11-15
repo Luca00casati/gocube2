@@ -17,7 +17,8 @@
 // string (without dump), table, math (without random) and utf8 libraries,
 // the safe basic functions, and
 //   registry   register_block/item/recipe/ore/tree/biome/sound_set(id, def),
-//              get_block(id), get_item(id); ids without "mod:" get this mod's
+//              get_block(id), get_item(id), recipes() -> {[id] = def};
+//              ids without "mod:" get this mod's
 //   events     on(name, function): "tick" (dt), "block_placed" and
 //              "block_broken" (x, y, z, block id)
 //   world      get_block(x, y, z) -> id or nil, set_block(x, y, z, id) -> bool
@@ -100,6 +101,9 @@ public:
 	//   mine_seconds(block, tool) -> seconds to break block holding tool ("" = hand)
 	//   drops(block, tool) -> {item ids} breaking it gives (one each)
 	//   starting_items() -> {{id=, count=}} a new survival player gets
+	//   hand_recipes() -> {{id=, ingredients={[item]=count}, output=, count=}}
+	//   smelting(item) -> {item=, count=} or nil
+	//   fuel_seconds(item) -> seconds it burns in a furnace
 	std::optional<Json> rule(const std::string &name, const Json &args);
 
 	// The sandbox's state, for the tests.
