@@ -52,6 +52,7 @@ target_sources(gocube_core PRIVATE
 	src/game/drops.cpp
 	src/game/drops.h
 	src/game/game.cpp
+	src/game/game_health.cpp
 	src/game/game.h
 	src/game/inventory.cpp
 	src/game/inventory.h

@@ -55,6 +55,11 @@ void Game::load_player(const Json &saved) {
 	}
 	inventory_.deserialize(saved["inventory"]);
 	selected_ = std::clamp(int(saved.value("selected", 0.0)), 0, Inventory::HOTBAR - 1);
+	health_ = std::clamp(int(saved.value("health", double(MAX_HEALTH))), 1, MAX_HEALTH);
+	const Json bed = saved.value("bed", Json());
+	if (bed.is_array() && bed.size() == 3 && bed[0].is_number()) {
+		bed_ = BlockPos{int(bed[0].get<double>()), int(bed[1].get<double>()), int(bed[2].get<double>())};
+	}
 	if (creative_ && std::all_of(inventory_.slots.begin(), inventory_.slots.end(), [](const Stack &s) { return s.empty(); })) {
 		fill_creative();
 	}
@@ -64,6 +69,12 @@ Json Game::save_player() const {
 	Json s = Json::object();
 	s["inventory"] = inventory_.serialize();
 	s["selected"] = selected_;
+	if (!creative_) {
+		s["health"] = health_;
+	}
+	if (bed_) {
+		s["bed"] = {bed_->x, bed_->y, bed_->z};
+	}
 	return s;
 }
 
@@ -216,9 +227,34 @@ void Game::update(float dt, const GameInput &in) {
 		mining_target_ = {1 << 30, 0, 0};
 	}
 
-	// A container opens (sneak to place against it instead).
+	// Right click: a container opens, a bed becomes the respawn point (sneak
+	// to place against them instead), food is eaten; else placing.
+	const Json &target_def = hit.hit ? rules_.def(hit.block) : Json::object();
+	int food = 0;
+	if (in.use_pressed && !selected_item().empty()) {
+		const std::optional<Json> r = mods_.rule("food", Json::array({selected_item()}));
+		food = r && r->is_number() ? int(r->get<double>()) : 0;
+	}
 	if (in.use_pressed && hit.hit && !in.sneak && entities_.at(hit.position)) {
 		opened_ = hit.position;
+	} else if (in.use_pressed && hit.hit && !in.sneak && target_def.value("bed", false)) {
+		// The head part is the one you lie on.
+		BlockPos head = hit.position;
+		const Json st = target_def.value("state", Json::object());
+		if (st.value("part", "") == "foot") {
+			if (auto other = rules_.other_part(rules_.id_of(hit.block), hit.position)) {
+				head = *other;
+			}
+		}
+		if (!bed_ || !(*bed_ == head)) {
+			bed_ = head;
+			show_notice("Respawn point set");
+		}
+	} else if (in.use_pressed && food > 0) {
+		if (!creative_ && health_ < MAX_HEALTH) {
+			health_ = std::min(MAX_HEALTH, health_ + food);
+			inventory_.take_one(selected_);
+		}
 	} else if (in.use_pressed) {
 		// Placing (or using a door) with the selected item; survival uses it up.
 		std::vector<BlockChange> changes;
@@ -244,6 +280,15 @@ void Game::update(float dt, const GameInput &in) {
 
 void Game::tick(double dt) {
 	entities_.update(dt);
+	notice_time_ = std::max(0.0f, notice_time_ - float(dt));
+	since_hurt_ += float(dt);
+	if (spawn_pending_ && try_place_on_ground()) {
+		spawn_pending_ = false;
+		fall_peak_ = player_.position[1];
+		if (!world_spawn_) { // where new players appear and the dead respawn
+			world_spawn_ = std::array<float, 3>{player_.position[0], player_.position[1], player_.position[2]};
+		}
+	}
 }
 
 void Game::physics_step(float dt) {

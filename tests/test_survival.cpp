@@ -368,3 +368,130 @@ TEST_CASE("right-clicking a container opens it; sneaking places against it") {
 	CHECK_FALSE(p.game->take_opened());
 	CHECK(p.block(0, h + 1, -1) == "core:dirt"); // placed against it
 }
+
+namespace {
+
+// A pool of `fluid` (or air) 3 deep around x 0..2, z 0..2 at y 40..42, on stone.
+void pool(Play &p, const char *fluid) {
+	for (int x = -1; x <= 3; x++) {
+		for (int z = -1; z <= 3; z++) {
+			for (int y = 39; y <= 46; y++) {
+				const bool wall = x < 0 || x > 2 || z < 0 || z > 2 || y == 39;
+				REQUIRE(p.world->set_block({x, y, z}, wall ? p.id("core:stone") : (y <= 42 ? p.id(fluid) : 0)));
+			}
+		}
+	}
+}
+
+void live(Play &p, float seconds) {
+	gc::PlayerInput none;
+	for (int i = 0; i < int(seconds * 60); i++) {
+		if (!p.game->frozen()) {
+			p.player.step(none, *p.world, *p.rules);
+			p.game->after_move(gc::Player::STEP);
+		}
+	}
+}
+
+} // namespace
+
+TEST_CASE("falls hurt past 3 blocks; healing comes back after a while") {
+	Play p;
+	pool(p, "core:air");
+	p.player.position[0] = 1.5f;
+	p.player.position[1] = 40.0f + 10.5f; // 10.5 blocks above the floor (y 40): floor(7.5) = 7
+	// (A fall of exactly 10 measures 9.999: the player rests a hair above the floor.)
+	p.player.position[2] = 1.5f;
+	live(p, 0.05f); // (start falling from there)
+	live(p, 3);
+	CHECK(p.player.on_floor);
+	CHECK(p.game->health() == gc::Game::MAX_HEALTH - 7); // floor(10.5 - 3)
+	live(p, 4.0f + 2.5f * 3 + 0.1f); // 4 s, then a point every 2.5 s
+	CHECK(p.game->health() == gc::Game::MAX_HEALTH - 4);
+}
+
+TEST_CASE("drowning starts after 10 seconds of breath; lava burns") {
+	Play water;
+	pool(water, "core:water");
+	water.player.position[0] = 1.5f;
+	water.player.position[1] = 40.0f;
+	water.player.position[2] = 1.5f;
+	live(water, 9);
+	CHECK(water.game->health() == gc::Game::MAX_HEALTH);
+	CHECK(water.game->breath() < 2);
+	live(water, 4); // 3 s of no breath: 2 a second
+	CHECK(water.game->health() < gc::Game::MAX_HEALTH - 2);
+
+	Play lava;
+	pool(lava, "core:lava");
+	lava.player.position[0] = 1.5f;
+	lava.player.position[1] = 40.0f;
+	lava.player.position[2] = 1.5f;
+	live(lava, 1.1f);
+	CHECK(lava.game->health() < gc::Game::MAX_HEALTH - 5);
+}
+
+TEST_CASE("dying keeps the inventory; respawning is at the bed, or the world spawn without it") {
+	Play p;
+	pool(p, "core:air");
+	p.game->inventory().slots[3] = {"core:coal", 9};
+	p.game->set_world_spawn(Json::array({1.5, 40.0, 1.5}));
+	// A bed on the pool's floor, set as the respawn point by right-clicking it.
+	REQUIRE(p.world->set_block({1, 40, 0}, p.id("core:bed")));          // foot (facing north: head at z - 1)
+	REQUIRE(p.world->set_block({1, 40, -1}, p.id("core:bed_n_head")));
+	p.player.position[0] = 1.5f;
+	p.player.position[1] = 41.0f;
+	p.player.position[2] = 2.5f;
+	p.player.yaw = 0;
+	p.player.pitch = -std::atan2(1.62f + 0.45f, 2.0f); // at the bed's foot
+	gc::GameInput in;
+	in.captured = true;
+	in.use_pressed = true;
+	p.game->update(0.016f, in);
+	CHECK(p.game->notice() == "Respawn point set");
+	p.game->damage(100);
+	CHECK(p.game->dead());
+	CHECK(p.game->frozen());
+	p.game->respawn();
+	CHECK_FALSE(p.game->dead());
+	CHECK(p.game->health() == gc::Game::MAX_HEALTH);
+	CHECK(p.player.position[2] == doctest::Approx(-0.5)); // on the bed's head
+	CHECK(p.game->inventory().slots[3] == Stack{"core:coal", 9});
+	// The bed gone: back to the world spawn.
+	REQUIRE(p.world->set_block({1, 40, -1}, 0));
+	p.game->damage(100);
+	p.game->respawn();
+	CHECK(p.player.position[0] == doctest::Approx(1.5));
+	CHECK(p.player.position[2] == doctest::Approx(1.5));
+	CHECK(p.game->notice().find("bed was missing") != std::string::npos);
+}
+
+TEST_CASE("eating heals; food isn't eaten at full health") {
+	Play p;
+	p.game->inventory().slots[0] = {"core:bread", 2};
+	gc::GameInput in;
+	in.captured = true;
+	in.use_pressed = true;
+	p.player.pitch = 1.5f; // at the sky: nothing to place against
+	p.game->update(0.016f, in);
+	CHECK(p.game->inventory().slots[0].count == 2); // full health
+	p.game->damage(10);
+	p.game->update(0.016f, in);
+	CHECK(p.game->inventory().slots[0].count == 1);
+	CHECK(p.game->health() > gc::Game::MAX_HEALTH - 10);
+}
+
+TEST_CASE("a new player is put on dry ground (a biome's surface) and that becomes the world spawn") {
+	Play p;
+	p.player.position[0] = 0.5f;
+	p.player.position[1] = 100.0f;
+	p.player.position[2] = 0.5f;
+	p.game->spawn_on_ground();
+	CHECK(p.game->frozen());
+	p.game->tick(0.016);
+	CHECK_FALSE(p.game->frozen());
+	REQUIRE(p.game->world_spawn());
+	const int x = int(std::floor(p.player.position[0])), y = int(std::floor(p.player.position[1])), z = int(std::floor(p.player.position[2]));
+	CHECK(p.block(x, y - 1, z) == "core:grass"); // (the vanilla biome's surface; seed 4242's origin is a cave)
+	CHECK(p.block(x, y, z) != "core:water");
+}

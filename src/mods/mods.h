@@ -104,6 +104,8 @@ public:
 	//   hand_recipes() -> {{id=, ingredients={[item]=count}, output=, count=}}
 	//   smelting(item) -> {item=, count=} or nil
 	//   fuel_seconds(item) -> seconds it burns in a furnace
+	//   fall_damage(blocks) -> health a fall of that many blocks takes
+	//   food(item) -> health eating it gives (0: not food)
 	std::optional<Json> rule(const std::string &name, const Json &args);
 
 	// The sandbox's state, for the tests.

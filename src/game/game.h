@@ -13,6 +13,7 @@
 #include "mods/mods.h"
 #include "world/world.h"
 
+#include <array>
 #include <optional>
 #include <string>
 #include <utility>
@@ -65,8 +66,36 @@ public:
 
 	// Once a frame: hotbar, mining, breaking, placing, picking.
 	void update(float dt, const GameInput &input);
-	// Once a frame: furnaces.
+	// Once a frame: furnaces, notices.
 	void tick(double dt);
+
+	// --- Health (survival) ---
+	static constexpr int MAX_HEALTH = 20;
+	static constexpr float MAX_BREATH = 10.0f; // seconds underwater before drowning starts
+	int health() const { return health_; }
+	float breath() const { return breath_; }
+	bool dead() const { return dead_; }
+	// The player shouldn't move: dead, or waiting for ground to spawn on.
+	bool frozen() const { return dead_ || spawn_pending_; }
+	// After each physics step: falls, burning, drowning, healing.
+	void after_move(float dt);
+	void damage(int amount, const std::string &source = "");
+	// Back to life: at the bed if it's still there, else at the world spawn.
+	void respawn();
+	// Seconds since the last hurt (for the red flash), and a short message.
+	float since_hurt() const { return since_hurt_; }
+	const std::string &notice() const { return notice_; }
+	float notice_time() const { return notice_time_; }
+	void show_notice(const std::string &text) {
+		notice_ = text;
+		notice_time_ = 3.5f;
+	}
+
+	// A new world: put the player on dry ground near the origin once it's
+	// loaded (that becomes the world spawn).
+	void spawn_on_ground() { spawn_pending_ = true; }
+	const std::optional<std::array<float, 3>> &world_spawn() const { return world_spawn_; }
+	void set_world_spawn(const Json &saved); // world.json's "spawn"
 	// Once a physics step: dropped items.
 	void physics_step(float dt);
 	void drop_item(const std::string &item, int count, const float at[3]) { drops_.spawn(item, count, at); }
@@ -99,6 +128,21 @@ private:
 	BlockEntities entities_;
 	std::optional<BlockPos> opened_;
 	std::optional<std::vector<Recipe>> recipes_;
+	bool try_place_on_ground();
+	void unstuck();
+
+	int health_ = MAX_HEALTH;
+	float breath_ = MAX_BREATH;
+	bool dead_ = false;
+	float fall_peak_ = 0;
+	bool was_on_floor_ = true;
+	float since_damage_ = 0, regen_timer_ = 0, drown_timer_ = 0, burn_timer_ = 0.5f;
+	float since_hurt_ = 99;
+	std::optional<BlockPos> bed_;
+	bool spawn_pending_ = false;
+	std::optional<std::array<float, 3>> world_spawn_;
+	std::string notice_;
+	float notice_time_ = 0;
 	BlockPos mining_target_{1 << 30, 0, 0};
 	float mining_progress_ = 0;
 	float mining_seconds_ = 1;

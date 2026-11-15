@@ -207,6 +207,22 @@ int number_pressed(const gc::Window &window, Controls &controls) {
 }
 
 // The hotbar, the mining bar and the crosshair.
+// The death screen; true when Respawn is pressed.
+bool death_screen() {
+	const ImGuiIO &io = ImGui::GetIO();
+	ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(90, 0, 0, 140));
+	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.45f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+	ImGui::Begin("Dead", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground);
+	ImGui::SetWindowFontScale(2.5f);
+	ImGui::TextUnformatted("You died");
+	ImGui::SetWindowFontScale(1.0f);
+	ImGui::Dummy(ImVec2(0, 10));
+	const bool respawn = ImGui::Button("Respawn", ImVec2(ImGui::GetContentRegionAvail().x, 36));
+	ImGui::End();
+	return respawn;
+}
+
 void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::ChunkRenderer &chunks,
 		const gc::BlockRules &rules, bool captured) {
 	const ImGuiIO &io = ImGui::GetIO();
@@ -247,12 +263,48 @@ void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::Chunk
 			dl->AddText(ImVec2(b.x - size.x - 4, b.y - size.y - 2), IM_COL32(255, 255, 255, 255), n.c_str());
 		}
 	}
+	// Health (hearts, 2 points each) and, underwater, breath.
+	if (!game.creative()) {
+		const float hy = y0 - 22;
+		for (int i = 0; i < gc::Game::MAX_HEALTH / 2; i++) {
+			const ImVec2 hc(x0 + 9 + i * 20.0f, hy);
+			const int points = game.health() - i * 2; // 2 full, 1 half, <=0 empty
+			auto heart = [&](ImU32 col, float clip) {
+				// Two circles and a point, clipped from the right for half hearts.
+				dl->PushClipRect(ImVec2(hc.x - 9, hc.y - 9), ImVec2(hc.x - 9 + 18 * clip, hc.y + 10), true);
+				dl->AddCircleFilled(ImVec2(hc.x - 3.5f, hc.y - 2), 4.5f, col);
+				dl->AddCircleFilled(ImVec2(hc.x + 3.5f, hc.y - 2), 4.5f, col);
+				dl->AddTriangleFilled(ImVec2(hc.x - 8, hc.y), ImVec2(hc.x + 8, hc.y), ImVec2(hc.x, hc.y + 8), col);
+				dl->PopClipRect();
+			};
+			heart(IM_COL32(40, 10, 10, 200), 1.0f);
+			if (points > 0) {
+				heart(IM_COL32(220, 30, 40, 255), points >= 2 ? 1.0f : 0.5f);
+			}
+		}
+		if (game.breath() < gc::Game::MAX_BREATH) {
+			const int bubbles = int(std::ceil(game.breath() / gc::Game::MAX_BREATH * 10));
+			for (int i = 0; i < bubbles; i++) {
+				dl->AddCircle(ImVec2(x0 + total - 9 - i * 20.0f, hy), 7, IM_COL32(170, 220, 255, 255), 0, 2.0f);
+			}
+		}
+	}
+	// Hurt: a red flash. A notice at the top.
+	if (game.since_hurt() < 0.4f) {
+		dl->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(200, 0, 0, int(90 * (1.0f - game.since_hurt() / 0.4f))));
+	}
+	if (game.notice_time() > 0) {
+		const ImVec2 size = ImGui::CalcTextSize(game.notice().c_str());
+		const int alpha = int(255 * std::min(1.0f, game.notice_time()));
+		dl->AddText(ImVec2(c.x - size.x / 2, 60), IM_COL32(255, 255, 255, alpha), game.notice().c_str());
+	}
 	// The held item's name above the hotbar.
 	const gc::Stack &held = game.inventory().slots[game.selected()];
 	if (!held.empty()) {
 		const std::string name = gc::display_name(rules.content(), held.id);
 		const ImVec2 size = ImGui::CalcTextSize(name.c_str());
-		dl->AddText(ImVec2(c.x - size.x / 2, y0 - size.y - 6), IM_COL32(255, 255, 255, 230), name.c_str());
+		dl->AddText(ImVec2(c.x - size.x / 2, y0 - size.y - (game.creative() ? 6 : 36)), IM_COL32(255, 255, 255, 230),
+				name.c_str());
 	}
 }
 
@@ -440,8 +492,12 @@ int main(int argc, char **argv) {
 	if (save) {
 		game.load_player(save->player());
 		game.block_entities().deserialize(save->field("block_entities"));
+		game.set_world_spawn(save->field("spawn"));
 	} else {
 		game.start_new_player();
+	}
+	if (!options.has_pos && !(save && save->player().contains("position"))) {
+		game.spawn_on_ground(); // a new player: on dry ground near the origin, once it's loaded
 	}
 	for (size_t i = 0; i < options.drop.size(); i++) { // (for trying things out)
 		float look[3];
@@ -465,6 +521,9 @@ int main(int argc, char **argv) {
 			gc::Json state = player_state(player);
 			state.update(game.save_player());
 			save->set_field("block_entities", game.block_entities().serialize());
+			if (const auto &spawn = game.world_spawn()) {
+				save->set_field("spawn", {(*spawn)[0], (*spawn)[1], (*spawn)[2]});
+			}
 			save->save(state);
 			gc::log("Saved the world (%d chunks)", chunks_saved);
 		}
@@ -540,7 +599,10 @@ int main(int argc, char **argv) {
 		accumulator += dt;
 		while (accumulator >= gc::Player::STEP) {
 			std::copy(player.position, player.position + 3, previous_position);
-			player.step(input, *world, rules);
+			if (!game.frozen()) {
+				player.step(input, *world, rules);
+				game.after_move(gc::Player::STEP);
+			}
 			game.physics_step(gc::Player::STEP);
 			accumulator -= gc::Player::STEP;
 		}
@@ -595,7 +657,15 @@ int main(int argc, char **argv) {
 					game, mods, window.mouse_captured());
 		}
 		const gc::UiIcons icons{ImTextureID(chunks.ui_atlas()), &table, &content};
-		if (screen == Screen::INVENTORY && !gc::inventory_screen(game, icons)) {
+		if (game.dead()) {
+			if (window.mouse_captured()) {
+				window.set_mouse_captured(false);
+			}
+			if (death_screen()) {
+				game.respawn();
+				window.set_mouse_captured(true);
+			}
+		} else if (screen == Screen::INVENTORY && !gc::inventory_screen(game, icons)) {
 			close_screen();
 		} else if (screen == Screen::CONTAINER && !gc::container_screen(game, container, icons)) {
 			close_screen();
