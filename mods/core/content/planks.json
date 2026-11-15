@@ -1,0 +1,14 @@
+{
+  "blocks": {
+    "planks": {"hardness": 2.0, "flammable": true, "color": "#b8945f",
+      "textures": {"all": "textures/planks.png"}, "sound": "core:wood", "tool": "axe", "fuel": 7.5}
+  },
+  "recipes": {
+    "planks_to_sticks": {
+      "type": "shaped",
+      "pattern": ["P", "P"],
+      "key": {"P": "core:planks"},
+      "output": {"item": "core:stick", "count": 4}
+    }
+  }
+}

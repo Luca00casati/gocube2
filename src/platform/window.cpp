@@ -45,6 +45,9 @@ bool Window::create(const wchar_t *title, int width, int height, bool visible) {
 	width_ = client.right - client.left;
 	height_ = client.bottom - client.top;
 	open_ = true;
+	// Raw mouse motion (WM_INPUT): unaffected by pointer acceleration and the screen's edges.
+	RAWINPUTDEVICE mouse = {0x01, 0x02, 0, hwnd_}; // generic desktop, mouse
+	RegisterRawInputDevices(&mouse, 1, sizeof(mouse));
 	if (visible) {
 		ShowWindow(hwnd_, SW_SHOWDEFAULT);
 	}
@@ -76,14 +79,58 @@ LRESULT CALLBACK Window::proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 	return self ? self->handle(msg, wp, lp) : DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+void Window::set_mouse_captured(bool captured) {
+	if (captured == captured_ || !hwnd_) {
+		return;
+	}
+	captured_ = captured;
+	if (captured) {
+		RECT r;
+		GetClientRect(hwnd_, &r);
+		MapWindowPoints(hwnd_, nullptr, reinterpret_cast<POINT *>(&r), 2);
+		ClipCursor(&r);
+		while (ShowCursor(FALSE) >= 0) {
+		}
+	} else {
+		ClipCursor(nullptr);
+		while (ShowCursor(TRUE) < 0) {
+		}
+	}
+	mouse_dx_ = mouse_dy_ = 0;
+}
+
+bool Window::key_down(int vk) const {
+	return hwnd_ && GetForegroundWindow() == hwnd_ && (GetAsyncKeyState(vk) & 0x8000) != 0;
+}
+
 LRESULT Window::handle(UINT msg, WPARAM wp, LPARAM lp) {
 	switch (msg) {
+		case WM_INPUT: {
+			RAWINPUT raw;
+			UINT size = sizeof(raw);
+			if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lp), RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) != UINT(-1) &&
+					raw.header.dwType == RIM_TYPEMOUSE && !(raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE) && captured_) {
+				mouse_dx_ += float(raw.data.mouse.lLastX);
+				mouse_dy_ += float(raw.data.mouse.lLastY);
+			}
+			break; // DefWindowProc cleans up
+		}
+		case WM_LBUTTONDOWN:
+			clicked_ = true;
+			return 0;
+		case WM_KILLFOCUS:
+			set_mouse_captured(false);
+			return 0;
 		case WM_SIZE: {
 			const int w = LOWORD(lp), h = HIWORD(lp);
 			if (w != width_ || h != height_) {
 				width_ = w;
 				height_ = h;
 				resized_ = true;
+				if (captured_) { // hold the cursor in the new client area
+					set_mouse_captured(false);
+					set_mouse_captured(true);
+				}
 			}
 			return 0;
 		}

@@ -10,6 +10,21 @@ From PowerShell outside it:
 
 then `cmake --preset windows`, `cmake --build --preset debug`, `ctest --preset debug`.
 
+## World generation must not change
+`tests/test_worldgen.cpp` checks the Godot version's fingerprints (seed 777 with
+generator 3, seed 4242 with generator 1): block data and light of the chunks around
+the origin. Unedited chunks are generated again every time a world is opened, so any
+change in what comes out moves caves, ores and light in worlds already played. Block
+ids (`core:air`, then sorted ids after shaped blocks' variants are added), the block
+table and the generator tables in `src/content/` feed into it as much as
+`src/voxel/` does. A real change to generation is a new generator version (old
+worlds keep theirs) with new fingerprints.
+
+## Seeing the result
+`build\Release\gocube.exe --hidden --frames=10 --screenshot=<file>.png` (add
+`--pos=X,Y,Z --look=YAW,PITCH`) renders once the world around has loaded; read the
+PNG to check what a rendering change looks like.
+
 ## Graphics
 Direct3D 11, feature level 11_0 minimum. Not Direct3D 12: the development PC's
 Intel HD Graphics 4600 hangs on every Direct3D 12 draw (Intel disabled Direct3D 12

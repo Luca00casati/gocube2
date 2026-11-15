@@ -1,0 +1,10 @@
+{
+  "id": "core",
+  "name": "GoCube Base Game",
+  "version": "0.1.0",
+  "content": [
+    "content/base.json",
+    "content/planks.json"
+  ],
+  "api_version": 1
+}

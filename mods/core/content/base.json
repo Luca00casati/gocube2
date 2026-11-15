@@ -1,0 +1,1703 @@
+{
+  "blocks": {
+    "air": {
+      "solid": false,
+      "transparent": true
+    },
+    "stone": {
+      "hardness": 1.5,
+      "drops": "core:cobblestone",
+      "color": "#7f7f7f",
+      "textures": {
+        "all": "textures/stone.png"
+      },
+      "sound": "core:stone",
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "random_rotation": true
+    },
+    "cobblestone": {
+      "hardness": 2.0,
+      "color": "#6a6a6a",
+      "textures": {
+        "all": "textures/cobblestone.png"
+      },
+      "sound": "core:stone",
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "random_rotation": true
+    },
+    "dirt": {
+      "hardness": 0.5,
+      "color": "#8b5a2b",
+      "textures": {
+        "all": "textures/dirt.png"
+      },
+      "sound": "core:grass",
+      "random_rotation": true
+    },
+    "grass": {
+      "hardness": 0.6,
+      "tint": true,
+      "drops": "core:dirt",
+      "till_drops": [
+        [
+          "core:seeds",
+          1,
+          0.1
+        ]
+      ],
+      "color": "#5fa83a",
+      "textures": {
+        "top": "textures/grass_top.png",
+        "side": "textures/grass_side.png",
+        "bottom": "textures/dirt.png"
+      },
+      "sound": "core:grass",
+      "random_rotation": true
+    },
+    "sand": {
+      "hardness": 0.5,
+      "color": "#d6c38a",
+      "textures": {
+        "all": "textures/sand.png"
+      },
+      "sound": "core:sand",
+      "random_rotation": true,
+      "falls": true
+    },
+    "gravel": {
+      "hardness": 0.6,
+      "color": "#7a6f66",
+      "textures": {
+        "all": "textures/gravel.png"
+      },
+      "sound": "core:gravel",
+      "random_rotation": true,
+      "falls": true
+    },
+    "log": {
+      "hardness": 2.0,
+      "flammable": true,
+      "color": "#59422c",
+      "textures": {
+        "top": "textures/log_top.png",
+        "bottom": "textures/log_top.png",
+        "side": "textures/log_side.png"
+      },
+      "sound": "core:wood",
+      "tool": "axe",
+      "fuel": 15
+    },
+    "leaves": {
+      "tint": true,
+      "hardness": 0.2,
+      "flammable": true,
+      "color": "#356828",
+      "textures": {
+        "all": "textures/leaves.png"
+      },
+      "sound": "core:grass",
+      "leaves": true,
+      "extra_drops": [
+        [
+          "core:oak_sapling",
+          1,
+          0.06
+        ]
+      ],
+      "sapling": "core:oak_sapling"
+    },
+    "coal_ore": {
+      "hardness": 3.0,
+      "color": "#3a3a40",
+      "textures": {
+        "all": "textures/coal_ore.png"
+      },
+      "sound": "core:stone",
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "drops": "core:coal",
+      "eater_weight": 0.4,
+      "random_rotation": true
+    },
+    "iron_ore": {
+      "hardness": 3.0,
+      "color": "#9a8070",
+      "textures": {
+        "all": "textures/iron_ore.png"
+      },
+      "sound": "core:stone",
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "eater_weight": 0.25,
+      "random_rotation": true,
+      "min_tier": 2
+    },
+    "gold_ore": {
+      "hardness": 3.0,
+      "color": "#b8a050",
+      "textures": {
+        "all": "textures/gold_ore.png"
+      },
+      "sound": "core:stone",
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "eater_weight": 0.12,
+      "random_rotation": true,
+      "min_tier": 3
+    },
+    "crystal_ore": {
+      "hardness": 3.0,
+      "color": "#5aa8b0",
+      "textures": {
+        "all": "textures/crystal_ore.png"
+      },
+      "sound": "core:stone",
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "eater_weight": 0.06,
+      "random_rotation": true,
+      "min_tier": 3
+    },
+    "water": {
+      "solid": false,
+      "fluid": "water",
+      "color": "#3f76d6b3",
+      "level": 8
+    },
+    "lamp": {
+      "hardness": 0.3,
+      "light": 14,
+      "color": "#f2c25a",
+      "textures": {
+        "all": "textures/lamp.png"
+      },
+      "sound": "core:stone",
+      "eater_weight": 0.1
+    },
+    "water_1": {
+      "solid": false,
+      "fluid": "water",
+      "level": 1,
+      "flowing": true,
+      "color": "#3f76d6b3"
+    },
+    "water_2": {
+      "solid": false,
+      "fluid": "water",
+      "level": 2,
+      "flowing": true,
+      "color": "#3f76d6b3"
+    },
+    "water_3": {
+      "solid": false,
+      "fluid": "water",
+      "level": 3,
+      "flowing": true,
+      "color": "#3f76d6b3"
+    },
+    "water_4": {
+      "solid": false,
+      "fluid": "water",
+      "level": 4,
+      "flowing": true,
+      "color": "#3f76d6b3"
+    },
+    "water_5": {
+      "solid": false,
+      "fluid": "water",
+      "level": 5,
+      "flowing": true,
+      "color": "#3f76d6b3"
+    },
+    "water_6": {
+      "solid": false,
+      "fluid": "water",
+      "level": 6,
+      "flowing": true,
+      "color": "#3f76d6b3"
+    },
+    "water_7": {
+      "solid": false,
+      "fluid": "water",
+      "level": 7,
+      "flowing": true,
+      "color": "#3f76d6b3"
+    },
+    "furnace": {
+      "hardness": 3.5,
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "sound": "core:stone",
+      "color": "#6a6a6a",
+      "block_entity": "furnace",
+      "textures": {
+        "side": "textures/furnace_side.png",
+        "top": "textures/furnace_top.png",
+        "bottom": "textures/furnace_top.png"
+      },
+      "eater_weight": 0.15
+    },
+    "chest": {
+      "hardness": 2.5,
+      "tool": "axe",
+      "sound": "core:wood",
+      "color": "#9a7448",
+      "fuel": 15,
+      "block_entity": "chest",
+      "textures": {
+        "side": "textures/chest_side.png",
+        "top": "textures/chest_top.png",
+        "bottom": "textures/planks.png"
+      },
+      "eater_weight": 0.15
+    },
+    "torch": {
+      "shape": "torch",
+      "light": 13,
+      "hardness": 0.1,
+      "sound": "core:wood",
+      "color": "#e0a040",
+      "textures": {
+        "all": "textures/torch.png"
+      },
+      "fuel": 5,
+      "needs_support": true
+    },
+    "ladder": {
+      "shape": "ladder",
+      "climbable": true,
+      "hardness": 0.6,
+      "tool": "axe",
+      "sound": "core:wood",
+      "color": "#93683d",
+      "textures": {
+        "all": "textures/ladder.png"
+      },
+      "fuel": 5,
+      "needs_support": true
+    },
+    "glass": {
+      "transparent": true,
+      "hardness": 0.4,
+      "sound": "core:stone",
+      "color": "#cfe3ec",
+      "drops": "",
+      "textures": {
+        "all": "textures/glass.png"
+      }
+    },
+    "wood_door": {
+      "shape": "door",
+      "hardness": 1.5,
+      "tool": "axe",
+      "sound": "core:wood",
+      "color": "#93683d",
+      "textures": {
+        "all": "textures/door_lower.png"
+      },
+      "textures_upper": {
+        "all": "textures/door_upper.png"
+      },
+      "icon": "textures/door_upper.png",
+      "fuel": 10,
+      "needs_support": true
+    },
+    "planks_fence": {
+      "shape": "fence",
+      "hardness": 1.5,
+      "tool": "axe",
+      "sound": "core:wood",
+      "color": "#a67748",
+      "textures": {
+        "all": "textures/planks.png"
+      },
+      "fuel": 7.5
+    },
+    "stone_slab": {
+      "textures": {
+        "all": "textures/stone.png"
+      },
+      "color": "#7a7d83",
+      "hardness": 1.5,
+      "sound": "core:stone",
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "shape": "slab"
+    },
+    "stone_stairs": {
+      "textures": {
+        "all": "textures/stone.png"
+      },
+      "color": "#7a7d83",
+      "hardness": 1.5,
+      "sound": "core:stone",
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "shape": "stairs"
+    },
+    "cobblestone_slab": {
+      "textures": {
+        "all": "textures/cobblestone.png"
+      },
+      "color": "#6a6a6a",
+      "hardness": 1.5,
+      "sound": "core:stone",
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "shape": "slab"
+    },
+    "cobblestone_stairs": {
+      "textures": {
+        "all": "textures/cobblestone.png"
+      },
+      "color": "#6a6a6a",
+      "hardness": 1.5,
+      "sound": "core:stone",
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "shape": "stairs"
+    },
+    "planks_slab": {
+      "textures": {
+        "all": "textures/planks.png"
+      },
+      "color": "#a67748",
+      "hardness": 1.0,
+      "sound": "core:wood",
+      "tool": "axe",
+      "fuel": 4,
+      "shape": "slab"
+    },
+    "planks_stairs": {
+      "textures": {
+        "all": "textures/planks.png"
+      },
+      "color": "#a67748",
+      "hardness": 1.0,
+      "sound": "core:wood",
+      "tool": "axe",
+      "fuel": 4,
+      "shape": "stairs"
+    },
+    "farmland": {
+      "hardness": 0.6,
+      "sound": "core:grass",
+      "color": "#5a3c22",
+      "drops": "core:dirt",
+      "textures": {
+        "top": "textures/farmland_top.png",
+        "side": "textures/dirt.png",
+        "bottom": "textures/dirt.png"
+      }
+    },
+    "wheat_0": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#6a8a30",
+      "textures": {
+        "all": "textures/wheat_0.png"
+      },
+      "plant_on": [
+        "core:farmland"
+      ],
+      "drops": "core:seeds",
+      "grows_into": "core:wheat_1",
+      "grow_seconds": 50,
+      "hidden": true
+    },
+    "wheat_1": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#6a8a30",
+      "textures": {
+        "all": "textures/wheat_1.png"
+      },
+      "plant_on": [
+        "core:farmland"
+      ],
+      "drops": "core:seeds",
+      "grows_into": "core:wheat_2",
+      "grow_seconds": 50,
+      "hidden": true
+    },
+    "wheat_2": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#6a8a30",
+      "textures": {
+        "all": "textures/wheat_2.png"
+      },
+      "plant_on": [
+        "core:farmland"
+      ],
+      "drops": "core:seeds",
+      "grows_into": "core:wheat_3",
+      "grow_seconds": 50,
+      "hidden": true
+    },
+    "wheat_3": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#6a8a30",
+      "textures": {
+        "all": "textures/wheat_3.png"
+      },
+      "plant_on": [
+        "core:farmland"
+      ],
+      "drops": "core:seeds",
+      "grows_into": "core:wheat_4",
+      "grow_seconds": 50,
+      "hidden": true
+    },
+    "wheat_4": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#6a8a30",
+      "textures": {
+        "all": "textures/wheat_4.png"
+      },
+      "plant_on": [
+        "core:farmland"
+      ],
+      "drops": "core:seeds",
+      "grows_into": "core:wheat_5",
+      "grow_seconds": 50,
+      "hidden": true
+    },
+    "wheat_5": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#6a8a30",
+      "textures": {
+        "all": "textures/wheat_5.png"
+      },
+      "plant_on": [
+        "core:farmland"
+      ],
+      "drops": "core:seeds",
+      "grows_into": "core:wheat_6",
+      "grow_seconds": 50,
+      "hidden": true
+    },
+    "wheat_6": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#6a8a30",
+      "textures": {
+        "all": "textures/wheat_6.png"
+      },
+      "plant_on": [
+        "core:farmland"
+      ],
+      "drops": "core:seeds",
+      "grows_into": "core:wheat_7",
+      "grow_seconds": 50,
+      "hidden": true
+    },
+    "wheat_7": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#6a8a30",
+      "textures": {
+        "all": "textures/wheat_7.png"
+      },
+      "plant_on": [
+        "core:farmland"
+      ],
+      "drops": "core:wheat",
+      "extra_drops": [
+        [
+          "core:seeds",
+          1,
+          1.0
+        ],
+        [
+          "core:seeds",
+          1,
+          0.5
+        ]
+      ],
+      "hidden": true
+    },
+    "tall_grass": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#4f8a30",
+      "textures": {
+        "all": "textures/tall_grass.png"
+      },
+      "drops": "",
+      "extra_drops": [
+        [
+          "core:seeds",
+          1,
+          0.15
+        ]
+      ],
+      "replaceable": true,
+      "plant_on": [
+        "core:grass",
+        "core:dirt"
+      ]
+    },
+    "bluebell": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#6080e2",
+      "textures": {
+        "all": "textures/bluebell.png"
+      },
+      "replaceable": true,
+      "plant_on": [
+        "core:grass",
+        "core:dirt"
+      ]
+    },
+    "sunpetal": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#f6ce3c",
+      "textures": {
+        "all": "textures/sunpetal.png"
+      },
+      "replaceable": true,
+      "plant_on": [
+        "core:grass",
+        "core:dirt"
+      ]
+    },
+    "sandstone": {
+      "hardness": 1.0,
+      "tool": "pickaxe",
+      "requires_tool": true,
+      "sound": "core:stone",
+      "color": "#cdb57a",
+      "textures": {
+        "all": "textures/sandstone.png"
+      },
+      "random_rotation": true
+    },
+    "snow_grass": {
+      "hardness": 0.6,
+      "sound": "core:grass",
+      "color": "#e6eef5",
+      "drops": "core:dirt",
+      "textures": {
+        "side": "textures/snow_grass_side.png",
+        "top": "textures/snow_grass_top.png",
+        "bottom": "textures/dirt.png"
+      }
+    },
+    "ice": {
+      "hardness": 0.5,
+      "tool": "pickaxe",
+      "sound": "core:stone",
+      "color": "#a9caeb",
+      "drops": "",
+      "textures": {
+        "all": "textures/ice.png"
+      },
+      "random_rotation": true
+    },
+    "birch_log": {
+      "hardness": 2.0,
+      "tool": "axe",
+      "sound": "core:wood",
+      "color": "#ddd8cf",
+      "fuel": 15,
+      "flammable": true,
+      "textures": {
+        "side": "textures/birch_log_side.png",
+        "top": "textures/birch_log_top.png",
+        "bottom": "textures/birch_log_top.png"
+      }
+    },
+    "birch_leaves": {
+      "tint": true,
+      "hardness": 0.2,
+      "sound": "core:grass",
+      "color": "#5a9236",
+      "flammable": true,
+      "textures": {
+        "all": "textures/birch_leaves.png"
+      },
+      "leaves": true,
+      "extra_drops": [
+        [
+          "core:birch_sapling",
+          1,
+          0.06
+        ]
+      ],
+      "sapling": "core:birch_sapling"
+    },
+    "spruce_log": {
+      "hardness": 2.0,
+      "tool": "axe",
+      "sound": "core:wood",
+      "color": "#432f20",
+      "fuel": 15,
+      "flammable": true,
+      "textures": {
+        "side": "textures/spruce_log_side.png",
+        "top": "textures/spruce_log_top.png",
+        "bottom": "textures/spruce_log_top.png"
+      }
+    },
+    "spruce_leaves": {
+      "tint": true,
+      "hardness": 0.2,
+      "sound": "core:grass",
+      "color": "#25492f",
+      "flammable": true,
+      "textures": {
+        "all": "textures/spruce_leaves.png"
+      },
+      "leaves": true,
+      "extra_drops": [
+        [
+          "core:spruce_sapling",
+          1,
+          0.06
+        ]
+      ],
+      "sapling": "core:spruce_sapling"
+    },
+    "cactus": {
+      "shape": "boxes",
+      "boxes": [
+        [
+          1,
+          0,
+          1,
+          15,
+          16,
+          15
+        ]
+      ],
+      "hardness": 0.4,
+      "sound": "core:grass",
+      "color": "#43832e",
+      "textures": {
+        "side": "textures/cactus_side.png",
+        "top": "textures/cactus_top.png",
+        "bottom": "textures/cactus_top.png"
+      },
+      "plant_on": [
+        "core:sand",
+        "core:cactus"
+      ]
+    },
+    "dead_bush": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#6e5030",
+      "drops": "core:stick",
+      "textures": {
+        "all": "textures/dead_bush.png"
+      },
+      "replaceable": true,
+      "plant_on": [
+        "core:sand"
+      ]
+    },
+    "lava": {
+      "solid": false,
+      "fluid": "lava",
+      "level": 8,
+      "light": 15,
+      "color": "#e8641e",
+      "flow_step": 2,
+      "damage": 4,
+      "textures": {
+        "all": "textures/lava.png"
+      }
+    },
+    "lava_1": {
+      "solid": false,
+      "fluid": "lava",
+      "level": 1,
+      "flowing": true,
+      "light": 15,
+      "color": "#e8641e",
+      "flow_step": 2,
+      "damage": 4,
+      "textures": {
+        "all": "textures/lava.png"
+      }
+    },
+    "lava_2": {
+      "solid": false,
+      "fluid": "lava",
+      "level": 2,
+      "flowing": true,
+      "light": 15,
+      "color": "#e8641e",
+      "flow_step": 2,
+      "damage": 4,
+      "textures": {
+        "all": "textures/lava.png"
+      }
+    },
+    "lava_3": {
+      "solid": false,
+      "fluid": "lava",
+      "level": 3,
+      "flowing": true,
+      "light": 15,
+      "color": "#e8641e",
+      "flow_step": 2,
+      "damage": 4,
+      "textures": {
+        "all": "textures/lava.png"
+      }
+    },
+    "lava_4": {
+      "solid": false,
+      "fluid": "lava",
+      "level": 4,
+      "flowing": true,
+      "light": 15,
+      "color": "#e8641e",
+      "flow_step": 2,
+      "damage": 4,
+      "textures": {
+        "all": "textures/lava.png"
+      }
+    },
+    "lava_5": {
+      "solid": false,
+      "fluid": "lava",
+      "level": 5,
+      "flowing": true,
+      "light": 15,
+      "color": "#e8641e",
+      "flow_step": 2,
+      "damage": 4,
+      "textures": {
+        "all": "textures/lava.png"
+      }
+    },
+    "lava_6": {
+      "solid": false,
+      "fluid": "lava",
+      "level": 6,
+      "flowing": true,
+      "light": 15,
+      "color": "#e8641e",
+      "flow_step": 2,
+      "damage": 4,
+      "textures": {
+        "all": "textures/lava.png"
+      }
+    },
+    "lava_7": {
+      "solid": false,
+      "fluid": "lava",
+      "level": 7,
+      "flowing": true,
+      "light": 15,
+      "color": "#e8641e",
+      "flow_step": 2,
+      "damage": 4,
+      "textures": {
+        "all": "textures/lava.png"
+      }
+    },
+    "oak_sapling": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#356828",
+      "textures": {
+        "all": "textures/oak_sapling.png"
+      },
+      "plant_on": [
+        "core:grass",
+        "core:dirt",
+        "core:snow_grass"
+      ],
+      "grows_tree": {
+        "core:oak": 9,
+        "core:big_oak": 1
+      },
+      "grow_seconds": 240,
+      "fuel": 2
+    },
+    "birch_sapling": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#5a9236",
+      "textures": {
+        "all": "textures/birch_sapling.png"
+      },
+      "plant_on": [
+        "core:grass",
+        "core:dirt",
+        "core:snow_grass"
+      ],
+      "grows_tree": "core:birch",
+      "grow_seconds": 240,
+      "fuel": 2
+    },
+    "spruce_sapling": {
+      "shape": "cross",
+      "hardness": 0,
+      "sound": "core:grass",
+      "color": "#25492f",
+      "textures": {
+        "all": "textures/spruce_sapling.png"
+      },
+      "plant_on": [
+        "core:grass",
+        "core:dirt",
+        "core:snow_grass"
+      ],
+      "grows_tree": "core:spruce",
+      "grow_seconds": 240,
+      "fuel": 2
+    },
+    "bed": {
+      "shape": "bed",
+      "hardness": 0.3,
+      "tool": "axe",
+      "sound": "core:wood",
+      "color": "#b43a36",
+      "textures": {
+        "top": "textures/bed_foot_top.png",
+        "side": "textures/bed_side.png",
+        "bottom": "textures/planks.png"
+      },
+      "textures_head": {
+        "top": "textures/bed_head_top.png",
+        "side": "textures/bed_side.png",
+        "bottom": "textures/planks.png"
+      },
+      "bed": true,
+      "flammable": true
+    },
+    "snow": {
+      "shape": "boxes",
+      "boxes": [
+        [
+          0,
+          0,
+          0,
+          16,
+          1,
+          16
+        ]
+      ],
+      "hardness": 0.1,
+      "sound": "core:grass",
+      "color": "#f2f7fb",
+      "textures": {
+        "all": "textures/snow_grass_top.png"
+      },
+      "replaceable": true,
+      "needs_support": true,
+      "drops": "core:snowball"
+    }
+  },
+  "items": {
+    "stick": {
+      "max_stack": 64,
+      "texture": "textures/stick.png",
+      "fuel": 2.5
+    },
+    "coal": {
+      "texture": "textures/coal.png",
+      "fuel": 40
+    },
+    "iron_ingot": {
+      "texture": "textures/iron_ingot.png"
+    },
+    "gold_ingot": {
+      "texture": "textures/gold_ingot.png"
+    },
+    "wood_pickaxe": {
+      "texture": "textures/wood_pickaxe.png",
+      "tool": "pickaxe",
+      "speed": 2.0,
+      "max_stack": 1,
+      "tier": 1,
+      "damage": 2
+    },
+    "wood_axe": {
+      "texture": "textures/wood_axe.png",
+      "tool": "axe",
+      "speed": 2.0,
+      "max_stack": 1,
+      "tier": 1,
+      "damage": 3
+    },
+    "stone_pickaxe": {
+      "texture": "textures/stone_pickaxe.png",
+      "tool": "pickaxe",
+      "speed": 4.0,
+      "max_stack": 1,
+      "tier": 2,
+      "damage": 3
+    },
+    "stone_axe": {
+      "texture": "textures/stone_axe.png",
+      "tool": "axe",
+      "speed": 4.0,
+      "max_stack": 1,
+      "tier": 2,
+      "damage": 4
+    },
+    "wood_hoe": {
+      "texture": "textures/wood_hoe.png",
+      "tool": "hoe",
+      "speed": 2.0,
+      "tier": 1,
+      "max_stack": 1,
+      "damage": 1
+    },
+    "wood_sword": {
+      "texture": "textures/wood_sword.png",
+      "tool": "sword",
+      "tier": 1,
+      "max_stack": 1,
+      "damage": 4
+    },
+    "stone_hoe": {
+      "texture": "textures/stone_hoe.png",
+      "tool": "hoe",
+      "speed": 4.0,
+      "tier": 2,
+      "max_stack": 1,
+      "damage": 2
+    },
+    "stone_sword": {
+      "texture": "textures/stone_sword.png",
+      "tool": "sword",
+      "tier": 2,
+      "max_stack": 1,
+      "damage": 5
+    },
+    "iron_pickaxe": {
+      "texture": "textures/iron_pickaxe.png",
+      "tool": "pickaxe",
+      "speed": 6.0,
+      "tier": 3,
+      "max_stack": 1,
+      "damage": 4
+    },
+    "iron_axe": {
+      "texture": "textures/iron_axe.png",
+      "tool": "axe",
+      "speed": 6.0,
+      "tier": 3,
+      "max_stack": 1,
+      "damage": 5
+    },
+    "iron_hoe": {
+      "texture": "textures/iron_hoe.png",
+      "tool": "hoe",
+      "speed": 6.0,
+      "tier": 3,
+      "max_stack": 1,
+      "damage": 3
+    },
+    "iron_sword": {
+      "texture": "textures/iron_sword.png",
+      "tool": "sword",
+      "tier": 3,
+      "max_stack": 1,
+      "damage": 6
+    },
+    "iron_helmet": {
+      "texture": "textures/iron_helmet.png",
+      "armor": {
+        "slot": "head",
+        "points": 2
+      },
+      "max_stack": 1
+    },
+    "iron_chestplate": {
+      "texture": "textures/iron_chestplate.png",
+      "armor": {
+        "slot": "chest",
+        "points": 6
+      },
+      "max_stack": 1
+    },
+    "iron_leggings": {
+      "texture": "textures/iron_leggings.png",
+      "armor": {
+        "slot": "legs",
+        "points": 5
+      },
+      "max_stack": 1
+    },
+    "iron_boots": {
+      "texture": "textures/iron_boots.png",
+      "armor": {
+        "slot": "feet",
+        "points": 2
+      },
+      "max_stack": 1
+    },
+    "seeds": {
+      "texture": "textures/seeds.png",
+      "plants": "core:wheat_0",
+      "plant_on": [
+        "core:farmland"
+      ]
+    },
+    "wheat": {
+      "texture": "textures/wheat.png"
+    },
+    "bread": {
+      "texture": "textures/bread.png",
+      "food": 5
+    },
+    "snowball": {
+      "max_stack": 16,
+      "texture": "textures/snowball.png"
+    }
+  },
+  "recipes": {
+    "stone_from_cobblestone": {
+      "type": "smelting",
+      "input": "core:cobblestone",
+      "output": {
+        "item": "core:stone",
+        "count": 1
+      }
+    },
+    "log_to_planks": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:log": 1
+      },
+      "output": {
+        "item": "core:planks",
+        "count": 4
+      }
+    },
+    "lamp": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:crystal_ore": 1,
+        "core:planks": 4
+      },
+      "output": {
+        "item": "core:lamp",
+        "count": 1
+      }
+    },
+    "wood_pickaxe": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:planks": 3,
+        "core:stick": 2
+      },
+      "output": {
+        "item": "core:wood_pickaxe",
+        "count": 1
+      }
+    },
+    "wood_axe": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:planks": 3,
+        "core:stick": 2
+      },
+      "output": {
+        "item": "core:wood_axe",
+        "count": 1
+      }
+    },
+    "stone_pickaxe": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:cobblestone": 3,
+        "core:stick": 2
+      },
+      "output": {
+        "item": "core:stone_pickaxe",
+        "count": 1
+      }
+    },
+    "stone_axe": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:cobblestone": 3,
+        "core:stick": 2
+      },
+      "output": {
+        "item": "core:stone_axe",
+        "count": 1
+      }
+    },
+    "furnace": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:cobblestone": 8
+      },
+      "output": {
+        "item": "core:furnace",
+        "count": 1
+      }
+    },
+    "chest": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:planks": 8
+      },
+      "output": {
+        "item": "core:chest",
+        "count": 1
+      }
+    },
+    "iron_ingot": {
+      "type": "smelting",
+      "input": "core:iron_ore",
+      "output": {
+        "item": "core:iron_ingot",
+        "count": 1
+      }
+    },
+    "gold_ingot": {
+      "type": "smelting",
+      "input": "core:gold_ore",
+      "output": {
+        "item": "core:gold_ingot",
+        "count": 1
+      }
+    },
+    "stone_slab": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:stone": 3
+      },
+      "output": {
+        "item": "core:stone_slab",
+        "count": 6
+      }
+    },
+    "stone_stairs": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:stone": 6
+      },
+      "output": {
+        "item": "core:stone_stairs",
+        "count": 4
+      }
+    },
+    "cobblestone_slab": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:cobblestone": 3
+      },
+      "output": {
+        "item": "core:cobblestone_slab",
+        "count": 6
+      }
+    },
+    "cobblestone_stairs": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:cobblestone": 6
+      },
+      "output": {
+        "item": "core:cobblestone_stairs",
+        "count": 4
+      }
+    },
+    "planks_slab": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:planks": 3
+      },
+      "output": {
+        "item": "core:planks_slab",
+        "count": 6
+      }
+    },
+    "planks_stairs": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:planks": 6
+      },
+      "output": {
+        "item": "core:planks_stairs",
+        "count": 4
+      }
+    },
+    "torch": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:coal": 1,
+        "core:stick": 1
+      },
+      "output": {
+        "item": "core:torch",
+        "count": 4
+      }
+    },
+    "ladder": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:stick": 7
+      },
+      "output": {
+        "item": "core:ladder",
+        "count": 3
+      }
+    },
+    "wood_door": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:planks": 6
+      },
+      "output": {
+        "item": "core:wood_door",
+        "count": 3
+      }
+    },
+    "planks_fence": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:planks": 4,
+        "core:stick": 2
+      },
+      "output": {
+        "item": "core:planks_fence",
+        "count": 3
+      }
+    },
+    "glass": {
+      "type": "smelting",
+      "input": "core:sand",
+      "output": {
+        "item": "core:glass",
+        "count": 1
+      }
+    },
+    "wood_hoe": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:planks": 2,
+        "core:stick": 2
+      },
+      "output": {
+        "item": "core:wood_hoe",
+        "count": 1
+      }
+    },
+    "wood_sword": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:planks": 2,
+        "core:stick": 1
+      },
+      "output": {
+        "item": "core:wood_sword",
+        "count": 1
+      }
+    },
+    "stone_hoe": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:cobblestone": 2,
+        "core:stick": 2
+      },
+      "output": {
+        "item": "core:stone_hoe",
+        "count": 1
+      }
+    },
+    "stone_sword": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:cobblestone": 2,
+        "core:stick": 1
+      },
+      "output": {
+        "item": "core:stone_sword",
+        "count": 1
+      }
+    },
+    "iron_pickaxe": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:iron_ingot": 3,
+        "core:stick": 2
+      },
+      "output": {
+        "item": "core:iron_pickaxe",
+        "count": 1
+      }
+    },
+    "iron_axe": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:iron_ingot": 3,
+        "core:stick": 2
+      },
+      "output": {
+        "item": "core:iron_axe",
+        "count": 1
+      }
+    },
+    "iron_hoe": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:iron_ingot": 2,
+        "core:stick": 2
+      },
+      "output": {
+        "item": "core:iron_hoe",
+        "count": 1
+      }
+    },
+    "iron_sword": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:iron_ingot": 2,
+        "core:stick": 1
+      },
+      "output": {
+        "item": "core:iron_sword",
+        "count": 1
+      }
+    },
+    "iron_helmet": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:iron_ingot": 5
+      },
+      "output": {
+        "item": "core:iron_helmet",
+        "count": 1
+      }
+    },
+    "iron_chestplate": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:iron_ingot": 8
+      },
+      "output": {
+        "item": "core:iron_chestplate",
+        "count": 1
+      }
+    },
+    "iron_leggings": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:iron_ingot": 7
+      },
+      "output": {
+        "item": "core:iron_leggings",
+        "count": 1
+      }
+    },
+    "iron_boots": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:iron_ingot": 4
+      },
+      "output": {
+        "item": "core:iron_boots",
+        "count": 1
+      }
+    },
+    "bread": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:wheat": 3
+      },
+      "output": {
+        "item": "core:bread",
+        "count": 1
+      }
+    },
+    "birch_to_planks": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:birch_log": 1
+      },
+      "output": {
+        "item": "core:planks",
+        "count": 4
+      }
+    },
+    "spruce_to_planks": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:spruce_log": 1
+      },
+      "output": {
+        "item": "core:planks",
+        "count": 4
+      }
+    },
+    "sandstone": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:sand": 4
+      },
+      "output": {
+        "item": "core:sandstone",
+        "count": 1
+      }
+    },
+    "bed": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:planks": 3,
+        "core:wheat": 3
+      },
+      "output": {
+        "item": "core:bed",
+        "count": 1
+      }
+    },
+    "snow": {
+      "type": "shapeless",
+      "ingredients": {
+        "core:snowball": 2
+      },
+      "output": {
+        "item": "core:snow",
+        "count": 1
+      }
+    }
+  },
+  "ores": {
+    "coal": {
+      "block": "core:coal_ore",
+      "min_y": -90,
+      "max_y": 40,
+      "veins_per_chunk": 18,
+      "size": [
+        6,
+        14
+      ]
+    },
+    "iron": {
+      "block": "core:iron_ore",
+      "min_y": -96,
+      "max_y": 8,
+      "veins_per_chunk": 12,
+      "size": [
+        4,
+        9
+      ]
+    },
+    "gold": {
+      "block": "core:gold_ore",
+      "min_y": -96,
+      "max_y": -28,
+      "veins_per_chunk": 4,
+      "size": [
+        3,
+        7
+      ]
+    },
+    "crystal": {
+      "block": "core:crystal_ore",
+      "min_y": -96,
+      "max_y": -56,
+      "veins_per_chunk": 2,
+      "size": [
+        2,
+        5
+      ]
+    }
+  },
+  "trees": {
+    "oak": {
+      "log": "core:log",
+      "leaves": "core:leaves",
+      "trunk": [
+        4,
+        6
+      ],
+      "chance": 30,
+      "style": "round_oak"
+    },
+    "big_oak": {
+      "log": "core:log",
+      "leaves": "core:leaves",
+      "trunk": [
+        6,
+        9
+      ],
+      "chance": 0,
+      "style": "big_oak"
+    },
+    "birch": {
+      "log": "core:birch_log",
+      "leaves": "core:birch_leaves",
+      "trunk": [
+        5,
+        7
+      ],
+      "chance": 0,
+      "style": "birch"
+    },
+    "spruce": {
+      "log": "core:spruce_log",
+      "leaves": "core:spruce_leaves",
+      "trunk": [
+        7,
+        11
+      ],
+      "chance": 0,
+      "style": "spruce"
+    },
+    "cactus": {
+      "log": "core:cactus",
+      "leaves": "",
+      "trunk": [
+        1,
+        3
+      ],
+      "chance": 0,
+      "style": "cactus"
+    }
+  },
+  "sound_sets": {
+    "grass": {
+      "step": [
+        "sounds/grass_step_1.wav",
+        "sounds/grass_step_2.wav",
+        "sounds/grass_step_3.wav"
+      ],
+      "break": [
+        "sounds/grass_break_1.wav",
+        "sounds/grass_break_2.wav",
+        "sounds/grass_break_3.wav"
+      ],
+      "place": [
+        "sounds/grass_place.wav"
+      ]
+    },
+    "stone": {
+      "step": [
+        "sounds/stone_step_1.wav",
+        "sounds/stone_step_2.wav",
+        "sounds/stone_step_3.wav"
+      ],
+      "break": [
+        "sounds/stone_break_1.wav",
+        "sounds/stone_break_2.wav",
+        "sounds/stone_break_3.wav"
+      ],
+      "place": [
+        "sounds/stone_place.wav"
+      ]
+    },
+    "wood": {
+      "step": [
+        "sounds/wood_step_1.wav",
+        "sounds/wood_step_2.wav",
+        "sounds/wood_step_3.wav"
+      ],
+      "break": [
+        "sounds/wood_break_1.wav",
+        "sounds/wood_break_2.wav",
+        "sounds/wood_break_3.wav"
+      ],
+      "place": [
+        "sounds/wood_place.wav"
+      ]
+    },
+    "sand": {
+      "step": [
+        "sounds/sand_step_1.wav",
+        "sounds/sand_step_2.wav",
+        "sounds/sand_step_3.wav"
+      ],
+      "break": [
+        "sounds/sand_break_1.wav",
+        "sounds/sand_break_2.wav",
+        "sounds/sand_break_3.wav"
+      ],
+      "place": [
+        "sounds/sand_place.wav"
+      ]
+    },
+    "gravel": {
+      "step": [
+        "sounds/gravel_step_1.wav",
+        "sounds/gravel_step_2.wav",
+        "sounds/gravel_step_3.wav"
+      ],
+      "break": [
+        "sounds/gravel_break_1.wav",
+        "sounds/gravel_break_2.wav",
+        "sounds/gravel_break_3.wav"
+      ],
+      "place": [
+        "sounds/gravel_place.wav"
+      ]
+    },
+    "effects": {
+      "splash": [
+        "sounds/splash_1.wav",
+        "sounds/splash_2.wav"
+      ],
+      "hurt": [
+        "sounds/hurt.wav"
+      ],
+      "pickup": [
+        "sounds/pickup.wav"
+      ]
+    },
+    "ambience": {
+      "day": [
+        "sounds/ambience_day.wav"
+      ],
+      "night": [
+        "sounds/ambience_night.wav"
+      ]
+    }
+  },
+  "biomes": {
+    "vanilla": {
+      "temperature": 0.0,
+      "humidity": -0.1,
+      "height": 14,
+      "base": 2,
+      "surface": "core:grass",
+      "filler": "core:dirt",
+      "trees": {
+        "core:oak": 7,
+        "core:big_oak": 1
+      },
+      "plants": {
+        "core:bluebell": 7,
+        "core:sunpetal": 7
+      },
+      "lakes": 30,
+      "mountains": 34,
+      "rock": "core:stone",
+      "rock_above": 26,
+      "cover": "core:snow",
+      "cover_above": 36
+    }
+  }
+}

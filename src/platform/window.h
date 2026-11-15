@@ -27,6 +27,25 @@ public:
 		return r;
 	}
 
+	// Mouse capture for looking around: the cursor is hidden and held in the
+	// window, and raw mouse motion is collected. Losing focus releases it.
+	void set_mouse_captured(bool captured);
+	bool mouse_captured() const { return captured_; }
+	// Raw mouse motion since the last call (counts, not pixels).
+	void take_mouse_delta(float &dx, float &dy) {
+		dx = mouse_dx_;
+		dy = mouse_dy_;
+		mouse_dx_ = mouse_dy_ = 0;
+	}
+	// True once after a left click in the window.
+	bool take_click() {
+		const bool c = clicked_;
+		clicked_ = false;
+		return c;
+	}
+	// Whether a key (a virtual-key code) is held, while the window has focus.
+	bool key_down(int vk) const;
+
 private:
 	static LRESULT CALLBACK proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 	LRESULT handle(UINT msg, WPARAM wp, LPARAM lp);
@@ -35,6 +54,9 @@ private:
 	int width_ = 0, height_ = 0;
 	bool resized_ = false;
 	bool open_ = false;
+	bool captured_ = false;
+	bool clicked_ = false;
+	float mouse_dx_ = 0, mouse_dy_ = 0;
 };
 
 } // namespace gc
