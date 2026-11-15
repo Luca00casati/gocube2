@@ -641,7 +641,8 @@ int main(int argc, char **argv) {
 
 	save_all();
 	mods.attach(nullptr, nullptr);
-	world.reset(); // stops the workers
+	// (The world's workers stop when it goes, after the game, which uses it:
+	// both at the end of this scope, in that order.)
 	const int messages = renderer.debug_messages();
 	renderer.shutdown();
 	ImGui_ImplWin32_Shutdown();
