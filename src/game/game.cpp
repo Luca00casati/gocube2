@@ -250,6 +250,7 @@ void Game::update(float dt, const GameInput &in) {
 			bed_ = head;
 			show_notice("Respawn point set");
 		}
+		bed_used_ = true;
 	} else if (in.use_pressed && food > 0) {
 		if (!creative_ && health_ < MAX_HEALTH) {
 			health_ = std::min(MAX_HEALTH, health_ + food);

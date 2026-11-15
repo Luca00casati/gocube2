@@ -9,6 +9,8 @@
 #include "chunk_vs.h"
 #include "lines_ps.h"
 #include "lines_vs.h"
+#include "sky_ps.h"
+#include "sky_vs.h"
 
 #include <cmath>
 #include <cstring>
@@ -37,6 +39,22 @@ struct FrameConstants {
 	float pad[3];
 };
 static_assert(sizeof(FrameConstants) % 16 == 0);
+
+// Matches cbuffer Sky in sky.hlsl.
+struct SkyConstants {
+	XMFLOAT4X4 inv_view_proj;
+	XMFLOAT3 top;
+	float day;
+	XMFLOAT3 horizon;
+	float dusk;
+	XMFLOAT3 ground;
+	float sky_angle;
+	XMFLOAT3 sun_dir;
+	float time;
+	float cloud_offset[2];
+	float pad[2];
+};
+static_assert(sizeof(SkyConstants) % 16 == 0);
 
 struct DrawConstants {
 	XMFLOAT3 chunk_origin;
@@ -230,7 +248,51 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 	}
 	dd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
 	device->CreateDepthStencilState(&dd, &depth_less_equal_);
+	dd.DepthEnable = FALSE;
+	device->CreateDepthStencilState(&dd, &depth_off_);
+
+	// The sky.
+	cb.ByteWidth = sizeof(SkyConstants);
+	if (!ok(device->CreateVertexShader(g_sky_vs, sizeof(g_sky_vs), nullptr, &sky_vs_), "sky_vs") ||
+			!ok(device->CreatePixelShader(g_sky_ps, sizeof(g_sky_ps), nullptr, &sky_ps_), "sky_ps") ||
+			!ok(device->CreateBuffer(&cb, nullptr, &sky_cb_), "sky constants")) {
+		return false;
+	}
 	return true;
+}
+
+void ChunkRenderer::draw_sky(ID3D11DeviceContext *ctx, const Camera &camera, float aspect, const SkyParams &sky) {
+	SkyConstants k = {};
+	const XMMATRIX vp = camera.view() * camera.projection(aspect);
+	XMStoreFloat4x4(&k.inv_view_proj, XMMatrixInverse(nullptr, vp));
+	k.top = sky.sky_top;
+	k.horizon = sky.sky_horizon;
+	k.ground = sky.sky_ground;
+	k.day = sky.day;
+	k.dusk = sky.dusk;
+	k.sky_angle = sky.sky_angle;
+	XMStoreFloat3(&k.sun_dir, XMVector3Normalize(XMLoadFloat3(&sky.sun_dir)));
+	k.time = sky.time;
+	k.cloud_offset[0] = sky.cloud_offset[0];
+	k.cloud_offset[1] = sky.cloud_offset[1];
+	D3D11_MAPPED_SUBRESOURCE m;
+	if (FAILED(ctx->Map(sky_cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+		return;
+	}
+	std::memcpy(m.pData, &k, sizeof(k));
+	ctx->Unmap(sky_cb_.Get(), 0);
+	ctx->IASetInputLayout(nullptr);
+	ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	ctx->VSSetShader(sky_vs_.Get(), nullptr, 0);
+	ctx->PSSetShader(sky_ps_.Get(), nullptr, 0);
+	ID3D11Buffer *cbs[] = {sky_cb_.Get()};
+	ctx->PSSetConstantBuffers(0, 1, cbs);
+	ctx->RSSetState(cull_none_.Get());
+	ctx->OMSetDepthStencilState(depth_off_.Get(), 0);
+	ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+	ctx->Draw(3, 0);
+	ctx->RSSetState(nullptr);
+	ctx->OMSetDepthStencilState(nullptr, 0);
 }
 
 void ChunkRenderer::draw_triangles(ID3D11DeviceContext *ctx, const std::vector<WorldVertex> &vertices) {

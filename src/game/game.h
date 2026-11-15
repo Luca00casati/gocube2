@@ -57,6 +57,8 @@ public:
 	BlockEntities &block_entities() { return entities_; }
 	// A container the player right-clicked this frame (the caller opens its screen).
 	std::optional<BlockPos> take_opened() { return std::exchange(opened_, std::nullopt); }
+	// A bed the player right-clicked this frame (sleeping is the caller's: it knows the time).
+	bool take_bed_used() { return std::exchange(bed_used_, false); }
 
 	// A brand-new player: survival gets the starting items, creative the
 	// placeable blocks.
@@ -127,6 +129,7 @@ private:
 	ItemDrops drops_;
 	BlockEntities entities_;
 	std::optional<BlockPos> opened_;
+	bool bed_used_ = false;
 	std::optional<std::vector<Recipe>> recipes_;
 	bool try_place_on_ground();
 	void unstuck();

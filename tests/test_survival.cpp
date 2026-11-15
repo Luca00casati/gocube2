@@ -495,3 +495,53 @@ TEST_CASE("a new player is put on dry ground (a biome's surface) and that become
 	CHECK(p.block(x, y - 1, z) == "core:grass"); // (the vanilla biome's surface; seed 4242's origin is a cave)
 	CHECK(p.block(x, y, z) != "core:water");
 }
+
+#include "game/day_cycle.h"
+
+TEST_CASE("the day: sun, daylight and the clock, as the Godot version's DayCycle") {
+	gc::DayCycle d;
+	d.time = 0.5; // noon
+	CHECK(d.sun_height() == doctest::Approx(1.0f));
+	CHECK(d.day_amount() == doctest::Approx(1.0f));
+	CHECK(d.daylight() == doctest::Approx(1.0f));
+	float sun[3];
+	d.sun_dir(sun);
+	CHECK(sun[1] == doctest::Approx(1.0f));
+	d.time = 0.0; // midnight
+	CHECK(d.day_amount() == doctest::Approx(0.0f));
+	CHECK(d.daylight() == doctest::Approx(gc::DayCycle::NIGHT_LIGHT));
+	d.time = 0.25; // sunrise: in the east (+x)
+	d.sun_dir(sun);
+	CHECK(sun[0] == doctest::Approx(1.0f));
+	CHECK(d.dusk() == doctest::Approx(1.0f));
+	char clock[16];
+	gc::DayCycle::clock_text(0.75, false, clock, sizeof(clock));
+	CHECK(std::string(clock) == "6:00 PM");
+	gc::DayCycle::clock_text(0.0, false, clock, sizeof(clock));
+	CHECK(std::string(clock) == "12:00 AM");
+	gc::DayCycle::clock_text(0.5, true, clock, sizeof(clock));
+	CHECK(std::string(clock) == "12:00");
+	d.time = 0.9;
+	d.day_length = 100;
+	d.update(20); // a fifth of a day: past midnight
+	CHECK(d.time == doctest::Approx(0.1));
+}
+
+TEST_CASE("right-clicking a bed reports it (for sleeping) every time") {
+	Play p;
+	pool(p, "core:air");
+	REQUIRE(p.world->set_block({1, 40, 0}, p.id("core:bed")));
+	REQUIRE(p.world->set_block({1, 40, -1}, p.id("core:bed_n_head")));
+	p.player.position[0] = 1.5f;
+	p.player.position[1] = 41.0f;
+	p.player.position[2] = 2.5f;
+	p.player.pitch = -std::atan2(1.62f + 0.45f, 2.0f);
+	gc::GameInput in;
+	in.captured = true;
+	in.use_pressed = true;
+	for (int i = 0; i < 2; i++) {
+		p.game->update(0.016f, in);
+		CHECK(p.game->take_bed_used());
+		CHECK_FALSE(p.game->take_bed_used());
+	}
+}

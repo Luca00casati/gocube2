@@ -34,6 +34,7 @@
 
 #include "content/content.h"
 #include "game/blocks.h"
+#include "game/day_cycle.h"
 #include "game/game.h"
 #include "game/player.h"
 #include "log.h"
@@ -80,6 +81,7 @@ struct Options {
 	std::string mode = "survival"; // for a new world
 	std::vector<std::string> drop; // items dropped in front of the player at the start
 	std::string screen;            // a screen open at the start ("inventory")
+	double time = -1;              // time of day to start at (0..1; -1: the world's)
 };
 
 std::filesystem::path utf8_path(const char *s) {
@@ -128,6 +130,8 @@ Options parse(int argc, char **argv) {
 					o.drop.push_back(list.substr(from, to - from));
 				}
 			}
+		} else if ((v = value("--time="))) {
+			o.time = strtod(v, nullptr);
 		} else if ((v = value("--screen="))) {
 			o.screen = v;
 		} else if ((v = value("--mode="))) {
@@ -323,7 +327,7 @@ gc::PlayerInput read_input(const gc::Window &window) {
 
 void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::World &world,
 		const gc::ChunkRenderer &chunks, const gc::WorldSave *save, uint32_t seed, const gc::Game &game,
-		const gc::Mods &mods, bool captured) {
+		const gc::Mods &mods, bool captured, double day_time) {
 	const ImGuiIO &io = ImGui::GetIO();
 	ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
 	ImGui::SetNextWindowBgAlpha(0.6f);
@@ -335,6 +339,10 @@ void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::W
 		const gc::ChunkRenderStats &cs = chunks.stats();
 		ImGui::Text("GoCube %s  -  %s", GOCUBE_VERSION, renderer.adapter_name().c_str());
 		ImGui::Text("%.0f fps (%.2f ms)", io.Framerate, 1000.0f / io.Framerate);
+		char clock[16];
+		gc::DayCycle::clock_text(day_time, false, clock, sizeof(clock));
+		ImGui::SameLine();
+		ImGui::Text("  -  %s", clock);
 		ImGui::Text("Position %.1f, %.1f, %.1f%s  -  seed %u", player.position[0], player.position[1],
 				player.position[2], player.flying ? "  (flying)" : "", seed);
 		ImGui::Text("Chunks: %d loaded, %d meshed, %d drawn, %d jobs waiting", ws.loaded, ws.meshed, cs.drawn, ws.queued);
@@ -359,6 +367,34 @@ void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::W
 		}
 	}
 	ImGui::End();
+}
+
+// sRGB (as colours are written, and as the Godot version gave them to its
+// shaders) to linear.
+DirectX::XMFLOAT3 linear(const gc::Rgb &c) {
+	auto f = [](float v) { return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f); };
+	return {f(c.r), f(c.g), f(c.b)};
+}
+
+// The sky and the terrain's light for this time of day.
+void apply_day(const gc::DayCycle &day, float view, gc::SkyParams &sky) {
+	sky.daylight = day.daylight();
+	sky.sun_amount = day.sun_amount();
+	sky.sky_tint = linear(day.sky_tint());
+	float sun[3];
+	day.sun_dir(sun);
+	sky.sun_dir = {sun[0], sun[1], sun[2]};
+	sky.fog_color = linear(day.haze());
+	sky.fog_start = day.fog_begin(view * 0.7f);
+	sky.fog_end = day.fog_end(view);
+	sky.sky_top = linear(day.sky_top());
+	sky.sky_horizon = linear(day.sky_horizon());
+	sky.sky_ground = sky.fog_color; // below the horizon: the haze, so faded hills meet the sky without a seam
+	sky.day = day.day_amount();
+	sky.dusk = day.dusk();
+	sky.sky_angle = day.angle();
+	sky.cloud_offset[0] = day.cloud_offset[0];
+	sky.cloud_offset[1] = day.cloud_offset[1];
 }
 
 gc::Json player_state(const gc::Player &p) {
@@ -511,9 +547,20 @@ int main(int argc, char **argv) {
 	gc::Camera camera;
 	camera.far_z = float(options.view) * 2.0f;
 	gc::SkyParams sky;
-	sky.fog_end = float(options.view);
-	sky.fog_start = sky.fog_end * 0.7f;
-	const float clear[4] = {sky.fog_color.x, sky.fog_color.y, sky.fog_color.z, 1.0f};
+	gc::DayCycle day;
+	day.time = gc::DayCycle::system_time(); // a new world starts at the computer's clock
+	if (save) {
+		if (const gc::Json &t = save->field("time"); t.is_number()) {
+			day.time = std::fmod(t.get<double>(), 1.0);
+		}
+		if (const gc::Json &l = save->field("day_length"); l.is_number()) {
+			day.day_length = std::max(10.0, l.get<double>());
+		}
+	}
+	if (options.time >= 0) {
+		day.time = std::fmod(options.time, 1.0);
+	}
+	float sleeping = -1; // seconds asleep (-1: awake)
 
 	auto save_all = [&] {
 		if (save) {
@@ -521,6 +568,7 @@ int main(int argc, char **argv) {
 			gc::Json state = player_state(player);
 			state.update(game.save_player());
 			save->set_field("block_entities", game.block_entities().serialize());
+			save->set_field("time", day.time);
 			if (const auto &spawn = game.world_spawn()) {
 				save->set_field("spawn", {(*spawn)[0], (*spawn)[1], (*spawn)[2]});
 			}
@@ -620,6 +668,22 @@ int main(int argc, char **argv) {
 		gin.number_key = number_pressed(window, controls);
 		game.update(dt, gin);
 		game.tick(dt);
+		day.update(dt);
+		// A bed used at night: sleep (the screen fades out), then it's morning.
+		if (game.take_bed_used()) {
+			if (day.day_amount() > 0.3f) {
+				game.show_notice("You can only sleep at night (respawn point set)");
+			} else {
+				sleeping = 0;
+			}
+		}
+		if (sleeping >= 0) {
+			sleeping += dt;
+			if (sleeping >= 2.5f) {
+				day.time = gc::DayCycle::MORNING;
+				sleeping = -1;
+			}
+		}
 		if (auto opened = game.take_opened()) {
 			container = *opened;
 			screen = Screen::CONTAINER;
@@ -654,7 +718,7 @@ int main(int argc, char **argv) {
 		ImGui::NewFrame();
 		if (screen == Screen::NONE) {
 			draw_ui(renderer, player, *world, chunks, save ? &*save : nullptr, seed,
-					game, mods, window.mouse_captured());
+					game, mods, window.mouse_captured(), day.time);
 		}
 		const gc::UiIcons icons{ImTextureID(chunks.ui_atlas()), &table, &content};
 		if (game.dead()) {
@@ -671,11 +735,18 @@ int main(int argc, char **argv) {
 			close_screen();
 		}
 		draw_hud(game, table, chunks, rules, captured);
+		if (sleeping >= 0) {
+			ImGui::GetForegroundDrawList()->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize,
+					IM_COL32(0, 0, 0, int(230 * std::min(1.0f, sleeping / 1.5f))));
+		}
 		gc::draw_held(game.inventory().cursor, icons);
 		ImGui::Render();
 
 		sky.time = std::chrono::duration<float>(now - start).count();
+		apply_day(day, float(options.view), sky);
+		const float clear[4] = {sky.fog_color.x, sky.fog_color.y, sky.fog_color.z, 1.0f};
 		renderer.begin_frame(clear);
+		chunks.draw_sky(renderer.context(), camera, float(renderer.width()) / float(std::max(1, renderer.height())), sky);
 		chunks.draw(renderer.context(), camera, float(renderer.width()) / float(std::max(1, renderer.height())), sky);
 		{
 			std::vector<gc::WorldVertex> drop_mesh;

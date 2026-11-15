@@ -38,6 +38,11 @@ struct SkyParams {
 	DirectX::XMFLOAT3 fog_color = {0.62f, 0.78f, 0.95f}; // linear
 	float fog_start = 80, fog_end = 120;
 	float time = 0;
+	// The sky (linear colours): gradient, sun, moon, stars, clouds.
+	DirectX::XMFLOAT3 sky_top = {0.08f, 0.24f, 0.71f}, sky_horizon = {0.42f, 0.59f, 0.83f};
+	DirectX::XMFLOAT3 sky_ground = {0.42f, 0.59f, 0.83f};
+	float day = 1, dusk = 0, sky_angle = 1.57f;
+	float cloud_offset[2] = {0, 0};
 };
 
 struct ChunkRenderStats {
@@ -54,6 +59,8 @@ public:
 	void remove(const ChunkPos &pos);
 	// Draws into the bound render target and depth buffer.
 	void draw(ID3D11DeviceContext *context, const Camera &camera, float aspect, const SkyParams &sky);
+	// First of all: the sky behind everything.
+	void draw_sky(ID3D11DeviceContext *context, const Camera &camera, float aspect, const SkyParams &sky);
 	// After draw(): triangles in world coordinates (dropped items), drawn like
 	// cutout blocks, from both sides.
 	void draw_triangles(ID3D11DeviceContext *context, const std::vector<WorldVertex> &vertices);
@@ -92,7 +99,10 @@ private:
 	ComPtr<ID3D11PixelShader> line_ps_;
 	ComPtr<ID3D11InputLayout> line_layout_;
 	ComPtr<ID3D11Buffer> line_vertices_, line_cb_;
-	ComPtr<ID3D11DepthStencilState> depth_less_equal_;
+	ComPtr<ID3D11DepthStencilState> depth_less_equal_, depth_off_;
+	ComPtr<ID3D11VertexShader> sky_vs_;
+	ComPtr<ID3D11PixelShader> sky_ps_;
+	ComPtr<ID3D11Buffer> sky_cb_;
 	ChunkRenderStats stats_;
 };
 

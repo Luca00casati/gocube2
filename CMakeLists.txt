@@ -94,6 +94,8 @@ add_shader(shaders/chunk.hlsl ps_cutout ps_5_0 chunk_ps_cutout)
 add_shader(shaders/chunk.hlsl ps_fluid ps_5_0 chunk_ps_fluid)
 add_shader(shaders/lines.hlsl vs_main vs_5_0 lines_vs)
 add_shader(shaders/lines.hlsl ps_main ps_5_0 lines_ps)
+add_shader(shaders/sky.hlsl vs_main vs_5_0 sky_vs)
+add_shader(shaders/sky.hlsl ps_main ps_5_0 sky_ps)
 
 add_executable(gocube
 	src/main.cpp
@@ -108,9 +110,10 @@ add_executable(gocube
 	src/ui/screens.h
 	shaders/chunk.hlsl
 	shaders/lines.hlsl
+	shaders/sky.hlsl
 	${SHADER_HEADERS}
 )
-set_source_files_properties(shaders/chunk.hlsl shaders/lines.hlsl PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
+set_source_files_properties(shaders/chunk.hlsl shaders/lines.hlsl shaders/sky.hlsl PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
 target_include_directories(gocube PRIVATE ${SHADER_DIR} ${Stb_INCLUDE_DIR})
 target_link_libraries(gocube PRIVATE gocube_core imgui::imgui d3d11 dxgi dxguid shell32 ole32)
 target_compile_definitions(gocube PRIVATE
