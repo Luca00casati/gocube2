@@ -272,9 +272,6 @@ std::string Content::load_mod(const std::filesystem::path &dir) {
 		return "mod.json in " + dir.string() + " has no id";
 	}
 	mod_dirs[mod] = dir;
-	const std::pair<const char *, std::map<std::string, Json> *> tables[] = {{"blocks", &blocks}, {"items", &items},
-			{"recipes", &recipes}, {"ores", &ores}, {"trees", &trees}, {"biomes", &biomes},
-			{"sound_sets", &sound_sets}};
 	for (const Json &file : manifest.value("content", Json::array())) {
 		if (!file.is_string()) {
 			continue;
@@ -283,19 +280,37 @@ std::string Content::load_mod(const std::filesystem::path &dir) {
 		if (std::string e = read(dir / file.get<std::string>(), data); !e.empty()) {
 			return e;
 		}
-		for (const auto &[name, table] : tables) {
-			auto it = data.find(name);
-			if (it == data.end() || !it->is_object()) {
-				continue;
-			}
-			for (const auto &[id, def] : it->items()) {
-				if (def.is_object()) {
-					register_entry(*table, mod, id, def);
-				}
+		register_content(mod, data);
+	}
+	return "";
+}
+
+std::map<std::string, Json> *Content::table(const std::string &section) {
+	if (section == "blocks") return &blocks;
+	if (section == "items") return &items;
+	if (section == "recipes") return &recipes;
+	if (section == "ores") return &ores;
+	if (section == "trees") return &trees;
+	if (section == "biomes") return &biomes;
+	if (section == "sound_sets") return &sound_sets;
+	return nullptr;
+}
+
+void Content::register_content(const std::string &mod, const Json &data) {
+	if (!data.is_object()) {
+		return;
+	}
+	for (const auto &[section, entries] : data.items()) {
+		std::map<std::string, Json> *t = table(section);
+		if (!t || !entries.is_object()) {
+			continue;
+		}
+		for (const auto &[id, def] : entries.items()) {
+			if (def.is_object()) {
+				register_entry(*t, mod, id, def);
 			}
 		}
 	}
-	return "";
 }
 
 void Content::register_entry(std::map<std::string, Json> &table, const std::string &mod, const std::string &id,

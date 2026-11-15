@@ -34,8 +34,16 @@ public:
 	std::map<std::string, Json> blocks, items, recipes, ores, trees, biomes, sound_sets;
 	std::map<std::string, std::filesystem::path> mod_dirs; // mod id -> folder
 
-	// Reads a mod folder (mod.json and its content files). "" or what's wrong.
+	// Reads a mod folder (mod.json and its content files), without running any
+	// code (Mods loads mods properly). "" or what's wrong.
 	std::string load_mod(const std::filesystem::path &dir);
+	// Registers one content file's sections ("blocks": {id: def}, ...) for `mod`.
+	void register_content(const std::string &mod, const Json &data);
+	// One entry: `id` gets "mod:" in front unless it has a ":".
+	void register_entry(std::map<std::string, Json> &table, const std::string &mod, const std::string &id,
+			const Json &def);
+	// The table for a section name ("blocks", "items", ...), or nullptr.
+	std::map<std::string, Json> *table(const std::string &section);
 	// After every mod: adds shaped blocks' variants, assigns block ids.
 	void freeze(const std::vector<std::string> &saved_block_ids = {});
 
@@ -48,9 +56,6 @@ public:
 	std::filesystem::path asset_path(const Json &def, const std::string &relative) const;
 
 private:
-	void register_entry(std::map<std::string, Json> &table, const std::string &mod, const std::string &id,
-			const Json &def);
-
 	std::vector<std::string> block_ids_;
 	std::unordered_map<std::string, int> block_index_;
 };

@@ -9,8 +9,16 @@
 #include "world/world.h"
 
 #include <string>
+#include <vector>
 
 namespace gc {
+
+// A block the player broke or placed (for mods' block_broken and block_placed events).
+struct BlockChange {
+	BlockPos pos;
+	std::string id; // the block broken, or placed
+	bool placed = false;
+};
 
 struct PlayerInput {
 	float forward = 0, right = 0; // -1..1 each
@@ -39,10 +47,13 @@ public:
 	RayHit target(const World &world) const; // the block aimed at, within REACH
 
 	// Breaks the block aimed at (a door or bed goes as a whole). False if none.
-	bool break_target(World &world, const BlockRules &rules) const;
+	// What was broken is added to `changes` if given.
+	bool break_target(World &world, const BlockRules &rules, std::vector<BlockChange> *changes = nullptr) const;
 	// Right click: opens or closes a door aimed at (unless sneaking), else
 	// places `block` against the face aimed at. False if nothing happened.
-	bool use_or_place(World &world, const BlockRules &rules, const std::string &block, bool sneaking) const;
+	// What was placed is added to `changes` if given.
+	bool use_or_place(World &world, const BlockRules &rules, const std::string &block, bool sneaking,
+			std::vector<BlockChange> *changes = nullptr) const;
 	// Whether a player standing with feet at `feet` overlaps the block `cell`.
 	static bool overlaps_block(const float feet[3], const BlockPos &cell);
 

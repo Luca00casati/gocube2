@@ -2,6 +2,7 @@
 // and breaking and placing blocks (seed 4242, generated, nothing saved).
 
 #include "content/content.h"
+#include "helpers.h"
 #include "game/blocks.h"
 #include "game/player.h"
 #include "world/world.h"
@@ -26,7 +27,7 @@ struct TestWorld {
 	std::unique_ptr<gc::BlockRules> rules;
 
 	TestWorld() {
-		REQUIRE(content.load_mod(GOCUBE_SOURCE_DIR "/mods/core") == "");
+		load_base_game(content);
 		content.freeze();
 		table = gc::build_block_table(content);
 		rules = std::make_unique<gc::BlockRules>(content);

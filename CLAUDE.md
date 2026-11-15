@@ -30,6 +30,15 @@ the other direction, run the test with `GOCUBE_TEST_WORLD_OUT=<dir>`, copy `<dir
 into a Godot user data folder's `worlds\_cpp_edited` and run
 `tests/data/check_godot_opens.gd` with the Godot version (headless, `-s`).
 
+## Mods and the sandbox
+`tests/test_mods.cpp` checks what the sandbox promises: a mod's code is stopped
+when it runs too long or takes too much memory (also through pcall/xpcall), mods
+reach nothing but their copies of string/table/math/utf8, the safe basics and the
+game API, bytecode is refused, and a failing mod is undone. Anything new given to
+mods (a library, a function) needs a check there. Lua runs single-threaded on the
+main thread; never call into it from a worker. Keep `mods/**` and `tests/data/**`
+byte for byte (`.gitattributes`): fingerprints and test expectations hash bytes.
+
 ## Seeing the result
 `build\Release\gocube.exe --hidden --frames=10 --screenshot=<file>.png` (add
 `--pos=X,Y,Z --look=YAW,PITCH`) renders once the world around has loaded; read the

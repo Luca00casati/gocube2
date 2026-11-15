@@ -1,0 +1,5 @@
+# Mod files and test data are kept byte for byte (no line-ending conversion):
+# a mod's fingerprint is a hash of its files' bytes, and the test data's
+# expected values (fingerprints, saved worlds) depend on them too.
+mods/** -text
+tests/data/** -text

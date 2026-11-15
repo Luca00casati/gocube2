@@ -1,5 +1,6 @@
-// GoCube (milestone 3): walk, fly, break and place blocks in a world that is
-// saved, in the same format as the Godot version.
+// GoCube (milestone 4): walk, fly, break and place blocks in a world that is
+// saved in the same format as the Godot version; content and code come from
+// mods (Lua, sandboxed), the base game ("core") first.
 //
 // Controls: click to look around with the mouse (Esc lets go). W A S D walk,
 // Space jumps (swims up, flies up), Shift sneaks (flies down), Ctrl sprints,
@@ -10,6 +11,9 @@
 // Options:
 //   --world=NAME     play the saved world NAME (in %APPDATA%\GoCube\worlds;
 //                    a new one is made if it doesn't exist)
+// Mods are found in mods\ next to the game (built-in, the base game first) and
+// in %APPDATA%\GoCube\mods (one folder per mod).
+//
 //   --world-dir=DIR  play the world in this folder (for example one the Godot
 //                    version saved, in %APPDATA%\Godot\app_userdata\GoCube\worlds)
 //                    Without either, the world isn't saved.
@@ -32,6 +36,7 @@
 #include "game/blocks.h"
 #include "game/player.h"
 #include "log.h"
+#include "mods/mods.h"
 #include "platform/window.h"
 #include "render/chunk_renderer.h"
 #include "render/renderer.h"
@@ -143,12 +148,12 @@ std::filesystem::path find_mods() {
 	return {};
 }
 
-// %APPDATA%\GoCube\worlds
-std::filesystem::path worlds_dir() {
+// %APPDATA%\GoCube
+std::filesystem::path user_dir() {
 	PWSTR appdata = nullptr;
 	std::filesystem::path out;
 	if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appdata))) {
-		out = std::filesystem::path(appdata) / "GoCube" / "worlds";
+		out = std::filesystem::path(appdata) / "GoCube";
 	}
 	CoTaskMemFree(appdata);
 	return out;
@@ -174,7 +179,7 @@ gc::PlayerInput read_input(const gc::Window &window) {
 
 void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::World &world,
 		const gc::ChunkRenderer &chunks, const gc::WorldSave *save, uint32_t seed, const std::string &block,
-		bool captured) {
+		const gc::Mods &mods, bool captured) {
 	const ImGuiIO &io = ImGui::GetIO();
 	ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
 	ImGui::SetNextWindowBgAlpha(0.6f);
@@ -195,6 +200,14 @@ void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::W
 			ImGui::TextDisabled("World not saved (use --world=NAME)");
 		}
 		ImGui::Text("Block: %s  (wheel to change, middle click to pick)", block.c_str());
+		std::string names;
+		for (const gc::ModInfo &m : mods.loaded()) {
+			names += (names.empty() ? "" : ", ") + m.id + " " + m.version;
+		}
+		ImGui::Text("Mods: %s", names.c_str());
+		for (const auto &[id, why] : mods.problems()) {
+			ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "Mod %s: %s", id.c_str(), why.c_str());
+		}
 		if (!captured) {
 			ImGui::TextDisabled("Click to play. W A S D, Space, Shift, Ctrl, F to fly; left click breaks, right click places");
 		}
@@ -239,11 +252,18 @@ int main(int argc, char **argv) {
 	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 	const Options options = parse(argc, argv);
 
-	// Content: the base game (more mods come with the Lua milestone).
-	const std::filesystem::path mods = find_mods();
+	// Content: the mods (the base game first).
+	const std::filesystem::path builtin_mods = find_mods();
+	if (builtin_mods.empty()) {
+		gc::log("Couldn't find the mods folder (with the base game, mods\\core)");
+		return 1;
+	}
 	gc::Content content;
-	if (std::string e = mods.empty() ? "no mods folder found" : content.load_mod(mods / "core"); !e.empty()) {
-		gc::log("Couldn't load the base game: %s", e.c_str());
+	gc::Mods mods(content);
+	mods.load_all({builtin_mods, user_dir() / "mods"});
+	if (mods.loaded().empty() || mods.loaded().front().id != "core") {
+		auto it = mods.problems().find("core");
+		gc::log("Couldn't load the base game: %s", it != mods.problems().end() ? it->second.c_str() : "it's missing");
 		return 1;
 	}
 
@@ -251,7 +271,7 @@ int main(int argc, char **argv) {
 	std::optional<gc::WorldSave> save;
 	std::filesystem::path dir = options.world_dir;
 	if (dir.empty() && !options.world_name.empty()) {
-		dir = worlds_dir() / utf8_path(options.world_name.c_str());
+		dir = user_dir() / "worlds" / utf8_path(options.world_name.c_str());
 	}
 	uint32_t seed = options.seed;
 	int generator_version = options.generator;
@@ -305,6 +325,7 @@ int main(int argc, char **argv) {
 	auto world = std::make_unique<gc::World>(table.blocks, table.atlas.layout, generator,
 			save ? utf8_string(save->chunks_dir()) : std::string());
 	world->set_view_distance(options.view);
+	mods.attach(world.get(), &rules);
 
 	gc::Player player;
 	player.position[0] = 0.5f;
@@ -348,6 +369,8 @@ int main(int argc, char **argv) {
 	const auto start = clock::now();
 	auto last = start, last_save = start;
 	float accumulator = 0;
+	double tick_accumulator = 0;
+	constexpr double TICK = 0.05; // mods' tick event: 20 a second
 	long frame = 0;
 	bool ok = true;
 	while (window.pump()) {
@@ -402,11 +425,24 @@ int main(int argc, char **argv) {
 			controls.selected = ((controls.selected - int(wheel)) % n + n) % n;
 		}
 		const std::string block = placeable.empty() ? "" : placeable[controls.selected];
+		std::vector<gc::BlockChange> changes;
 		if (captured && left) {
-			player.break_target(*world, rules);
+			player.break_target(*world, rules, &changes);
 		}
 		if (captured && right) {
-			player.use_or_place(*world, rules, block, window.key_down(VK_SHIFT));
+			player.use_or_place(*world, rules, block, window.key_down(VK_SHIFT), &changes);
+		}
+		for (const gc::BlockChange &c : changes) {
+			if (c.placed) {
+				mods.block_placed(c.pos, c.id);
+			} else {
+				mods.block_broken(c.pos, c.id);
+			}
+		}
+		tick_accumulator += dt;
+		while (tick_accumulator >= TICK) {
+			mods.tick(TICK);
+			tick_accumulator -= TICK;
 		}
 		if (captured && middle) {
 			const gc::RayHit hit = player.target(*world);
@@ -441,7 +477,7 @@ int main(int argc, char **argv) {
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
 		draw_ui(renderer, player, *world, chunks, save ? &*save : nullptr, seed,
-				placeable.empty() ? "" : placeable[controls.selected], window.mouse_captured());
+				placeable.empty() ? "" : placeable[controls.selected], mods, window.mouse_captured());
 		ImGui::Render();
 
 		sky.time = std::chrono::duration<float>(now - start).count();
@@ -475,6 +511,7 @@ int main(int argc, char **argv) {
 	}
 
 	save_all();
+	mods.attach(nullptr, nullptr);
 	world.reset(); // stops the workers
 	const int messages = renderer.debug_messages();
 	renderer.shutdown();

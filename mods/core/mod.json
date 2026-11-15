@@ -3,8 +3,8 @@
   "name": "GoCube Base Game",
   "version": "0.1.0",
   "content": [
-    "content/base.json",
-    "content/planks.json"
+    "content/base.json"
   ],
+  "entry": "main.lua",
   "api_version": 1
 }

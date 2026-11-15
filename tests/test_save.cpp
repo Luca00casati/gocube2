@@ -7,6 +7,7 @@
 // to check that the Godot version opens it.
 
 #include "content/content.h"
+#include "helpers.h"
 #include "world/save.h"
 #include "world/world.h"
 
@@ -57,7 +58,7 @@ struct OpenWorld {
 	std::unique_ptr<gc::World> world;
 
 	explicit OpenWorld(const fs::path &dir) {
-		REQUIRE(content.load_mod(fs::path(GOCUBE_SOURCE_DIR) / "mods" / "core") == "");
+		load_base_game(content);
 		REQUIRE(save.open(dir, 1) == "");
 		content.freeze(save.block_ids());
 		save.set_block_ids(content.block_ids());

@@ -136,7 +136,7 @@ RayHit Player::target(const World &world) const {
 	return world.raycast(e, d, REACH);
 }
 
-bool Player::break_target(World &world, const BlockRules &rules) const {
+bool Player::break_target(World &world, const BlockRules &rules, std::vector<BlockChange> *changes) const {
 	const RayHit hit = target(world);
 	if (!hit.hit) {
 		return false;
@@ -144,10 +144,16 @@ bool Player::break_target(World &world, const BlockRules &rules) const {
 	const std::string broken = rules.id_of(hit.block);
 	const int air = std::max(0, rules.index_of("core:air"));
 	world.set_block(hit.position, gocube::BlockId(air));
+	if (changes) {
+		changes->push_back({hit.position, broken, false});
+	}
 	if (auto other = rules.other_part(broken, hit.position)) { // a door or bed goes as a whole
-		const std::string &there = rules.id_of(world.block_at(other->x, other->y, other->z));
+		const std::string there = rules.id_of(world.block_at(other->x, other->y, other->z));
 		if (rules.base_of(there) == rules.base_of(broken)) {
 			world.set_block(*other, gocube::BlockId(air));
+			if (changes) {
+				changes->push_back({*other, there, false});
+			}
 		}
 	}
 	return true;
@@ -165,7 +171,8 @@ bool Player::overlaps_block(const float feet[3], const BlockPos &cell) {
 	return true;
 }
 
-bool Player::use_or_place(World &world, const BlockRules &rules, const std::string &block, bool sneaking) const {
+bool Player::use_or_place(World &world, const BlockRules &rules, const std::string &block, bool sneaking,
+		std::vector<BlockChange> *changes) const {
 	RayHit hit = target(world);
 	if (!hit.hit) {
 		return false;
@@ -220,6 +227,9 @@ bool Player::use_or_place(World &world, const BlockRules &rules, const std::stri
 		const int index = rules.index_of(id);
 		if (index > 0) {
 			world.set_block(cell, gocube::BlockId(index));
+			if (changes) {
+				changes->push_back({cell, id, true});
+			}
 		}
 	}
 	return true;

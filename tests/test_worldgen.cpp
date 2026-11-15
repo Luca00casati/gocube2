@@ -4,6 +4,7 @@
 // are the Godot version's (tests/test_worldgen.gd: test_generation_never_changes).
 
 #include "content/content.h"
+#include "helpers.h"
 #include "voxel/generator.h"
 #include "voxel/light.h"
 #include "voxel/storage.h"
@@ -166,7 +167,7 @@ struct TestWorld {
 
 std::string fingerprint(uint32_t seed, int generator_version) {
 	gc::Content content;
-	REQUIRE(content.load_mod(GOCUBE_SOURCE_DIR "/mods/core") == "");
+	load_base_game(content);
 	content.freeze();
 	const gc::BlockTable table = gc::build_block_table(content);
 	Generator generator;

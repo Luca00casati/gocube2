@@ -16,6 +16,15 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(doctest CONFIG REQUIRED)
 find_package(Stb REQUIRED)
 
+# Lua 5.4, from source (thirdparty/lua), compiled as C++ so its errors unwind
+# C++ code properly, with a fixed string-hash seed (gocube_lua_config.h).
+file(GLOB LUA_SOURCES ${CMAKE_SOURCE_DIR}/thirdparty/lua/*.c)
+add_library(lua STATIC ${LUA_SOURCES})
+set_source_files_properties(${LUA_SOURCES} PROPERTIES LANGUAGE CXX)
+target_include_directories(lua PUBLIC thirdparty/lua)
+target_compile_options(lua PRIVATE /W0 /EHsc /FIgocube_lua_config.h)
+target_compile_definitions(lua PRIVATE _CRT_SECURE_NO_WARNINGS)
+
 set(GOCUBE_DEFINES UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 set(GOCUBE_OPTIONS /W4 /permissive- /utf-8 /EHsc /MP)
 
@@ -40,13 +49,15 @@ target_sources(gocube_core PRIVATE
 	src/game/blocks.h
 	src/game/player.cpp
 	src/game/player.h
+	src/mods/mods.cpp
+	src/mods/mods.h
 	src/world/save.cpp
 	src/world/save.h
 	src/world/world.cpp
 	src/world/world.h
 )
 target_include_directories(gocube_core PUBLIC src PRIVATE ${Stb_INCLUDE_DIR})
-target_link_libraries(gocube_core PUBLIC nlohmann_json::nlohmann_json)
+target_link_libraries(gocube_core PUBLIC nlohmann_json::nlohmann_json PRIVATE lua bcrypt)
 target_compile_definitions(gocube_core PUBLIC ${GOCUBE_DEFINES})
 target_compile_options(gocube_core PRIVATE ${GOCUBE_OPTIONS})
 # The voxel engine is the Godot version's, unchanged: quiet its warnings here
@@ -101,7 +112,9 @@ set_target_properties(gocube PROPERTIES WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>)
 target_link_options(gocube PRIVATE $<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartup>)
 
 add_executable(gocube_tests
+	tests/helpers.h
 	tests/main.cpp
+	tests/test_mods.cpp
 	tests/test_player.cpp
 	tests/test_save.cpp
 	tests/test_worldgen.cpp
