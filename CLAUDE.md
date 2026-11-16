@@ -1,7 +1,8 @@
 # GoCube: notes for Claude
 
 ## Build and test
-Commands need the Visual Studio developer environment (MSVC, Ninja, fxc). No
+Commands need the Visual Studio developer environment (CMake, MSBuild, fxc); the
+generator is Visual Studio's own (not Ninja). No
 package manager: every library is source in `thirdparty/` (`thirdparty/README.md`).
 From PowerShell outside it:
 

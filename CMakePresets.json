@@ -3,13 +3,10 @@
   "configurePresets": [
     {
       "name": "windows",
-      "displayName": "Windows x64 (MSVC, Ninja)",
-      "generator": "Ninja Multi-Config",
-      "binaryDir": "${sourceDir}/build",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "cl",
-        "CMAKE_CXX_COMPILER": "cl"
-      }
+      "displayName": "Windows x64 (Visual Studio 2026, MSBuild)",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build"
     }
   ],
   "buildPresets": [

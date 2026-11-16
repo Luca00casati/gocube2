@@ -16,8 +16,9 @@ not JSON. (So worlds the Godot version saved, as JSON, don't open here.)
 ## Requirements
 - Windows 10 or 11, x64
 - A GPU with Direct3D 11 at feature level 11_0 (or `--warp` to render in software)
-- Visual Studio 2022 or 2026 with "Desktop development with C++" (it brings MSVC,
-  CMake, Ninja and the Windows SDK's shader compiler). Nothing else: every library
+- Visual Studio 2026 with "Desktop development with C++" (it brings MSVC, MSBuild,
+  CMake and the Windows SDK's shader compiler; with Visual Studio 2022, configure
+  with `cmake -B build -G "Visual Studio 17 2022" -A x64`). Nothing else: every library
   is in `thirdparty/` as source.
 - Optional: Windows' **Graphics Tools** (Settings > System > Optional features) for
   the Direct3D debug layer in debug builds
@@ -27,8 +28,8 @@ such as the HD 4600, where every Direct3D 12 draw hangs the GPU; their Direct3D 
 drivers are mature, and nothing a voxel game needs is missing from Direct3D 11.
 
 ## Build and test
-From a **Developer PowerShell for VS** (it puts MSVC, Ninja and `fxc` on the
-path), in this folder:
+From a **Developer PowerShell for VS** (it puts CMake and `fxc` on the path), in
+this folder (the build is Visual Studio's own: MSBuild, `build\gocube.sln`):
 
     cmake --preset windows        # once
     cmake --build --preset debug  # or: release

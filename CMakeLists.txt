@@ -17,14 +17,14 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 file(GLOB ZLIB_SOURCES ${CMAKE_SOURCE_DIR}/thirdparty/zlib/*.c)
 add_library(zlib STATIC ${ZLIB_SOURCES})
 target_include_directories(zlib PUBLIC thirdparty/zlib)
-target_compile_options(zlib PRIVATE /W0)
+target_compile_options(zlib PRIVATE /W0 /MP)
 target_compile_definitions(zlib PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 
 file(GLOB PNG_SOURCES ${CMAKE_SOURCE_DIR}/thirdparty/libpng/*.c ${CMAKE_SOURCE_DIR}/thirdparty/libpng/intel/*.c)
 add_library(png STATIC ${PNG_SOURCES})
 target_include_directories(png PUBLIC thirdparty/libpng)
 target_link_libraries(png PUBLIC zlib)
-target_compile_options(png PRIVATE /W0)
+target_compile_options(png PRIVATE /W0 /MP)
 target_compile_definitions(png PRIVATE _CRT_SECURE_NO_WARNINGS)
 
 add_library(imgui STATIC
@@ -37,7 +37,7 @@ add_library(imgui STATIC
 	thirdparty/imgui/backends/imgui_impl_win32.cpp
 )
 target_include_directories(imgui PUBLIC thirdparty/imgui thirdparty/imgui/backends)
-target_compile_options(imgui PRIVATE /W0)
+target_compile_options(imgui PRIVATE /W0 /MP)
 
 add_library(nlohmann_json INTERFACE)
 target_include_directories(nlohmann_json INTERFACE thirdparty/nlohmann_json)
@@ -50,7 +50,7 @@ file(GLOB LUA_SOURCES ${CMAKE_SOURCE_DIR}/thirdparty/lua/*.c)
 add_library(lua STATIC ${LUA_SOURCES})
 set_source_files_properties(${LUA_SOURCES} PROPERTIES LANGUAGE CXX)
 target_include_directories(lua PUBLIC thirdparty/lua)
-target_compile_options(lua PRIVATE /W0 /EHsc /FIgocube_lua_config.h)
+target_compile_options(lua PRIVATE /W0 /EHsc /MP /FIgocube_lua_config.h)
 target_compile_definitions(lua PRIVATE _CRT_SECURE_NO_WARNINGS)
 
 set(GOCUBE_DEFINES UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
