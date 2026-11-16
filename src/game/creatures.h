@@ -13,6 +13,7 @@
 // it), "light_height" (where its light is taken).
 
 #include "content/content.h"
+#include "game/figure.h"
 #include "world/world.h"
 
 #include <string>
@@ -40,6 +41,12 @@ struct Creature {
 	float hurt_time = 0, flash = 0, attacking = 0;
 	int strikes = 0;      // goes up with every strike (the figure plays one)
 	float walk_phase = 0;
+	// A figure's (model "ninja"): its pose, how fast it seems to go, the
+	// headband's tails.
+	Figure figure;
+	float anim_speed = 0, anim_time = 0;
+	int seen_strikes = 0;
+	float tails[3] = {0, 0, 0};
 	// From its kind.
 	float box[3] = {0.6f, 1.8f, 0.6f};
 	float gravity = 24, step_height = 1, turn_rate = 8, jump = 0, light_height = 0.5f;

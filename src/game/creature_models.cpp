@@ -151,7 +151,75 @@ void block_eater(const Creature &c, const Content &content, const BlockTable &ta
 	}
 }
 
+// The Godot version's Figure: a jointed figure of boxes in these colours.
+struct FigureLooks {
+	Look skin, shirt, sleeve, hands, trousers, shoes;
+};
+
+// Builds the figure; returns its head and torso joints (to dress it up).
+void figure(const Figure &f, const FigureLooks &l, const XMMATRIX &root, Builder &b, XMMATRIX &head_out,
+		XMMATRIX &torso_out) {
+	auto joint = [&](Figure::Joint j, XMFLOAT3 at, const XMMATRIX &parent) {
+		return node(at, {f.rot[j][0], f.rot[j][1], f.rot[j][2]}) * parent;
+	};
+	const XMMATRIX body = node({0, 0, 0}, {PI / 2 * f.lie, 0, 0}) * root; // (asleep: on its back)
+	const XMMATRIX hips = joint(Figure::HIPS, {0, f.hips_y, 0}, body);
+	const XMMATRIX torso = joint(Figure::TORSO_J, {0, 0, 0}, hips);
+	b.box(torso, {0.5f, Figure::TORSO, 0.27f}, {0, Figure::TORSO / 2, 0}, l.shirt);
+	const XMMATRIX head = joint(Figure::HEAD, {0, Figure::TORSO + 0.02f, 0}, torso);
+	b.box(head, {0.44f, 0.44f, 0.44f}, {0, 0.22f, 0}, l.skin);
+	for (int i = 0; i < 2; i++) {
+		const float side = i == 0 ? -1.0f : 1.0f;
+		const XMMATRIX arm = joint(i == 0 ? Figure::ARM_L : Figure::ARM_R, {0.335f * side, Figure::TORSO - 0.06f, 0}, torso);
+		b.box(arm, {0.17f, Figure::UPPER_ARM + 0.06f, 0.17f}, {0, -Figure::UPPER_ARM / 2 + 0.03f, 0}, l.sleeve);
+		const XMMATRIX elbow = joint(i == 0 ? Figure::ELBOW_L : Figure::ELBOW_R, {0, -Figure::UPPER_ARM, 0}, arm);
+		b.box(elbow, {0.155f, Figure::FOREARM - 0.08f, 0.155f}, {0, -(Figure::FOREARM - 0.08f) / 2, 0}, l.sleeve);
+		b.box(elbow, {0.15f, 0.1f, 0.15f}, {0, -Figure::FOREARM + 0.05f, 0}, l.hands);
+		const XMMATRIX leg = joint(i == 0 ? Figure::LEG_L : Figure::LEG_R, {0.125f * side, 0, 0}, hips);
+		b.box(leg, {0.22f, Figure::THIGH + 0.02f, 0.22f}, {0, -Figure::THIGH / 2, 0}, l.trousers);
+		const XMMATRIX knee = joint(i == 0 ? Figure::KNEE_L : Figure::KNEE_R, {0, -Figure::THIGH, 0}, leg);
+		b.box(knee, {0.21f, Figure::SHIN - 0.1f, 0.21f}, {0, -(Figure::SHIN - 0.1f) / 2, 0}, l.trousers);
+		b.box(knee, {0.22f, 0.1f, 0.28f}, {0, -Figure::SHIN + 0.05f, -0.03f}, l.shoes);
+	}
+	head_out = head;
+	torso_out = torso;
+}
+
+// The Godot version's Ninja: a figure in dark cloth with a hood, a red sash
+// and a headband whose tails flutter behind it, a sword on its back.
+void ninja(const Creature &c, const XMMATRIX &root, Builder &b) {
+	const Look cloth = colour(0.11f, 0.12f, 0.16f);
+	FigureLooks looks{cloth, cloth, cloth, colour(0.07f, 0.07f, 0.1f), cloth, colour(0.06f, 0.06f, 0.08f)};
+	XMMATRIX head, torso;
+	figure(c.figure, looks, root, b, head, torso);
+	const Look skin = colour(0.80f, 0.62f, 0.48f), eyes = colour(0.05f, 0.05f, 0.06f);
+	const Look sash = colour(0.66f, 0.10f, 0.12f), steel = colour(0.62f, 0.65f, 0.7f);
+	b.box(head, {0.36f, 0.1f, 0.02f}, {0, 0.25f, -0.222f}, skin); // eye slit
+	for (const float side : {-1.0f, 1.0f}) {
+		b.box(head, {0.06f, 0.05f, 0.02f}, {0.08f * side, 0.25f, -0.232f}, eyes);
+	}
+	b.box(head, {0.46f, 0.06f, 0.46f}, {0, 0.35f, 0}, sash); // headband
+	const XMMATRIX tails = node({0.08f, 0.35f, 0.23f}, {c.tails[0], c.tails[1], c.tails[2]}) * head;
+	b.box(tails, {0.05f, 0.05f, 0.3f}, {0.03f, 0, 0.15f}, sash);
+	b.box(tails, {0.05f, 0.05f, 0.24f}, {-0.04f, -0.03f, 0.12f}, sash, {0, -0.25f, 0});
+	b.box(torso, {0.52f, 0.1f, 0.29f}, {0, 0.06f, 0}, sash);          // sash
+	b.box(torso, {0.1f, 0.26f, 0.04f}, {0.15f, -0.08f, -0.15f}, sash); // its ends
+	b.box(torso, {0.06f, 0.62f, 0.06f}, {-0.12f, 0.34f, 0.17f}, steel, {0, 0, 0.7f}); // sword on the back
+}
+
 } // namespace
+
+void build_cube(const float at[3], float size, const float rgb[3], std::vector<CreatureVertex> &out) {
+	const float white[3] = {1, 1, 1};
+	Builder b{out, white, 0};
+	Look look = colour(rgb[0], rgb[1], rgb[2]);
+	const size_t first = out.size();
+	b.box(XMMatrixTranslation(at[0], at[1], at[2]), {size, size, size}, {0, 0, 0}, look);
+	for (size_t i = first; i < out.size(); i++) { // unshaded: every face as bright as the top
+		out[i].normal[0] = out[i].normal[2] = 0;
+		out[i].normal[1] = 1;
+	}
+}
 
 void build_creature(const Creature &c, const Content &content, const BlockTable &table, float alpha,
 		const float light[3], std::vector<CreatureVertex> &out) {
@@ -161,6 +229,8 @@ void build_creature(const Creature &c, const Content &content, const BlockTable 
 	const XMMATRIX root = node({at[0], at[1], at[2]}, {0, lerp_angle(c.prev_yaw, c.yaw, alpha), 0});
 	if (c.model == "block_eater") {
 		block_eater(c, content, table, root, b);
+	} else if (c.model == "ninja") {
+		ninja(c, root, b);
 	}
 }
 

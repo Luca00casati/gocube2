@@ -88,6 +88,8 @@ target_sources(gocube_core PRIVATE
 	src/game/creature_models.h
 	src/game/creatures.cpp
 	src/game/creatures.h
+	src/game/figure.cpp
+	src/game/figure.h
 	src/game/blocks.cpp
 	src/game/blocks.h
 	src/game/drops.cpp

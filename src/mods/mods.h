@@ -48,7 +48,8 @@
 //              (not while loading: what mods register must depend only on
 //              their files). Rules the game asks: see Mods::rule.
 //              While playing: players() -> {{peer, x, y, z, survival, alive}},
-//              day() -> 0..1, damage_player(peer, amount, source [, push xyz]),
+//              day() -> 0..1, first_night() -> "ahead"/"now"/"over" (a new
+//              world's first night is safe), damage_player(peer, amount, source [, push xyz]),
 //              play_sound(set, kind, x, y, z [, dB]), effect("smoke", x, y, z)
 //   mod        {id, version}
 //   print      to the game's log
@@ -129,6 +130,7 @@ public:
 		// Players: [{peer, x, y, z (feet), survival, alive}].
 		std::function<Json()> players;
 		std::function<float()> day; // 0 at night .. 1 in full day
+		std::function<std::string()> first_night; // "ahead", "now", "over" (Game::first_night)
 		std::function<void(int peer, int amount, const std::string &source, const float push[3])> damage_player;
 		std::function<void(const std::string &set, const std::string &kind, const float at[3], float volume_db)>
 				play_sound;

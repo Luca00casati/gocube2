@@ -690,6 +690,14 @@ struct Mods::Lua {
 		return 1;
 	}
 
+	// game.first_night() -> "ahead", "now" or "over"
+	static int game_first_night(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		lua_pushstring(L, h->hooks.first_night ? h->hooks.first_night().c_str() : "over");
+		return 1;
+	}
+
 	// game.damage_player(peer, amount, source [, push_x, push_y, push_z])
 	static int game_damage_player(lua_State *L) {
 		need_world(L);
@@ -853,6 +861,8 @@ struct Mods::Lua {
 		lua_setfield(L, -2, "players");
 		lua_pushcfunction(L, &Lua::game_day);
 		lua_setfield(L, -2, "day");
+		lua_pushcfunction(L, &Lua::game_first_night);
+		lua_setfield(L, -2, "first_night");
 		lua_pushcfunction(L, &Lua::game_damage_player);
 		lua_setfield(L, -2, "damage_player");
 		lua_pushcfunction(L, &Lua::game_play_sound);

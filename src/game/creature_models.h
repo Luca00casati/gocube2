@@ -20,6 +20,10 @@ struct CreatureVertex {
 	float tile[4];   // atlas rectangle of a block face, or all 0 (a flat colour)
 };
 
+// A plain cube (a puff of smoke): `size` across, centred at `at`, one
+// colour on every side (raw, not lit).
+void build_cube(const float at[3], float size, const float rgb[3], std::vector<CreatureVertex> &out);
+
 // Appends the creature's boxes, posed for this moment (`alpha`: between its
 // last two physics steps), lit by `light` (World.light_for at it; raw).
 void build_creature(const Creature &c, const Content &content, const BlockTable &table, float alpha,

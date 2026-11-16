@@ -4,8 +4,10 @@ Voxel sandbox for Windows, in C++20 with Direct3D 11, gameplay and mods in Lua.
 A rewrite of the Godot version of GoCube; the plan is in the
 [GoCube Native Rewrite Plan](https://claude.ai/artifact/CMdng1jnMGWsAb7X84FHoy).
 
-Status: milestone 6. Survival: mining, drops, crafting, chests and furnaces,
-health, the day and night, growing plants, farming, flowing water and lava; creative; a title menu and pause menu.
+Status: milestone 7. Survival: mining, drops, crafting, chests and furnaces,
+health, the day and night, growing plants, farming, flowing water and lava;
+creatures (Block Eaters by day, ninjas at night after a safe first night);
+sound; creative; a title menu and pause menu.
 It looks like the Godot version: its sky, fog, block and cloud shadows, light
 from torches (placed and held), dropped items and the first-person arm.
 Worlds are generated exactly as the Godot version does. The rules of the game

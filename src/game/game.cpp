@@ -50,6 +50,7 @@ Game::Game(Content &content, const BlockTable &table, const BlockRules &rules, W
 				{"z", player_.position[2]}, {"survival", !creative_}, {"alive", !dead_}}});
 	};
 	hooks.day = [this] { return day_; };
+	hooks.first_night = [this] { return first_night_; };
 	hooks.damage_player = [this](int peer, int amount, const std::string &source, const float push[3]) {
 		if (peer != 0 || creative_ || dead_) {
 			return;
@@ -478,6 +479,15 @@ void Game::tick(double dt) {
 		if (!world_spawn_) { // where new players appear and the dead respawn
 			world_spawn_ = std::array<float, 3>{player_.position[0], player_.position[1], player_.position[2]};
 		}
+	}
+}
+
+void Game::update_first_night() {
+	constexpr float NINJA_NIGHT = 0.15f; // daylight below which ninjas come out
+	if (first_night_ == "ahead" && day_ < NINJA_NIGHT) {
+		first_night_ = "now";
+	} else if (first_night_ == "now" && day_ > 0.3f) {
+		first_night_ = "over"; // morning: from now on nights have ninjas
 	}
 }
 

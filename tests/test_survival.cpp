@@ -963,9 +963,11 @@ TEST_CASE("Block Eaters (the core mod's Lua): they come by day on grass, flee wh
 			p.mods.tick(0.05);
 		}
 	};
-	p.game->set_day(0.0f); // night: none
+	p.game->set_day(0.0f); // night: no Block Eaters
 	run(20);
-	CHECK(p.game->creatures().all().empty());
+	for (const gc::Creature &c : p.game->creatures().all()) {
+		CHECK(c.kind != "core:block_eater");
+	}
 	p.game->set_day(1.0f);
 	run(60);
 	const auto &all = p.game->creatures().all();
@@ -994,4 +996,84 @@ TEST_CASE("Block Eaters (the core mod's Lua): they come by day on grass, flee wh
 	}
 	CHECK(p.game->creatures().find(id) == nullptr);
 	CHECK(drops_of_item(p, "core:stone") == 1);
+}
+
+namespace {
+
+// Grass all around the origin at y 70, open to the sky; the player on it.
+void open_field(Play &p) {
+	for (int x = -50; x <= 50; x++) {
+		for (int z = -50; z <= 50; z++) {
+			if (p.world->is_loaded(x, 70, z)) {
+				p.world->set_block({x, 70, z}, p.id("core:grass"));
+				for (int y = 71; y <= 74; y++) {
+					p.world->set_block({x, y, z}, 0);
+				}
+			}
+		}
+	}
+	p.player.position[0] = 0.5f;
+	p.player.position[1] = 71.0f;
+	p.player.position[2] = 0.5f;
+	p.player.flying = true;
+}
+
+void live_for(Play &p, float seconds) {
+	for (int i = 0; i < int(seconds * 20); i++) {
+		for (int k = 0; k < 3; k++) {
+			p.game->physics_step(1.0f / 60.0f);
+		}
+		p.game->tick(0.05);
+		p.mods.tick(0.05);
+	}
+}
+
+} // namespace
+
+TEST_CASE("ninjas (the core mod's Lua): run at the player and strike; the sun makes them vanish in smoke") {
+	Play p;
+	open_field(p);
+	p.game->set_first_night("now"); // (no others turn up meanwhile)
+	p.game->set_day(0.0f);
+	const float at[3] = {8.5f, 71.0f, 0.5f};
+	const int id = p.game->creatures().spawn(p.content, "core:ninja", at);
+	REQUIRE(id > 0);
+	live_for(p, 6.0f);
+	const gc::Creature *c = p.game->creatures().find(id);
+	REQUIRE(c);
+	CHECK(std::hypot(c->pos[0] - 0.5f, c->pos[2] - 0.5f) < 2.0f); // came to the player
+	CHECK(p.game->health() <= gc::Game::MAX_HEALTH - 6);          // struck at least twice (3 each)
+	CHECK(c->strikes >= 2);
+	// Morning: under open sky, it's gone in a puff of smoke.
+	p.game->take_effects();
+	p.game->set_day(1.0f);
+	live_for(p, 0.2f);
+	CHECK(p.game->creatures().find(id) == nullptr);
+	const auto effects = p.game->take_effects();
+	REQUIRE(effects.size() == 1);
+	CHECK(effects[0].name == "smoke");
+}
+
+TEST_CASE("the first night is safe: ninjas only come once a night has passed") {
+	Play p;
+	open_field(p);
+	p.game->set_first_night("ahead");
+	p.game->set_day(0.0f);
+	p.game->update_first_night();
+	CHECK(p.game->first_night() == "now");
+	live_for(p, 30.0f);
+	CHECK(p.game->creatures().all().empty()); // none on the first night
+	p.game->set_day(1.0f);
+	p.game->update_first_night();
+	CHECK(p.game->first_night() == "over");
+	p.game->set_day(0.0f);
+	p.game->update_first_night();
+	CHECK(p.game->first_night() == "over");
+	live_for(p, 30.0f);
+	int ninjas = 0;
+	for (const gc::Creature &c : p.game->creatures().all()) {
+		ninjas += c.kind == "core:ninja";
+	}
+	CHECK(ninjas >= 1);
+	CHECK(ninjas <= 6);
 }

@@ -161,7 +161,7 @@ assert(not pcall(setmetatable, {}, {__gc = function() end}), '__gc was allowed')
 assert(not pcall(world.get_block, 0, 0, 0), 'world before there is one')
 -- Creatures and the playing-only game functions: there, but only with a world.
 for _, f in ipairs({creatures.spawn, creatures.remove, creatures.all, creatures.get, creatures.set,
-		world.raycast, world.box_free, game.players, game.day, game.damage_player, game.play_sound,
+		world.raycast, world.box_free, game.players, game.day, game.first_night, game.damage_player, game.play_sound,
 		game.effect}) do
 	assert(type(f) == 'function')
 	assert(not pcall(f, 'core:block_eater', 0, 0, 0), 'a playing-only function before there is a world')

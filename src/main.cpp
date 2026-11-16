@@ -816,6 +816,8 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		game.block_entities().deserialize(save->field("block_entities"));
 		game.set_world_spawn(save->field("spawn"));
 		game.load_plants(save->field("plants"));
+		const gc::Json &first_night = save->field("first_night");
+		game.set_first_night(first_night.is_string() ? first_night.get<std::string>() : "over");
 	} else {
 		game.start_new_player();
 	}
@@ -860,6 +862,11 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		audio.init(content, options.hidden ? 0.0f : 1.0f);
 	}
 	gc::Hand hand;
+	struct Puff {
+		float pos[3], vel[3], size, age;
+	};
+	std::vector<Puff> puffs;
+	std::mt19937 puff_random{std::random_device{}()};
 	gc::HandLights hand_lights;
 	int seen_swings = game.swings();
 	gc::SkyParams sky;
@@ -888,6 +895,7 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			state.update(game.save_player());
 			save->set_field("block_entities", game.block_entities().serialize());
 			save->set_field("time", day.time);
+			save->set_field("first_night", game.first_night());
 			save->set_field("plants", game.save_plants());
 			if (const auto &spawn = game.world_spawn()) {
 				save->set_field("spawn", {(*spawn)[0], (*spawn)[1], (*spawn)[2]});
@@ -1008,11 +1016,20 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			game.tick(dt);
 			day.update(dt);
 			game.set_day(day.day_amount());
+			game.update_first_night();
 		}
 		// A bed used at night: sleep (the screen fades out), then it's morning.
 		if (game.take_bed_used()) {
+			bool ninja_near = false; // (survival: can't sleep with one close by)
+			for (const gc::Creature &c : game.creatures().all()) {
+				ninja_near = ninja_near || (!game.creative() && c.kind == "core:ninja" &&
+						std::hypot(c.pos[0] - player.position[0], c.pos[1] - player.position[1],
+								c.pos[2] - player.position[2]) < 10.0f);
+			}
 			if (day.day_amount() > 0.3f) {
 				game.show_notice("You can only sleep at night (respawn point set)");
+			} else if (ninja_near) {
+				game.show_notice("You can't sleep now: a ninja is nearby");
 			} else {
 				sleeping = 0;
 			}
@@ -1022,6 +1039,9 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			if (sleeping >= 2.5f) {
 				day.time = gc::DayCycle::MORNING;
 				sleeping = -1;
+				if (game.first_night() != "over") {
+					game.set_first_night("over"); // slept through it
+				}
 			}
 		}
 		if (auto opened = game.take_opened()) {
@@ -1175,7 +1195,49 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			}
 			chunks.draw_creatures(renderer.context(), creature_mesh, camera.view() * camera.projection(aspect),
 					camera.position, sky);
-			game.take_effects(); // (shown from the next commit: the ninjas' smoke)
+			// Puffs of smoke (a ninja caught by the sun): a burst of grey cubes
+			// rising for 0.9 s (the Godot version's CPUParticles3D).
+			for (const gc::Effect &e : game.take_effects()) {
+				if (e.name != "smoke") {
+					continue;
+				}
+				std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+				for (int i = 0; i < 24; i++) {
+					Puff p;
+					std::copy(e.at, e.at + 3, p.pos);
+					const float spread = 70.0f * 3.14159265f / 180.0f * std::sqrt(unit(puff_random));
+					const float turn = unit(puff_random) * 6.2831853f;
+					const float speed = 1.0f + 1.5f * unit(puff_random);
+					p.vel[0] = std::sin(spread) * std::cos(turn) * speed;
+					p.vel[1] = std::cos(spread) * speed;
+					p.vel[2] = std::sin(spread) * std::sin(turn) * speed;
+					p.size = 0.2f + 0.25f * unit(puff_random);
+					p.age = -0.045f * unit(puff_random); // (nearly all at once)
+					puffs.push_back(p);
+				}
+			}
+			std::vector<gc::CreatureVertex> puff_mesh;
+			const float smoke[3] = {0.82f, 0.82f, 0.86f};
+			for (size_t i = 0; i < puffs.size();) {
+				Puff &p = puffs[i];
+				p.age += paused ? 0.0f : dt;
+				if (p.age >= 0.9f) {
+					puffs.erase(puffs.begin() + std::ptrdiff_t(i));
+					continue;
+				}
+				if (p.age > 0 && !paused) {
+					p.vel[1] += 0.8f * dt; // it rises
+					for (int k = 0; k < 3; k++) {
+						p.pos[k] += p.vel[k] * dt;
+					}
+				}
+				if (p.age > 0) {
+					gc::build_cube(p.pos, p.size, smoke, puff_mesh);
+				}
+				i++;
+			}
+			chunks.draw_creatures(renderer.context(), puff_mesh, camera.view() * camera.projection(aspect),
+					camera.position, sky);
 		}
 		if (const gc::RayHit hit = player.target(*world); hit.hit && game.aimed_creature() == 0) {
 			std::vector<gocube::Box> boxes;
