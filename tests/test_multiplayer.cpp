@@ -7,6 +7,12 @@
 
 #include <doctest/doctest.h>
 
+#include "mods/mod_pack.h"
+
+#include <zlib.h>
+
+#include <cstring>
+#include <fstream>
 #include <process.h>
 
 using gc::BlockPos;
@@ -298,6 +304,102 @@ TEST_CASE("multiplayer: the host's creatures, and a client hitting one") {
 		const gc::Creature *real = h.game().creatures().find(id);
 		return !real || real->flash > 0 || real->hurt_time > 0;
 	}, 5));
+}
+
+TEST_CASE("multiplayer: a player with other mods downloads the host's and joins with them") {
+	// A mod only the host has (made here), with a file in a folder of its own.
+	const std::filesystem::path root = std::filesystem::temp_directory_path() / ("gocube_test_" + std::to_string(_getpid()));
+	const std::filesystem::path hosts = root / "host_mods", cache = root / "cache";
+	std::filesystem::remove_all(root);
+	std::filesystem::create_directories(hosts / "visitor" / "data");
+	std::ofstream(hosts / "visitor" / "mod.lua") << "return {id = \"visitor\", version = \"1.2.0\", entry = \"main.lua\"}\n";
+	std::ofstream(hosts / "visitor" / "main.lua") << "registry.register_item(\"token\", {max_stack = 8})\n";
+	std::ofstream(hosts / "visitor" / "data" / "notes.txt") << "kept as it is\n";
+	auto host = NetPlay::host(test_port(5), false, "Host", {hosts});
+	const std::vector<std::string> host_mods = gc::Session::mod_list(host->play->mods.loaded());
+	REQUIRE(host_mods.size() == 2);
+
+	// We have the base game only: the host offers its mods; we lack one.
+	gc::Session s;
+	gc::Content c;
+	gc::Mods m(c);
+	m.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"});
+	REQUIRE(s.join("127.0.0.1", test_port(5), "Visitor", gc::Session::mod_list(m.loaded())).empty());
+	REQUIRE(run_until({host.get()}, [&] {
+		s.poll();
+		return s.mods_offered() || !s.ended().empty();
+	}, 10));
+	CHECK(s.host_mods() == host_mods);
+	REQUIRE(s.missing_mods().size() == 1);
+	const std::string entry = s.missing_mods().begin()->first;
+	CHECK(entry.rfind("visitor@1.2.0#", 0) == 0);
+	s.download_mods(cache);
+	CHECK(run_until({host.get()}, [&] {
+		s.poll();
+		return s.mods_ready() || !s.ended().empty();
+	}, 10));
+	CHECK(s.ended().empty());
+	// It's there, exactly (the same fingerprint), with its folder.
+	const auto copies = gc::mod_copies({cache});
+	REQUIRE(copies.count(entry) == 1);
+	CHECK(std::filesystem::exists(copies.at(entry) / "data" / "notes.txt"));
+	s.leave();
+
+	// Again, with the host's mods: in.
+	auto client = NetPlay::join(test_port(5), "Visitor", [&] { host->frame(); }, nullptr, host_mods, {cache});
+	REQUIRE(client);
+	CHECK(client->play->content.items.count("visitor:token") == 1);
+	client.reset();
+	host.reset();
+	std::filesystem::remove_all(root);
+}
+
+TEST_CASE("mod packs: only plain paths inside the folder, nothing written if one isn't") {
+	const std::filesystem::path root = std::filesystem::temp_directory_path() / ("gocube_pack_" + std::to_string(_getpid()));
+	std::filesystem::remove_all(root);
+	std::filesystem::create_directories(root / "a" / "sub");
+	std::ofstream(root / "a" / "mod.lua") << "return {id = \"a\"}\n";
+	std::ofstream(root / "a" / "sub" / "x.txt") << "x";
+	std::ofstream(root / "a" / ".hidden") << "not sent";
+	const std::vector<uint8_t> pack = gc::pack_mod(root / "a");
+	REQUIRE(!pack.empty());
+	CHECK(gc::unpack_mod(pack, root / "b").empty());
+	CHECK(gc::mod_fingerprint(root / "a") == gc::mod_fingerprint(root / "b"));
+	CHECK_FALSE(std::filesystem::exists(root / "b" / ".hidden"));
+	CHECK(gc::unpack_mod(pack, root / "b") == "its folder is already there");
+	// A pack with a path out of its folder (made by hand) is refused, and nothing is written.
+	auto make = [](const std::string &path) {
+		std::vector<uint8_t> raw;
+		auto put = [&](uint32_t v) {
+			for (int i = 0; i < 4; i++) {
+				raw.push_back(uint8_t(v >> (8 * i)));
+			}
+		};
+		put(1);
+		put(uint32_t(path.size()));
+		raw.insert(raw.end(), path.begin(), path.end());
+		put(1);
+		raw.push_back('!');
+		uLongf size = compressBound(uLong(raw.size()));
+		std::vector<uint8_t> out(4 + size);
+		const uint32_t n = uint32_t(raw.size());
+		std::memcpy(out.data(), &n, 4);
+		compress2(out.data() + 4, &size, raw.data(), uLong(raw.size()), 9);
+		out.resize(4 + size);
+		return out;
+	};
+	for (const char *bad : {"../evil.txt", "sub/../../evil.txt", "C:/evil.txt", "/evil.txt", "a\\..\\evil.txt",
+				"con.txt", ".git/config", "sub//x"}) {
+		CAPTURE(bad);
+		CHECK_FALSE(gc::unpack_mod(make(bad), root / "c").empty());
+		CHECK_FALSE(std::filesystem::exists(root / "c"));
+	}
+	CHECK_FALSE(std::filesystem::exists(root / "evil.txt"));
+	CHECK(gc::unpack_mod(make("ok/fine.txt"), root / "c").empty());
+	std::vector<uint8_t> damaged = pack;
+	damaged.resize(damaged.size() / 2);
+	CHECK_FALSE(gc::unpack_mod(damaged, root / "d").empty());
+	std::filesystem::remove_all(root);
 }
 
 TEST_CASE("multiplayer: the host turns players away (a name taken, other mods)") {

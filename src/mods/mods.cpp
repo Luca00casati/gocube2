@@ -963,7 +963,7 @@ size_t Mods::memory_in_use() const {
 	return lua_->used;
 }
 
-void Mods::load_all(const std::vector<fs::path> &dirs) {
+void Mods::load_all(const std::vector<fs::path> &dirs, const std::vector<std::string> *only) {
 	struct Found {
 		Json manifest;
 		fs::path dir;
@@ -994,6 +994,15 @@ void Mods::load_all(const std::vector<fs::path> &dirs) {
 				continue;
 			}
 			const std::string id = m["id"].get<std::string>();
+			if (only) {
+				ModInfo info;
+				info.id = id;
+				info.version = m.value("version", "");
+				info.fingerprint = mod_fingerprint(dir);
+				if (std::find(only->begin(), only->end(), mod_entry(info)) == only->end()) {
+					continue; // (not one of the host's: another copy may be)
+				}
+			}
 			if (m.value("api_version", 1.0) > API_VERSION) {
 				fail(id, "needs a newer game (mod API " + std::to_string(int(m["api_version"].get<double>())) +
 								 ", this game has " + std::to_string(API_VERSION) + "); skipping it");
@@ -1212,10 +1221,39 @@ void files_under(const fs::path &root, const std::string &rel, std::vector<std::
 
 } // namespace
 
-std::string mod_fingerprint(const fs::path &root) {
+std::vector<std::string> mod_files(const fs::path &root) {
 	std::vector<std::string> files;
 	files_under(root, "", files);
 	std::sort(files.begin(), files.end());
+	return files;
+}
+
+std::string mod_entry(const ModInfo &m) {
+	return m.id + "@" + m.version + "#" + m.fingerprint;
+}
+
+std::map<std::string, fs::path> mod_copies(const std::vector<fs::path> &dirs) {
+	std::map<std::string, fs::path> out;
+	for (const fs::path &root : dirs) {
+		for (const fs::path &dir : visible_subdirs(root)) {
+			Json m;
+			std::string why;
+			if (!fs::exists(dir / "mod.lua") || !read_lua_data(dir / "mod.lua", m, why) || !m.is_object() ||
+					!m.contains("id") || !m["id"].is_string()) {
+				continue;
+			}
+			ModInfo info;
+			info.id = m["id"].get<std::string>();
+			info.version = m.value("version", "");
+			info.fingerprint = mod_fingerprint(dir);
+			out.emplace(mod_entry(info), dir);
+		}
+	}
+	return out;
+}
+
+std::string mod_fingerprint(const fs::path &root) {
+	const std::vector<std::string> files = mod_files(root);
 	BCRYPT_ALG_HANDLE alg = nullptr;
 	BCRYPT_HASH_HANDLE hash = nullptr;
 	BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0);

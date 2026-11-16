@@ -30,9 +30,12 @@ struct NetPlay {
 
 	// The host: a world (seed 4242) with a stone floor at FLOOR_Y around the
 	// origin, open on `port`; its player stands on it at (0.5, 0.5).
-	static std::unique_ptr<NetPlay> host(int port, bool creative = false, const std::string &name = "Host") {
+	static std::unique_ptr<NetPlay> host(int port, bool creative = false, const std::string &name = "Host",
+			std::vector<std::filesystem::path> more_mods = {}) {
 		auto n = std::make_unique<NetPlay>();
-		n->play = std::make_unique<Play>(Play::Setup{creative});
+		Play::Setup setup{creative};
+		setup.more_mods = std::move(more_mods);
+		n->play = std::make_unique<Play>(setup);
 		Play &p = *n->play;
 		for (int x = -14; x <= 14; x++) {
 			for (int z = -14; z <= 14; z++) {
@@ -50,6 +53,11 @@ struct NetPlay {
 		const std::string e = n->session.host(port, name, gc::Session::mod_list(p.mods.loaded()));
 		PLAY_REQUIRE(e.empty());
 		n->session.set_world_info({{"seed", 4242}, {"generator", gc::GENERATOR_VERSION}, {"block_ids", p.content.block_ids()}});
+		std::map<std::string, std::filesystem::path> folders; // (players with other mods may download ours)
+		for (const gc::ModInfo &m : p.mods.loaded()) {
+			folders[gc::mod_entry(m)] = m.dir;
+		}
+		n->session.set_mod_folders(std::move(folders));
 		n->attach();
 		return n;
 	}
@@ -57,8 +65,12 @@ struct NetPlay {
 	// A client: connects, waits for the host's welcome (while `others` run
 	// their frames), then builds the world from it. Null if it was turned away
 	// (`why` says why).
+	// `mods`: the mods we say we have (default: the base game's); `more_mods`:
+	// folders of mod folders to load them from (Play::Setup).
 	static std::unique_ptr<NetPlay> join(int port, const std::string &name, const std::function<void()> &others,
-			std::string *why = nullptr, std::vector<std::string> mods = {}) {
+			std::string *why = nullptr, std::vector<std::string> mods = {},
+			std::vector<std::filesystem::path> more_mods = {}) {
+		const bool chosen = !mods.empty();
 		auto n = std::make_unique<NetPlay>();
 		if (mods.empty()) {
 			gc::Content c;
@@ -81,6 +93,10 @@ struct NetPlay {
 		}
 		const gc::Json &w = n->session.welcome();
 		Play::Setup s;
+		s.more_mods = std::move(more_mods);
+		if (chosen) {
+			s.only_mods = mods;
+		}
 		s.creative = w.value("mode", "survival") == "creative";
 		s.seed = uint32_t(w.value("seed", 0.0));
 		s.generator = int(w.value("generator", 1.0));

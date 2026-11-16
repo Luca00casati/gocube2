@@ -77,7 +77,11 @@ play a world (others join it on port 24680), or type the host's address and
 "Join their world". The host's world is the world: it checks and does what
 joined players do, keeps their inventories and health (saved in its world, by
 name), and runs the creatures, items, chests, furnaces and time; the night is
-skipped once everyone is in bed. Everyone needs the same mods.
+skipped once everyone is in bed. Everyone plays with the host's mods: joining
+a host with other mods (the same base game), you're asked whether to download
+the ones you lack (each checked against its fingerprint, kept in
+`%APPDATA%\GoCube\server_mods`); the game then starts again with exactly the
+host's mods.
 
 | Option | What it does |
 | --- | --- |
@@ -101,6 +105,7 @@ skipped once everyone is in bed. Everyone needs the same mods.
 | `--host[=PORT]` | Open the world to others (default port 24680) |
 | `--join=ADDRESS[:PORT]` | Play in the world of the host at this address |
 | `--name=NAME` | The name others see (default "Player"; the host keeps a survival player's things by it) |
+| `--accept-mods` | Joining a host with other mods: download them without asking |
 | `--no-sound` | Play without sound (`--hidden` never plays any) |
 | `--no-vsync` | Present as fast as possible |
 | `--debug`, `--no-debug` | Force the Direct3D 11 debug layer on or off (default: on in debug builds) |

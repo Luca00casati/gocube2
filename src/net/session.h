@@ -23,7 +23,12 @@
 //   - the host checks what clients say: movement (speed, walls), reach,
 //     request rates, what they hold
 //
-// Mods: both sides must play with the same mods (id, version and files).
+// Mods: both sides must play with the same mods (id, version and files). A
+// player whose mods differ (the same base game) is offered the host's: after
+// they agree, they download the ones they lack (in parts, packed by
+// mods/mod_pack.h, checked against the fingerprint) and the game starts again
+// with exactly the host's mods (Mods::load_all's `only`). Mods are sandboxed;
+// a different base game (another game version) is still refused.
 
 #include "game/day_cycle.h"
 #include "game/figure.h"
@@ -31,6 +36,7 @@
 #include "game/vitals.h"
 
 #include <array>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -184,6 +190,27 @@ public:
 	void open_container(const BlockPos &p);
 	void close_container(const BlockPos &p);
 
+	// --- Mods: everyone plays with the host's ---
+	// The host: where its mods are (to send them to players who lack them).
+	void set_mod_folders(std::map<std::string, std::filesystem::path> folders) { mod_folders_ = std::move(folders); }
+	// A client: mod folders it has (mod_copies: the user's, downloaded ones).
+	void set_local_mods(std::map<std::string, std::filesystem::path> copies) { local_mods_ = std::move(copies); }
+	// A client restarted with the host's mods (a second offer is then an error).
+	void set_restarted_with(std::vector<std::string> entries) { restarted_with_ = std::move(entries); }
+	// A client: the host plays with other mods (same base game): its list,
+	// and those we lack (entry -> bytes to download). Answer with
+	// download_mods() or leave().
+	bool mods_offered() const { return !host_mods_.empty(); }
+	const std::vector<std::string> &host_mods() const { return host_mods_; }
+	const std::map<std::string, size_t> &missing_mods() const { return missing_; }
+	// Fetches the missing ones into `cache` (a folder of mod folders), each
+	// checked against its fingerprint; then mods_ready().
+	void download_mods(const std::filesystem::path &cache);
+	bool mods_ready() const { return mods_ready_; }
+	size_t downloaded_bytes() const;
+	static constexpr size_t MOD_PART = 60000;           // bytes a message
+	static constexpr size_t MAX_MOD_DOWNLOAD = 64u << 20; // all mods together
+
 	// For the tests: requests of each kind a peer may make per second, and in a burst.
 	struct Rate {
 		float per_second, burst;
@@ -235,6 +262,19 @@ private:
 	std::optional<std::array<float, 3>> correction_, push_;
 	uint32_t inventory_seq_ = 0; // a client: inventory actions sent
 	Json world_info_ = Json::object();
+	std::map<std::string, std::filesystem::path> mod_folders_, local_mods_;
+	std::map<std::string, std::vector<uint8_t>> packs_; // the host: mods packed to send (made once)
+	std::vector<std::string> host_mods_, restarted_with_;
+	std::map<std::string, size_t> missing_;
+	struct Download {
+		std::vector<uint8_t> data;
+		size_t parts = 0;
+		bool done = false;
+	};
+	std::map<std::string, Download> downloads_;
+	std::filesystem::path cache_;
+	bool mods_ready_ = false;
+	const std::vector<uint8_t> &pack_of(const std::string &entry);
 	std::vector<std::pair<ChunkPos, std::vector<uint8_t>>> welcome_chunks_;
 	std::vector<std::vector<uint8_t>> held_; // a client: what came before the world was built
 	std::function<void(const BlockPos &, gocube::BlockId)> previous_block_hook_;

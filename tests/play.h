@@ -28,6 +28,8 @@ struct Play {
 		std::vector<std::string> block_ids; // (a client: the host's)
 		float x = 0.5f, z = 0.5f;           // loaded around here
 		int view = 32;
+		std::vector<std::filesystem::path> more_mods; // folders of mod folders, after the base game's
+		std::vector<std::string> only_mods;           // (Mods::load_all's `only`)
 	};
 
 	gc::Content content;
@@ -42,7 +44,9 @@ struct Play {
 	explicit Play(bool creative = false) : Play(Setup{creative}) {}
 
 	explicit Play(const Setup &s) {
-		mods.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"});
+		std::vector<std::filesystem::path> dirs = {std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"};
+		dirs.insert(dirs.end(), s.more_mods.begin(), s.more_mods.end());
+		mods.load_all(dirs, s.only_mods.empty() ? nullptr : &s.only_mods);
 		PLAY_REQUIRE(mods.problems().empty());
 		content.freeze(s.block_ids);
 		table = gc::build_block_table(content);

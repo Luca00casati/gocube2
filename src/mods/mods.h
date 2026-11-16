@@ -108,8 +108,9 @@ public:
 
 	// Finds the mods in these folders (each holds mod folders; an id found
 	// twice keeps the first) and loads them. The content is then complete:
-	// freeze it next.
-	void load_all(const std::vector<std::filesystem::path> &dirs);
+	// freeze it next. `only` (multiplayer: the host's mods): load exactly these
+	// entries (mod_entry), skipping every other copy found.
+	void load_all(const std::vector<std::filesystem::path> &dirs, const std::vector<std::string> *only = nullptr);
 	const std::vector<ModInfo> &loaded() const { return loaded_; }
 	// Why mods didn't load, or were turned off: mod id (or folder) -> reason.
 	const std::map<std::string, std::string> &problems() const { return problems_; }
@@ -175,5 +176,11 @@ private:
 // left out), as the Godot version's ModLoader.fingerprint: players can tell
 // whether two copies of a mod with the same version really match.
 std::string mod_fingerprint(const std::filesystem::path &root);
+// The files a mod's fingerprint covers ("/"-separated paths under root, sorted).
+std::vector<std::string> mod_files(const std::filesystem::path &root);
+// "id@version#fingerprint": a mod exactly (players must have the same ones).
+std::string mod_entry(const ModInfo &m);
+// Every mod folder in these folders (each holding mod folders), by entry.
+std::map<std::string, std::filesystem::path> mod_copies(const std::vector<std::filesystem::path> &dirs);
 
 } // namespace gc

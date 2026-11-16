@@ -110,6 +110,8 @@ target_sources(gocube_core PRIVATE
 	src/game/inventory.h
 	src/game/player.cpp
 	src/game/player.h
+	src/mods/mod_pack.cpp
+	src/mods/mod_pack.h
 	src/mods/mods.cpp
 	src/mods/mods.h
 	src/world/save.cpp
@@ -123,7 +125,7 @@ target_sources(gocube_core PRIVATE
 	src/net/wire.h
 )
 target_include_directories(gocube_core PUBLIC src)
-target_link_libraries(gocube_core PUBLIC nlohmann_json PRIVATE lua png bcrypt enet)
+target_link_libraries(gocube_core PUBLIC nlohmann_json PRIVATE lua png zlib bcrypt enet)
 target_compile_definitions(gocube_core PUBLIC ${GOCUBE_DEFINES})
 target_compile_options(gocube_core PRIVATE ${GOCUBE_OPTIONS})
 # The voxel engine is the Godot version's, unchanged: quiet its warnings here
@@ -208,7 +210,7 @@ add_executable(gocube_tests
 	tests/test_survival.cpp
 	tests/test_worldgen.cpp
 )
-target_link_libraries(gocube_tests PRIVATE gocube_core doctest bcrypt)
+target_link_libraries(gocube_tests PRIVATE gocube_core doctest zlib bcrypt)
 target_compile_definitions(gocube_tests PRIVATE GOCUBE_SOURCE_DIR="${CMAKE_SOURCE_DIR}" _CRT_SECURE_NO_WARNINGS)
 target_compile_options(gocube_tests PRIVATE ${GOCUBE_OPTIONS})
 

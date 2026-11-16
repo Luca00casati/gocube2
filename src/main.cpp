@@ -37,6 +37,7 @@
 //   --host[=PORT]    open the world to other players (default port 24680)
 //   --join=ADDRESS[:PORT]  play in someone else's world
 //   --name=NAME      the name others see (default "Player")
+//   --accept-mods    joining a host with other mods: download them without asking
 //   --no-sound       play without sound (--hidden always does)
 //   --sound          with --hidden: sound running but at volume 0 (tests)
 //   --no-vsync       present as fast as possible
@@ -112,6 +113,7 @@ struct Options {
 	std::string join;              // --join: the host's address
 	int join_port = gc::Session::DEFAULT_PORT;
 	std::string name = "Player";
+	bool accept_mods = false;      // --accept-mods: play with a host's other mods without asking (tests)
 };
 
 std::filesystem::path utf8_path(const char *s) {
@@ -197,6 +199,8 @@ Options parse(int argc, char **argv) {
 			}
 		} else if ((v = value("--name="))) {
 			o.name = v;
+		} else if (!strcmp(a, "--accept-mods")) {
+			o.accept_mods = true;
 		} else if (!strcmp(a, "--no-sound")) {
 			o.no_sound = true;
 		} else if (!strcmp(a, "--sound")) {
@@ -525,7 +529,7 @@ void restore_player(gc::Player &p, const gc::Json &s) {
 
 } // namespace
 
-enum class End { QUIT, MENU, FAILED };
+enum class End { QUIT, MENU, FAILED, RESTART }; // RESTART: again, with the host's mods
 
 // What to play: a world folder (empty: not saved), and for a new one its seed
 // and mode; or someone else's world (join).
@@ -535,6 +539,7 @@ struct WorldChoice {
 	std::string mode = "survival";
 	int host_port = 0;    // open it to others on this port (0: not)
 	std::string join;     // play in the world of the host at this address
+	std::vector<std::string> only_mods; // joining again with the host's mods (Session::host_mods)
 	int join_port = gc::Session::DEFAULT_PORT;
 	std::string name = "Player";
 };
@@ -787,7 +792,7 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 }
 
 // Plays a world until the player quits (to the title menu, or the game).
-End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::Window &window,
+End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window &window,
 		gc::Renderer &renderer, std::string &problem) {
 	// Content: the mods (the base game first).
 	const std::filesystem::path builtin_mods = find_mods();
@@ -797,7 +802,12 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 	}
 	gc::Content content;
 	gc::Mods mods(content);
-	mods.load_all({builtin_mods, user_dir() / "mods"});
+	// (Joining with the host's mods: exactly those, downloaded ones included.)
+	if (choice.only_mods.empty()) {
+		mods.load_all({builtin_mods, user_dir() / "mods"});
+	} else {
+		mods.load_all({builtin_mods, user_dir() / "mods", user_dir() / "server_mods"}, &choice.only_mods);
+	}
 	if (mods.loaded().empty() || mods.loaded().front().id != "core") {
 		auto it = mods.problems().find("core");
 		gc::log("Couldn't load the base game: %s", it != mods.problems().end() ? it->second.c_str() : "it's missing");
@@ -813,8 +823,15 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			problem = e;
 			return End::FAILED;
 		}
-		bool cancelled = false;
+		session.set_local_mods(gc::mod_copies({user_dir() / "mods", user_dir() / "server_mods"}));
+		session.set_restarted_with(choice.only_mods);
+		bool cancelled = false, downloading = false;
 		while (!session.welcomed() && session.ended().empty() && !cancelled) {
+			if (downloading && session.mods_ready()) {
+				// Every mod of the host's is here: again, with exactly those.
+				choice.only_mods = session.host_mods();
+				return End::RESTART;
+			}
 			if (!window.pump()) {
 				return End::QUIT;
 			}
@@ -829,7 +846,30 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 			ImGui::Begin("Joining", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
 					ImGuiWindowFlags_NoSavedSettings);
-			ImGui::Text("Connecting to %s...", choice.join.c_str());
+			if (!session.mods_offered()) {
+				ImGui::Text("Connecting to %s...", choice.join.c_str());
+			} else if (!downloading) {
+				// Same game, other mods: play with the host's (downloading what we lack)?
+				size_t bytes = 0;
+				for (const auto &[entry, size] : session.missing_mods()) {
+					bytes += size;
+				}
+				ImGui::Text("%s plays with other mods:", choice.join.c_str());
+				for (const std::string &e : session.host_mods()) {
+					const bool missing = session.missing_mods().count(e) > 0;
+					ImGui::BulletText("%s%s", e.substr(0, e.find('#')).c_str(), missing ? "  (to download)" : "");
+				}
+				ImGui::TextDisabled("Mods run in the game's sandbox. They're kept in %%APPDATA%%\\GoCube\\server_mods.");
+				const std::string label = session.missing_mods().empty() ? "Play with these mods"
+						: "Download (" + std::to_string(std::max<size_t>(1, bytes >> 10)) + " KB) and play with them";
+				if (ImGui::Button(label.c_str(), ImVec2(320, 32)) || options.accept_mods) {
+					session.download_mods(user_dir() / "server_mods");
+					downloading = true;
+				}
+				ImGui::SameLine();
+			} else {
+				ImGui::Text("Downloading the server's mods: %zu KB...", session.downloaded_bytes() >> 10);
+			}
 			cancelled = ImGui::Button("Cancel", ImVec2(160, 32));
 			ImGui::End();
 			ImGui::Render();
@@ -1018,6 +1058,11 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			gc::log("%s", e.c_str());
 		} else {
 			session.set_world_info({{"seed", seed}, {"generator", generator_version}, {"block_ids", content.block_ids()}});
+			std::map<std::string, std::filesystem::path> folders; // (players with other mods may download ours)
+			for (const gc::ModInfo &m : mods.loaded()) {
+				folders[gc::mod_entry(m)] = m.dir;
+			}
+			session.set_mod_folders(std::move(folders));
 			if (save) {
 				session.set_saved_players(save->field("players"));
 			}
@@ -1593,7 +1638,13 @@ int main(int argc, char **argv) {
 		choice.join_port = options.join_port;
 		choice.name = options.name;
 		std::string problem;
-		ok = play(options, choice, false, window, renderer, problem) != End::FAILED;
+		End end;
+		while ((end = play(options, choice, false, window, renderer, problem)) == End::RESTART) {
+		}
+		ok = end != End::FAILED;
+		if (!problem.empty()) {
+			gc::log("%s", problem.c_str());
+		}
 	} else {
 		TitleMenu menu;
 		std::string problem;
@@ -1603,7 +1654,9 @@ int main(int argc, char **argv) {
 				break; // the window closed
 			}
 			problem.clear();
-			const End end = play(options, *choice, true, window, renderer, problem);
+			End end;
+			while ((end = play(options, *choice, true, window, renderer, problem)) == End::RESTART) {
+			}
 			if (end == End::QUIT) {
 				break;
 			}

@@ -1,6 +1,7 @@
 #include "net/session.h"
 
 #include "log.h"
+#include "mods/mod_pack.h"
 #include "net/wire.h"
 
 #include <enet/enet.h>
@@ -33,6 +34,7 @@ enum Msg : uint8_t {
 	C_BED,       // block (the bed's head)
 	C_SLEEP,     // bool
 	C_RESPAWNED,
+	C_MOD_PART,  // entry, part u32 (a player we offered our mods)
 
 	H_WELCOME = 64, // info (data), chunks (u32 count, position + bytes)
 	H_REJECTED,     // reason
@@ -52,7 +54,37 @@ enum Msg : uint8_t {
 	H_EFFECT,       // name, at
 	H_WAKE,
 	H_FIRST_NIGHT,  // "ahead", "now", "over"
+	H_OFFER_MODS,   // u16 count, {entry, size u32} (our mods; size 0: the base game)
+	H_MOD_PART,     // entry, part u32, parts u32, bytes
 };
+
+// "id@version#fingerprint" -> its parts ("" if it isn't one).
+std::string entry_id(const std::string &e) {
+	return e.substr(0, std::min(e.find('@'), e.size()));
+}
+
+std::string entry_fingerprint(const std::string &e) {
+	const size_t hash = e.rfind('#');
+	return hash == std::string::npos ? "" : e.substr(hash + 1);
+}
+
+bool valid_entry(const std::string &e) {
+	const std::string id = entry_id(e), fp = entry_fingerprint(e);
+	if (id.empty() || id.size() > 64 || fp.size() != 12 || e.find('@') == std::string::npos) {
+		return false;
+	}
+	for (char c : id) {
+		if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) {
+			return false;
+		}
+	}
+	for (char c : fp) {
+		if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+			return false;
+		}
+	}
+	return true;
+}
 
 constexpr int CHANNELS = 2; // 0: reliable, in order; 1: positions (unreliable, newest wins)
 constexpr size_t MAX_CHUNK_BYTES = 256 * 1024;
@@ -144,6 +176,7 @@ struct Session::Peer {
 	std::map<std::string, std::array<double, 2>> rates; // kind -> tokens, last update
 	double flood_logged = -1e9;
 	std::map<std::tuple<int, int, int>, std::string> viewing; // open containers -> what was last sent
+	bool offered = false; // it has other mods: it may download ours
 
 	void feet(float out[3]) const {
 		out[0] = eye[0];
@@ -161,6 +194,7 @@ const std::map<std::string, Session::Rate> &Session::rates() {
 			{"other", {4, 10}}, // bed, sleeping
 			{"inventory", {30, 60}}, // clicks in screens, eating
 			{"mine", {20, 40}},
+			{"mod", {80, 160}}, // parts of our mods (offered, not joined)
 	};
 	return table;
 }
@@ -174,7 +208,7 @@ Session::~Session() {
 std::vector<std::string> Session::mod_list(const std::vector<ModInfo> &mods) {
 	std::vector<std::string> out;
 	for (const ModInfo &m : mods) {
-		out.push_back(m.id + "@" + m.version + "#" + m.fingerprint);
+		out.push_back(mod_entry(m));
 	}
 	std::sort(out.begin(), out.end());
 	return out;
@@ -487,7 +521,7 @@ void Session::poll() {
 				break;
 		}
 	}
-	if (is_client() && !welcomed_ && ended_.empty() && now() - started_ > CONNECT_TIMEOUT) {
+	if (is_client() && !welcomed_ && ended_.empty() && host_mods_.empty() && now() - started_ > CONNECT_TIMEOUT) {
 		end("Connection timed out.");
 	}
 }
@@ -519,8 +553,22 @@ void Session::hello(Peer &p, const uint8_t *data, size_t size) {
 			}
 			return out;
 		};
-		reason = core(mods) != core(mods_) ? "Game version mismatch (the base game's files differ from the server's)."
-										   : "The server plays with other mods.";
+		if (core(mods) != core(mods_)) {
+			reason = "Game version mismatch (the base game's files differ from the server's).";
+		} else if (mod_folders_.empty()) {
+			reason = "The server plays with other mods.";
+		} else {
+			// Same game, other mods: it may download ours (then restarts with them).
+			p.offered = true;
+			Writer w(H_OFFER_MODS);
+			w.u16(uint16_t(mods_.size()));
+			for (const std::string &e : mods_) {
+				w.str(e).u32(entry_id(e) == "core" ? 0 : uint32_t(pack_of(e).size()));
+			}
+			send(p.enet, w.bytes);
+			log("A player has other mods; offering ours");
+			return;
+		}
 	}
 	std::string name = clean_name(requested);
 	if (name.empty()) {
@@ -729,10 +777,28 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 		}
 		return;
 	}
+	Reader r(data + 1, size - 1);
+	if (type == C_MOD_PART) {
+		const std::string entry = r.str(256);
+		const uint32_t part = r.u32();
+		if (!r.ok() || !p.offered || entry_id(entry) == "core" || !allow(p, "mod") ||
+				std::find(mods_.begin(), mods_.end(), entry) == mods_.end()) {
+			return;
+		}
+		const std::vector<uint8_t> &pack = pack_of(entry);
+		const size_t parts = std::max<size_t>(1, (pack.size() + MOD_PART - 1) / MOD_PART);
+		if (part >= parts) {
+			return;
+		}
+		const size_t from = part * MOD_PART, to = std::min(pack.size(), from + MOD_PART);
+		Writer w(H_MOD_PART);
+		w.str(entry).u32(part).u32(uint32_t(parts)).blob(std::vector<uint8_t>(pack.begin() + from, pack.begin() + to));
+		send(p.enet, w.bytes);
+		return;
+	}
 	if (!p.joined) {
 		return;
 	}
-	Reader r(data + 1, size - 1);
 	Game &game = *a_.game;
 	const bool dead = p.inv && p.vitals.dead;
 	switch (type) {
@@ -967,6 +1033,92 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 	if (type == H_REJECTED) {
 		const std::string reason = r.str();
 		end(reason.empty() ? "The server turned us away." : reason);
+		return;
+	}
+	if (type == H_OFFER_MODS) {
+		const int count = r.u16();
+		std::vector<std::string> entries;
+		std::map<std::string, size_t> missing;
+		size_t total = 0;
+		bool valid = count <= MAX_MODS;
+		for (int i = 0; i < count && valid; i++) {
+			const std::string e = r.str(256);
+			const size_t bytes = r.u32();
+			valid = r.ok() && valid_entry(e);
+			entries.push_back(e);
+			if (valid && entry_id(e) != "core" && !local_mods_.count(e)) {
+				missing[e] = bytes;
+				total += bytes;
+			}
+		}
+		if (!valid) {
+			end("The server sent a bad mod list.");
+		} else if (!restarted_with_.empty() && entries == restarted_with_) {
+			end("Still not the server's mods after restarting with them; check the log.");
+		} else if (total > MAX_MOD_DOWNLOAD) {
+			end("The server's mods are too big to download (" + std::to_string(total >> 20) + " MB).");
+		} else {
+			host_mods_ = std::move(entries);
+			missing_ = std::move(missing);
+		}
+		return;
+	}
+	if (type == H_MOD_PART) {
+		const std::string entry = r.str(256);
+		const uint32_t part = r.u32(), parts = r.u32();
+		const std::vector<uint8_t> bytes = r.blob(MOD_PART);
+		auto it = downloads_.find(entry);
+		if (!r.ok() || it == downloads_.end() || it->second.done) {
+			return;
+		}
+		Download &d = it->second;
+		if (d.parts == 0) {
+			d.parts = parts;
+		}
+		if (part != d.data.size() / MOD_PART || parts != d.parts || size_t(parts) * MOD_PART > MAX_MOD_DOWNLOAD + MOD_PART ||
+				(part + 1 < parts && bytes.size() != MOD_PART)) {
+			end("A mod download from the server went wrong.");
+			return;
+		}
+		d.data.insert(d.data.end(), bytes.begin(), bytes.end());
+		if (part + 1 < parts) {
+			Writer w(C_MOD_PART);
+			w.str(entry).u32(part + 1);
+			send(server_, w.bytes);
+			return;
+		}
+		// Whole: unpacked into the cache, and it must be exactly that mod.
+		const std::string id = entry_id(entry), fp = entry_fingerprint(entry);
+		const std::filesystem::path dir = cache_ / (id + "-" + fp);
+		std::error_code ec;
+		std::filesystem::remove_all(dir, ec); // (a damaged copy from before)
+		std::string problem = unpack_mod(d.data, dir);
+		if (problem.empty()) {
+			ModInfo info;
+			Json m;
+			std::string why;
+			if (!read_lua_data(dir / "mod.lua", m, why) || !m.is_object()) {
+				problem = "its mod.lua can't be read";
+			} else {
+				info.id = m.value("id", "");
+				info.version = m.value("version", "");
+				info.fingerprint = mod_fingerprint(dir);
+				if (mod_entry(info) != entry) {
+					problem = "its files don't match its fingerprint";
+				}
+			}
+			if (!problem.empty()) {
+				std::filesystem::remove_all(dir, ec);
+			}
+		}
+		if (!problem.empty()) {
+			end("The server's mod " + id + ": " + problem + ".");
+			return;
+		}
+		d.done = true;
+		local_mods_[entry] = dir;
+		log("Downloaded the server's mod %s", entry.c_str());
+		mods_ready_ = std::all_of(downloads_.begin(), downloads_.end(), [](const auto &kv) { return kv.second.done; });
 		return;
 	}
 	if (type == H_WELCOME) {
@@ -1485,6 +1637,39 @@ Json Session::saved_players() {
 		}
 	}
 	return saved_players_;
+}
+
+// --- Mods --------------------------------------------------------------------------
+
+const std::vector<uint8_t> &Session::pack_of(const std::string &entry) {
+	auto it = packs_.find(entry);
+	if (it == packs_.end()) {
+		auto dir = mod_folders_.find(entry);
+		it = packs_.emplace(entry, dir == mod_folders_.end() ? std::vector<uint8_t>() : pack_mod(dir->second)).first;
+	}
+	return it->second;
+}
+
+void Session::download_mods(const std::filesystem::path &cache) {
+	cache_ = cache;
+	std::error_code ec;
+	std::filesystem::create_directories(cache, ec);
+	downloads_.clear();
+	for (const auto &[entry, bytes] : missing_) {
+		downloads_[entry] = {};
+		Writer w(C_MOD_PART);
+		w.str(entry).u32(0);
+		send(server_, w.bytes);
+	}
+	mods_ready_ = downloads_.empty();
+}
+
+size_t Session::downloaded_bytes() const {
+	size_t n = 0;
+	for (const auto &[entry, d] : downloads_) {
+		n += d.data.size();
+	}
+	return n;
 }
 
 // --- Remote: a client's game asks the host ----------------------------------------------
