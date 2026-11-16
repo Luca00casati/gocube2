@@ -8,6 +8,7 @@ require("content.items")
 require("content.recipes")
 require("content.world")
 require("content.sounds")
+require("content.creatures")
 
 registry.register_block("planks", {hardness = 2.0, flammable = true, color = "#b8945f",
 	textures = {all = "textures/planks.png"}, sound = "core:wood", tool = "axe", fuel = 7.5})
@@ -25,6 +26,7 @@ require("rules.health")
 require("rules.plants")
 require("rules.farming")
 require("rules.fluids")
+require("rules.creatures")
 
 -- What a new survival player starts with: a torch, in hand.
 game.set_rule("starting_items", function()

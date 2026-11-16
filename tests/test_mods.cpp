@@ -159,6 +159,14 @@ assert(not pcall(require, '../escape'), 'require left the mod')
 assert(not pcall(require, 'missing'), 'require found a missing file')
 assert(not pcall(setmetatable, {}, {__gc = function() end}), '__gc was allowed')
 assert(not pcall(world.get_block, 0, 0, 0), 'world before there is one')
+-- Creatures and the playing-only game functions: there, but only with a world.
+for _, f in ipairs({creatures.spawn, creatures.remove, creatures.all, creatures.get, creatures.set,
+		world.raycast, world.box_free, game.players, game.day, game.damage_player, game.play_sound,
+		game.effect}) do
+	assert(type(f) == 'function')
+	assert(not pcall(f, 'core:block_eater', 0, 0, 0), 'a playing-only function before there is a world')
+end
+registry.register_creature('probe', {model = 'block_eater', box = {1, 1, 1}})
 string.upper = nil -- (its own copy)
 assert(require('helper').value == 42)
 assert(require('lib.deep') == true)
@@ -171,6 +179,7 @@ registry.register_block('probed', {color = '#123456'})
 	Loaded l(root, quick());
 	CHECK(l.problem("prober") == "");
 	CHECK(l.content.blocks.count("prober:probed"));
+	CHECK(l.content.creatures.count("prober:probe"));
 	CHECK(l.problem("after") == "");
 }
 

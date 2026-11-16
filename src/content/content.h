@@ -31,7 +31,7 @@ class Content {
 public:
 	// Definitions by qualified id ("core:stone"), sorted by id. Each has "id"
 	// and "mod" added, as the Godot registry does.
-	std::map<std::string, Json> blocks, items, recipes, ores, trees, biomes, sound_sets;
+	std::map<std::string, Json> blocks, items, recipes, ores, trees, biomes, sound_sets, creatures;
 	std::map<std::string, std::filesystem::path> mod_dirs; // mod id -> folder
 
 	// One entry (mods' registry.register_* calls): `id` gets "mod:" in front

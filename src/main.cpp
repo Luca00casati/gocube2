@@ -23,6 +23,8 @@
 //   --view=N         view distance in blocks (default 128)
 //   --pos=X,Y,Z      start flying at this position (feet)
 //   --look=YAW,PITCH start view direction in degrees (0, 0: towards -z)
+//   --spawn=KIND[=BLOCK],...  creatures in front of the player, e.g.
+//                    block_eater=core:stone (for trying things out)
 //   --warp           render on WARP, Windows' software adapter (no GPU needed)
 //   --hidden         don't show the window (tests)
 //   --frames=N       quit after N frames; the exit code is 1 if the debug layer
@@ -42,6 +44,7 @@
 #include "content/content.h"
 #include "data/lua_data.h"
 #include "game/blocks.h"
+#include "game/creature_models.h"
 #include "game/day_cycle.h"
 #include "game/game.h"
 #include "game/hand.h"
@@ -97,6 +100,7 @@ struct Options {
 	float look[2] = {0, 0};
 	std::string mode = "survival"; // for a new world
 	std::vector<std::string> drop; // items dropped in front of the player at the start
+	std::vector<std::string> spawn; // creatures ("kind" or "kind:variant") put in front of the player
 	std::string screen;            // a screen open at the start ("inventory")
 	double time = -1;              // time of day to start at (0..1; -1: the world's)
 	bool menu = false;             // the title menu even with testing options (--frames, --screenshot: of it)
@@ -139,6 +143,15 @@ Options parse(int argc, char **argv) {
 			o.seed = uint32_t(strtoll(v, nullptr, 10));
 		} else if ((v = value("--generator="))) {
 			o.generator = int(strtol(v, nullptr, 10));
+		} else if ((v = value("--spawn="))) {
+			std::string list = v;
+			for (size_t from = 0, to; from <= list.size(); from = to + 1) {
+				to = list.find(',', from);
+				to = to == std::string::npos ? list.size() : to;
+				if (to > from) {
+					o.spawn.push_back(list.substr(from, to - from));
+				}
+			}
 		} else if ((v = value("--drop="))) {
 			std::string list = v;
 			for (size_t from = 0, to; from <= list.size(); from = to + 1) {
@@ -817,6 +830,27 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 				player.position[2] + look[2] * 4.0f + look[0] * side}; // (beyond the magnet radius)
 		game.drop_item(options.drop[i], 1, at);
 	}
+	for (size_t i = 0; i < options.spawn.size(); i++) { // (for trying things out)
+		// "block_eater" or "block_eater=core:stone": a core kind, and what it's made of.
+		std::string kind = options.spawn[i], variant;
+		if (const size_t eq = kind.find('='); eq != std::string::npos) {
+			variant = kind.substr(eq + 1);
+			kind = kind.substr(0, eq);
+		}
+		if (kind.find(':') == std::string::npos) {
+			kind = "core:" + kind;
+		}
+		float look[3];
+		player.look(look);
+		const float flat = std::max(0.2f, std::hypot(look[0], look[2]));
+		const float side = (float(i) - float(options.spawn.size() - 1) * 0.5f) * 1.5f;
+		const float fx = look[0] / flat, fz = look[2] / flat;
+		const float at[3] = {player.position[0] + fx * 5.0f - fz * side, player.position[1],
+				player.position[2] + fz * 5.0f + fx * side};
+		if (game.creatures().spawn(content, kind, at, variant) == 0) {
+			gc::log("--spawn: no creature '%s'", kind.c_str());
+		}
+	}
 
 	gc::Camera camera;
 	camera.far_z = float(options.view) * 2.0f;
@@ -973,6 +1007,7 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			game.update(dt, gin);
 			game.tick(dt);
 			day.update(dt);
+			game.set_day(day.day_amount());
 		}
 		// A bed used at night: sleep (the screen fades out), then it's morning.
 		if (game.take_bed_used()) {
@@ -1130,7 +1165,19 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			chunks.draw_items(renderer.context(), drop_mesh, camera.view() * camera.projection(aspect), camera.position,
 					sky, true);
 		}
-		if (const gc::RayHit hit = player.target(*world); hit.hit) {
+		{ // Creatures, lit by where they are.
+			std::vector<gc::CreatureVertex> creature_mesh;
+			for (const gc::Creature &c : game.creatures().all()) {
+				const float at[3] = {c.pos[0], c.pos[1] + c.light_height, c.pos[2]};
+				float lit[3];
+				gc::light_for(*world, hand_lights, sky_light, at, NIGHT_CREATURE_LIGHT, lit);
+				gc::build_creature(c, content, table, alpha, lit, creature_mesh);
+			}
+			chunks.draw_creatures(renderer.context(), creature_mesh, camera.view() * camera.projection(aspect),
+					camera.position, sky);
+			game.take_effects(); // (shown from the next commit: the ninjas' smoke)
+		}
+		if (const gc::RayHit hit = player.target(*world); hit.hit && game.aimed_creature() == 0) {
 			std::vector<gocube::Box> boxes;
 			world->block_boxes(hit.position.x, hit.position.y, hit.position.z, hit.block, false, boxes);
 			chunks.draw_outline(renderer.context(), boxes);

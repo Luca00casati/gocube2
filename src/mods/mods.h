@@ -19,7 +19,7 @@
 // The entry script runs once at load, in the mod's own environment: Lua's
 // string (without dump), table, math (without random) and utf8 libraries,
 // the safe basic functions, and
-//   registry   register_block/item/recipe/ore/tree/biome/sound_set(id, def),
+//   registry   register_block/item/recipe/ore/tree/biome/sound_set/creature(id, def),
 //              get_block(id), get_item(id), recipes() -> {[id] = def},
 //              all(section) -> {[id] = def} ("blocks", "trees", ...);
 //              ids without "mod:" get this mod's. A definition is a
@@ -29,15 +29,27 @@
 //   events     on(name, function): "tick" (dt), "block_placed" and
 //              "block_broken" (x, y, z, block id; by the player),
 //              "block_changed" (x, y, z, new block id; any change, told on
-//              the next tick)
+//              the next tick), "creature_hit" (id, damage, x, y, z of the
+//              attacker, attacker's peer)
 //   world      get_block(x, y, z) -> id or nil, set_block(x, y, z, id) -> bool,
 //              supported(x, y, z, id) -> whether id could stand there,
-//              drop_item(x, y, z, item, count), grow_tree(x, y, z, tree id) -> bool
+//              drop_item(x, y, z, item, count), grow_tree(x, y, z, tree id) -> bool,
+//              raycast(x, y, z, dx, dy, dz, max) -> {x, y, z, id, distance} or nil,
+//              box_free(x, y, z, width, height, depth) -> bool
+//   creatures  spawn(kind, x, y, z [, variant]) -> id or nil, remove(id),
+//              all() -> {id...}, get(id) -> {kind, variant, x, y, z, yaw,
+//              heading, speed, on_floor, hit_wall, walking} or nil,
+//              set(id, {heading, speed, variant, yaw, push, hurt, flash, attack});
+//              their bodies and physics are the game's (game/creatures.h),
+//              what they do is the mods'
 //   game       set_rule(name, function): the game asks this function when it
 //              needs that rule (the last mod to set one wins; game.rule(name)
 //              gets the one before, to wrap it); random() -> 0..1 while playing
 //              (not while loading: what mods register must depend only on
 //              their files). Rules the game asks: see Mods::rule.
+//              While playing: players() -> {{peer, x, y, z, survival, alive}},
+//              day() -> 0..1, damage_player(peer, amount, source [, push xyz]),
+//              play_sound(set, kind, x, y, z [, dB]), effect("smoke", x, y, z)
 //   mod        {id, version}
 //   print      to the game's log
 //   require    another .lua file of this mod (text only)
@@ -107,12 +119,28 @@ public:
 	struct WorldHooks {
 		std::function<void(const BlockPos &, const std::string &, int)> drop_item;
 		std::function<bool(const BlockPos &, const std::string &)> grow_tree;
+		// Creatures (game/creatures.h): spawn (id or 0), remove, every id,
+		// one as data (null if none), changing one (false if none).
+		std::function<int(const std::string &kind, const float at[3], const std::string &variant)> creature_spawn;
+		std::function<bool(int)> creature_remove;
+		std::function<std::vector<int>()> creature_ids;
+		std::function<Json(int)> creature_get;
+		std::function<bool(int, const Json &)> creature_set;
+		// Players: [{peer, x, y, z (feet), survival, alive}].
+		std::function<Json()> players;
+		std::function<float()> day; // 0 at night .. 1 in full day
+		std::function<void(int peer, int amount, const std::string &source, const float push[3])> damage_player;
+		std::function<void(const std::string &set, const std::string &kind, const float at[3], float volume_db)>
+				play_sound;
+		std::function<void(const std::string &name, const float at[3])> effect; // "smoke"
 	};
 	void set_world_hooks(WorldHooks hooks);
 	void block_changed(const BlockPos &p, const std::string &id);
 	void tick(double dt);
 	void block_placed(const BlockPos &p, const std::string &id);
 	void block_broken(const BlockPos &p, const std::string &id);
+	// A player hit a creature (peer 0: the local one) standing at `from`.
+	void creature_hit(int id, int damage, const float from[3], int attacker);
 
 	// Asks rule `name` (set by a mod with game.set_rule), with these arguments
 	// (a list); its first result, or nothing if no mod set it, it failed

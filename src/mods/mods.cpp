@@ -32,7 +32,7 @@ using Clock = std::chrono::steady_clock;
 
 namespace {
 
-const char *const EVENTS[] = {"tick", "block_placed", "block_broken", "block_changed"};
+const char *const EVENTS[] = {"tick", "block_placed", "block_broken", "block_changed", "creature_hit"};
 const char *const STOPPED_TIME = "it ran too long";
 const char *const STOPPED_MEMORY = "it used too much memory";
 
@@ -433,7 +433,7 @@ struct Mods::Lua {
 		Lua *h = of(L);
 		const std::map<std::string, Json> *t = h->content.table(luaL_checkstring(L, 1));
 		if (!t) {
-			return luaL_error(L, "no section '%s' (blocks, items, recipes, ores, trees, biomes, sound_sets)", lua_tostring(L, 1));
+			return luaL_error(L, "no section '%s' (blocks, items, recipes, ores, trees, biomes, sound_sets, creatures)", lua_tostring(L, 1));
 		}
 		lua_createtable(L, 0, int(t->size()));
 		for (const auto &[id, def] : *t) {
@@ -573,6 +573,161 @@ struct Mods::Lua {
 		return 1;
 	}
 
+	// world.raycast(x, y, z, dx, dy, dz, max): the first block a ray meets
+	// (fluids seen through), {x, y, z, id, distance}, or nil.
+	static int world_raycast(lua_State *L) {
+		World *w = need_world(L);
+		const float o[3] = {float(luaL_checknumber(L, 1)), float(luaL_checknumber(L, 2)), float(luaL_checknumber(L, 3))};
+		float d[3] = {float(luaL_checknumber(L, 4)), float(luaL_checknumber(L, 5)), float(luaL_checknumber(L, 6))};
+		const float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+		const float max = std::clamp(float(luaL_checknumber(L, 7)), 0.0f, 512.0f);
+		if (!(len > 1e-6f) || !std::isfinite(len)) {
+			return luaL_error(L, "raycast: the direction must not be zero");
+		}
+		for (float &v : d) {
+			v /= len;
+		}
+		const RayHit hit = w->raycast(o, d, max);
+		if (!hit.hit) {
+			lua_pushnil(L);
+			return 1;
+		}
+		push_data(L, Json{{"x", hit.position.x}, {"y", hit.position.y}, {"z", hit.position.z},
+							 {"id", of(L)->rules->id_of(hit.block)}, {"distance", hit.distance}});
+		return 1;
+	}
+
+	// world.box_free(x, y, z, width, height, depth): nothing solid in the box
+	// standing at x, y, z (its bottom centre).
+	static int world_box_free(lua_State *L) {
+		World *w = need_world(L);
+		const float p[3] = {float(luaL_checknumber(L, 1)), float(luaL_checknumber(L, 2)), float(luaL_checknumber(L, 3))};
+		const float size[3] = {std::clamp(float(luaL_checknumber(L, 4)), 0.0f, 8.0f),
+				std::clamp(float(luaL_checknumber(L, 5)), 0.0f, 8.0f), std::clamp(float(luaL_checknumber(L, 6)), 0.0f, 8.0f)};
+		lua_pushboolean(L, w->is_box_free(p, size));
+		return 1;
+	}
+
+	// --- creatures ---
+
+	// creatures.spawn(kind, x, y, z [, variant]) -> id, or nil (unknown kind, too many).
+	static int creatures_spawn(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		const int mod = int(lua_tointeger(L, lua_upvalueindex(1)));
+		std::string kind = luaL_checkstring(L, 1);
+		if (kind.find(':') == std::string::npos) {
+			kind = h->mods[mod].info.id + ":" + kind;
+		}
+		const float at[3] = {float(luaL_checknumber(L, 2)), float(luaL_checknumber(L, 3)), float(luaL_checknumber(L, 4))};
+		const std::string variant = luaL_optstring(L, 5, "");
+		const int id = h->hooks.creature_spawn ? h->hooks.creature_spawn(kind, at, variant) : 0;
+		if (id > 0) {
+			lua_pushinteger(L, id);
+		} else {
+			lua_pushnil(L);
+		}
+		return 1;
+	}
+
+	static int creatures_remove(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		lua_pushboolean(L, h->hooks.creature_remove && h->hooks.creature_remove(int(luaL_checkinteger(L, 1))));
+		return 1;
+	}
+
+	// creatures.all() -> {id, ...}
+	static int creatures_all(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		const std::vector<int> ids = h->hooks.creature_ids ? h->hooks.creature_ids() : std::vector<int>();
+		lua_createtable(L, int(ids.size()), 0);
+		for (size_t i = 0; i < ids.size(); i++) {
+			lua_pushinteger(L, ids[i]);
+			lua_rawseti(L, -2, lua_Integer(i + 1));
+		}
+		return 1;
+	}
+
+	// creatures.get(id) -> {id, kind, variant, x, y, z, yaw, heading, speed,
+	// on_floor, hit_wall, walking}, or nil.
+	static int creatures_get(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		const Json c = h->hooks.creature_get ? h->hooks.creature_get(int(luaL_checkinteger(L, 1))) : Json();
+		push_data(L, c);
+		return 1;
+	}
+
+	// creatures.set(id, {heading, speed, variant, yaw, push = {x, y, z}, hurt,
+	// flash, attack}) -> false if there's no such creature.
+	static int creatures_set(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		const int id = int(luaL_checkinteger(L, 1));
+		luaL_checktype(L, 2, LUA_TTABLE);
+		const Json fields = lua_to_data(L, 2);
+		lua_pushboolean(L, h->hooks.creature_set && h->hooks.creature_set(id, fields));
+		return 1;
+	}
+
+	// --- game, while playing ---
+
+	// game.players() -> {{peer, x, y, z, survival, alive}, ...}
+	static int game_players(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		push_data(L, h->hooks.players ? h->hooks.players() : Json::array());
+		return 1;
+	}
+
+	// game.day() -> 0 at night .. 1 in full day
+	static int game_day(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		lua_pushnumber(L, h->hooks.day ? h->hooks.day() : 1.0);
+		return 1;
+	}
+
+	// game.damage_player(peer, amount, source [, push_x, push_y, push_z])
+	static int game_damage_player(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		const int peer = int(luaL_checkinteger(L, 1));
+		const int amount = int(std::clamp<lua_Integer>(luaL_checkinteger(L, 2), 0, 1000));
+		const std::string source = luaL_optstring(L, 3, "");
+		const float push[3] = {std::clamp(float(luaL_optnumber(L, 4, 0)), -40.0f, 40.0f),
+				std::clamp(float(luaL_optnumber(L, 5, 0)), -40.0f, 40.0f), std::clamp(float(luaL_optnumber(L, 6, 0)), -40.0f, 40.0f)};
+		if (h->hooks.damage_player) {
+			h->hooks.damage_player(peer, amount, source, push);
+		}
+		return 0;
+	}
+
+	// game.play_sound(set, kind, x, y, z [, volume_db])
+	static int game_play_sound(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		const float at[3] = {float(luaL_checknumber(L, 3)), float(luaL_checknumber(L, 4)), float(luaL_checknumber(L, 5))};
+		if (h->hooks.play_sound) {
+			h->hooks.play_sound(luaL_checkstring(L, 1), luaL_checkstring(L, 2), at,
+					std::clamp(float(luaL_optnumber(L, 6, 0)), -80.0f, 12.0f));
+		}
+		return 0;
+	}
+
+	// game.effect(name, x, y, z): "smoke" (a puff).
+	static int game_effect(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		const float at[3] = {float(luaL_checknumber(L, 2)), float(luaL_checknumber(L, 3)), float(luaL_checknumber(L, 4))};
+		if (h->hooks.effect) {
+			h->hooks.effect(luaL_checkstring(L, 1), at);
+		}
+		return 0;
+	}
+
 	// --- A mod's environment ---
 
 	// Pushes a copy of the library `lib` (from the loaded-libraries table)
@@ -635,7 +790,7 @@ struct Mods::Lua {
 		lua_setfield(L, -2, "utf8");
 
 		lua_newtable(L); // registry
-		for (const char *section : {"block", "item", "recipe", "ore", "tree", "biome", "sound_set"}) {
+		for (const char *section : {"block", "item", "recipe", "ore", "tree", "biome", "sound_set", "creature"}) {
 			lua_pushinteger(L, mod);
 			lua_pushstring(L, (std::string(section) + "s").c_str());
 			lua_pushcclosure(L, &Lua::registry_register, 2);
@@ -668,7 +823,24 @@ struct Mods::Lua {
 		lua_setfield(L, -2, "drop_item");
 		lua_pushcfunction(L, &Lua::world_grow_tree);
 		lua_setfield(L, -2, "grow_tree");
+		lua_pushcfunction(L, &Lua::world_raycast);
+		lua_setfield(L, -2, "raycast");
+		lua_pushcfunction(L, &Lua::world_box_free);
+		lua_setfield(L, -2, "box_free");
 		lua_setfield(L, -2, "world");
+
+		lua_newtable(L); // creatures
+		push_closure(&Lua::creatures_spawn, mod);
+		lua_setfield(L, -2, "spawn");
+		lua_pushcfunction(L, &Lua::creatures_remove);
+		lua_setfield(L, -2, "remove");
+		lua_pushcfunction(L, &Lua::creatures_all);
+		lua_setfield(L, -2, "all");
+		lua_pushcfunction(L, &Lua::creatures_get);
+		lua_setfield(L, -2, "get");
+		lua_pushcfunction(L, &Lua::creatures_set);
+		lua_setfield(L, -2, "set");
+		lua_setfield(L, -2, "creatures");
 
 		lua_newtable(L); // game
 		push_closure(&Lua::game_set_rule, mod);
@@ -677,6 +849,16 @@ struct Mods::Lua {
 		lua_setfield(L, -2, "rule");
 		lua_pushcfunction(L, &Lua::game_random);
 		lua_setfield(L, -2, "random");
+		lua_pushcfunction(L, &Lua::game_players);
+		lua_setfield(L, -2, "players");
+		lua_pushcfunction(L, &Lua::game_day);
+		lua_setfield(L, -2, "day");
+		lua_pushcfunction(L, &Lua::game_damage_player);
+		lua_setfield(L, -2, "damage_player");
+		lua_pushcfunction(L, &Lua::game_play_sound);
+		lua_setfield(L, -2, "play_sound");
+		lua_pushcfunction(L, &Lua::game_effect);
+		lua_setfield(L, -2, "effect");
 		lua_setfield(L, -2, "game");
 
 		lua_newtable(L); // mod
@@ -980,6 +1162,18 @@ void Mods::block_broken(const BlockPos &p, const std::string &id) {
 		lua_pushinteger(L, p.y);
 		lua_pushinteger(L, p.z);
 		lua_pushstring(L, id.c_str());
+	}, problems_);
+}
+
+void Mods::creature_hit(int id, int damage, const float from[3], int attacker) {
+	lua_State *L = lua_->L;
+	lua_->fire("creature_hit", 6, [&] {
+		lua_pushinteger(L, id);
+		lua_pushinteger(L, damage);
+		lua_pushnumber(L, from[0]);
+		lua_pushnumber(L, from[1]);
+		lua_pushnumber(L, from[2]);
+		lua_pushinteger(L, attacker);
 	}, problems_);
 }
 

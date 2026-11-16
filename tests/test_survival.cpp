@@ -901,3 +901,97 @@ TEST_CASE("sounds: breaking and placing sound like the block, steps like the gro
 	}
 	CHECK(count_sounds(p.game->take_sounds(), "core:effects", "pickup") == 1);
 }
+
+TEST_CASE("creatures: they fall to the ground, walk where they head, notice walls, and can be picked") {
+	Play p;
+	pool(p, "core:air");
+	const float at[3] = {1.5f, 44.0f, 1.5f};
+	gc::Creatures &cs = p.game->creatures();
+	CHECK(cs.spawn(p.content, "core:nothing", at) == 0); // unknown kind
+	const int id = cs.spawn(p.content, "core:block_eater", at);
+	REQUIRE(id > 0);
+	for (int i = 0; i < 120; i++) {
+		cs.step(1.0f / 60.0f, *p.world);
+	}
+	gc::Creature *c = cs.find(id);
+	REQUIRE(c);
+	CHECK(c->on_floor);
+	CHECK(c->pos[1] == doctest::Approx(40.0f).epsilon(0.001)); // on the stone floor (y 39; the collision margin)
+	// Heading -x at walking speed: it reaches the wall at x = -1 (its box is 0.9 wide).
+	cs.apply(*c, {{"heading", 3.14159265 / 2}, {"speed", 1.2}});
+	for (int i = 0; i < 180; i++) {
+		cs.step(1.0f / 60.0f, *p.world);
+	}
+	c = cs.find(id);
+	CHECK(c->pos[0] == doctest::Approx(0.45f).epsilon(0.01));
+	const gc::Json seen = cs.describe(*c);
+	CHECK(seen["hit_wall"] == true);
+	CHECK(cs.describe(*c)["hit_wall"] == false); // (cleared once seen)
+	CHECK(c->yaw == doctest::Approx(3.14159265f / 2).epsilon(0.01)); // turned to its heading
+	// Picked by a ray through its box.
+	const float eye[3] = {0.45f, 40.5f, 3.0f}, dir[3] = {0, 0, -1};
+	float d;
+	CHECK(cs.pick(eye, dir, 4.0f, d) == id);
+	CHECK(d == doctest::Approx(3.0f - (1.5f + 0.45f)).epsilon(0.01));
+	CHECK(cs.remove(id));
+	CHECK(cs.pick(eye, dir, 4.0f, d) == 0);
+}
+
+TEST_CASE("Block Eaters (the core mod's Lua): they come by day on grass, flee when hit, drop what they're made of") {
+	Play p;
+	// Grass all around the player, open to the sky.
+	for (int x = -50; x <= 50; x++) {
+		for (int z = -50; z <= 50; z++) {
+			if (p.world->is_loaded(x, 70, z)) {
+				p.world->set_block({x, 70, z}, p.id("core:grass"));
+				for (int y = 71; y <= 74; y++) {
+					p.world->set_block({x, y, z}, 0);
+				}
+			}
+		}
+	}
+	p.player.position[0] = 0.5f;
+	p.player.position[1] = 71.0f;
+	p.player.position[2] = 0.5f;
+	p.player.flying = true;
+	auto run = [&](float seconds) {
+		for (int i = 0; i < int(seconds * 20); i++) {
+			for (int k = 0; k < 3; k++) {
+				p.game->physics_step(1.0f / 60.0f);
+			}
+			p.game->tick(0.05);
+			p.mods.tick(0.05);
+		}
+	};
+	p.game->set_day(0.0f); // night: none
+	run(20);
+	CHECK(p.game->creatures().all().empty());
+	p.game->set_day(1.0f);
+	run(60);
+	const auto &all = p.game->creatures().all();
+	REQUIRE(!all.empty());
+	CHECK(all.size() <= 12);
+	for (const gc::Creature &c : all) {
+		CHECK(c.kind == "core:block_eater");
+		CHECK(c.pos[1] == doctest::Approx(71.0f).epsilon(0.01)); // on the grass
+		const float d = std::hypot(c.pos[0] - 0.5f, c.pos[2] - 0.5f);
+		CHECK(d < 60.0f);
+	}
+	// One made of stone, hit four times (2 each: bare hands, 8 health): it
+	// runs off, then is gone and drops a stone.
+	const float spot[3] = {5.5f, 71.0f, 0.5f};
+	const int id = p.game->creatures().spawn(p.content, "core:block_eater", spot, "core:stone");
+	run(0.1f);
+	const float from[3] = {0.5f, 71.0f, 0.5f};
+	p.mods.creature_hit(id, 2, from, 0);
+	run(1.0f);
+	const gc::Creature *c = p.game->creatures().find(id);
+	REQUIRE(c);
+	CHECK(c->pos[0] > 6.0f); // ran off, away from the player
+	CHECK(c->speed == doctest::Approx(3.4f));
+	for (int i = 0; i < 3; i++) {
+		p.mods.creature_hit(id, 2, from, 0);
+	}
+	CHECK(p.game->creatures().find(id) == nullptr);
+	CHECK(drops_of_item(p, "core:stone") == 1);
+}

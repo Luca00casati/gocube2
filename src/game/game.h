@@ -6,6 +6,7 @@
 
 #include "content/content.h"
 #include "game/block_entities.h"
+#include "game/creatures.h"
 #include "game/blocks.h"
 #include "game/drops.h"
 #include "game/inventory.h"
@@ -34,6 +35,12 @@ struct SoundEvent {
 	std::string set, kind;
 	float at[3] = {0, 0, 0};
 	float volume_db = 0;
+};
+
+// A one-off sight the game shows (game.effect from the mods): "smoke".
+struct Effect {
+	std::string name;
+	float at[3] = {0, 0, 0};
 };
 
 struct GameInput {
@@ -73,6 +80,15 @@ public:
 	// The sounds the game made since the last call (footsteps, breaking,
 	// placing, splashes, pickups, getting hurt), for the audio to play.
 	std::vector<SoundEvent> take_sounds() { return std::exchange(sounds_, {}); }
+	std::vector<Effect> take_effects() { return std::exchange(effects_, {}); }
+	// Creatures (their behaviour is the mods'); the one aimed at, within
+	// attacking reach and nearer than the block aimed at (0: none).
+	const Creatures &creatures() const { return creatures_; }
+	Creatures &creatures() { return creatures_; }
+	int aimed_creature() const;
+	static constexpr float ATTACK_REACH = 4.0f, ATTACK_COOLDOWN = 0.4f;
+	// The daylight (0 night .. 1 day): the mods ask (game.day).
+	void set_day(float day) { day_ = day; }
 	// A sound set's sound (as the Godot version: e.g. "core:effects", "splash").
 	void play_sound(const std::string &set, const std::string &kind, const float at[3], float volume_db = 0);
 	// A block's sound of `kind` ("step", "break", "place"), from its "sound".
@@ -182,6 +198,10 @@ private:
 	float mining_progress_ = 0;
 	int swings_ = 0;
 	std::vector<SoundEvent> sounds_;
+	std::vector<Effect> effects_;
+	Creatures creatures_;
+	float day_ = 1;
+	float attack_cooldown_ = 0;
 	float step_distance_ = 0;       // walked since the last footstep
 	float last_feet_[3] = {0, 0, 0};
 	bool feet_known_ = false;

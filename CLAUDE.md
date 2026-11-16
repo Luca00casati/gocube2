@@ -54,7 +54,10 @@ byte for byte (`.gitattributes`): fingerprints and test expectations hash bytes.
 Decisions (mining time, drops, recipes, smelting, fuel, fall damage, food, plants,
 farming, flowing fluids) are the base game's Lua in `mods/core/rules/`, set with `game.set_rule`; C++
 (`src/game/`) keeps the data (inventory, block entities, drops, health, time) and
-asks `Mods::rule`, with a plain built-in default if no mod answers. Ports of the
+asks `Mods::rule`, with a plain built-in default if no mod answers. Creatures
+the same way: their bodies, physics and models are C++ (`game/creatures.h`,
+`game/creature_models.h`), what they do is `rules/creatures.lua` through the
+`creatures` API (it runs at the 20 Hz tick; the bodies at 60 Hz). Ports of the
 Godot version's GDScript keep its numbers and behaviour; tests in
 `tests/test_survival.cpp` pin them down. Saved data keeps the Godot `world.json`
 fields (`player.inventory`, `health`, `bed`, `block_entities`, `plants`, `spawn`,

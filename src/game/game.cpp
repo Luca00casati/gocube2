@@ -23,6 +23,51 @@ Game::Game(Content &content, const BlockTable &table, const BlockRules &rules, W
 		drops_.spawn(item, count, at);
 	};
 	hooks.grow_tree = [this](const BlockPos &p, const std::string &tree) { return grow_tree(p, tree); };
+	hooks.creature_spawn = [this](const std::string &kind, const float at[3], const std::string &variant) {
+		return creatures_.spawn(content_, kind, at, variant);
+	};
+	hooks.creature_remove = [this](int id) { return creatures_.remove(id); };
+	hooks.creature_ids = [this] {
+		std::vector<int> ids;
+		for (const Creature &c : creatures_.all()) {
+			ids.push_back(c.id);
+		}
+		return ids;
+	};
+	hooks.creature_get = [this](int id) {
+		Creature *c = creatures_.find(id);
+		return c ? creatures_.describe(*c) : Json();
+	};
+	hooks.creature_set = [this](int id, const Json &fields) {
+		Creature *c = creatures_.find(id);
+		if (c) {
+			creatures_.apply(*c, fields);
+		}
+		return c != nullptr;
+	};
+	hooks.players = [this] {
+		return Json::array({Json{{"peer", 0}, {"x", player_.position[0]}, {"y", player_.position[1]},
+				{"z", player_.position[2]}, {"survival", !creative_}, {"alive", !dead_}}});
+	};
+	hooks.day = [this] { return day_; };
+	hooks.damage_player = [this](int peer, int amount, const std::string &source, const float push[3]) {
+		if (peer != 0 || creative_ || dead_) {
+			return;
+		}
+		damage(amount, source);
+		for (int k = 0; k < 3; k++) {
+			player_.velocity[k] += push[k];
+		}
+	};
+	hooks.play_sound = [this](const std::string &set, const std::string &kind, const float at[3], float db) {
+		play_sound(set, kind, at, db);
+	};
+	hooks.effect = [this](const std::string &name, const float at[3]) {
+		Effect e;
+		e.name = name;
+		std::copy(at, at + 3, e.at);
+		effects_.push_back(std::move(e));
+	};
 	mods_.set_world_hooks(std::move(hooks));
 }
 
@@ -312,26 +357,39 @@ void Game::update(float dt, const GameInput &in) {
 	}
 
 	const RayHit hit = player_.target(world_);
+	RayHit mine = hit; // (a creature in the way: nothing to mine)
 	const std::string tool = selected_item();
-	if (in.break_pressed && !hit.hit) {
+	// A creature in front: a left click hits it (now and then), and it's in
+	// the way of mining.
+	attack_cooldown_ = std::max(0.0f, attack_cooldown_ - dt);
+	if (const int creature = aimed_creature()) {
+		if (in.break_pressed && attack_cooldown_ <= 0) {
+			attack_cooldown_ = ATTACK_COOLDOWN;
+			const Json &item = content_.items.count(tool) ? content_.items.at(tool) : Json::object();
+			const int damage = int(item.value("damage", 2.0)); // bare hand: 2
+			mods_.creature_hit(creature, damage, player_.position, 0);
+			swings_++;
+		}
+		mine.hit = false;
+	} else if (in.break_pressed && !hit.hit) {
 		swings_++; // at nothing
 	}
 	// Breaking: at once in creative, by holding the button in survival.
 	if (creative_) {
-		if (in.break_pressed && hit.hit) {
-			break_block(hit.position, tool);
+		if (in.break_pressed && mine.hit) {
+			break_block(mine.position, tool);
 		}
-	} else if (in.break_held && hit.hit) {
-		if (!(hit.position == mining_target_)) {
-			mining_target_ = hit.position;
+	} else if (in.break_held && mine.hit) {
+		if (!(mine.position == mining_target_)) {
+			mining_target_ = mine.position;
 			mining_progress_ = 0;
-			mining_seconds_ = mine_seconds(rules_.id_of(hit.block), tool);
+			mining_seconds_ = mine_seconds(rules_.id_of(mine.block), tool);
 		}
 		mining_progress_ += dt / mining_seconds_;
 		if (mining_progress_ >= 1.0f) {
 			mining_progress_ = 0;
 			mining_target_ = {1 << 30, 0, 0}; // (mining the next block starts over)
-			break_block(hit.position, tool);
+			break_block(mine.position, tool);
 		}
 	} else {
 		mining_progress_ = 0;
@@ -404,6 +462,7 @@ void Game::update(float dt, const GameInput &in) {
 }
 
 void Game::tick(double dt) {
+	creatures_.animate(float(dt));
 	entities_.update(dt);
 	// Mods hear about block changes a tick later (their own changes too,
 	// without re-entering them).
@@ -422,7 +481,28 @@ void Game::tick(double dt) {
 	}
 }
 
+int Game::aimed_creature() const {
+	float eye[3], dir[3], distance;
+	player_.eye(eye);
+	player_.look(dir);
+	const int id = creatures_.pick(eye, dir, ATTACK_REACH, distance);
+	if (id == 0) {
+		return 0;
+	}
+	// A block nearer than the creature (by its centre, as the Godot version) is what's aimed at.
+	const RayHit hit = player_.target(world_);
+	if (hit.hit) {
+		const float dx = hit.position.x + 0.5f - eye[0], dy = hit.position.y + 0.5f - eye[1],
+					dz = hit.position.z + 0.5f - eye[2];
+		if (std::sqrt(dx * dx + dy * dy + dz * dz) < distance - 0.5f) {
+			return 0;
+		}
+	}
+	return id;
+}
+
 void Game::physics_step(float dt) {
+	creatures_.step(dt, world_);
 	if (!drops_.step(dt, world_, player_.position, true, inventory_).empty()) {
 		float eye[3];
 		player_.eye(eye);

@@ -4,6 +4,7 @@
 // (shaders/chunk.hlsl). Chunks outside the view frustum are skipped.
 
 #include "content/content.h"
+#include "game/creature_models.h"
 #include "world/world.h"
 
 #include <d3d11_1.h>
@@ -71,6 +72,9 @@ public:
 	void draw_items(ID3D11DeviceContext *context, const std::vector<WorldVertex> &vertices,
 			const DirectX::XMMATRIX &view_proj, const DirectX::XMFLOAT3 &eye, const SkyParams &sky, bool textured,
 			bool cull_back = false);
+	// Creatures' boxes (game/creature_models.h; shaders/creatures.hlsl), in world space.
+	void draw_creatures(ID3D11DeviceContext *context, const std::vector<CreatureVertex> &vertices,
+			const DirectX::XMMATRIX &view_proj, const DirectX::XMFLOAT3 &eye, const SkyParams &sky);
 	// Clears the depth buffer (the hand is drawn over everything).
 	void clear_depth(ID3D11DeviceContext *context);
 	// Torches held in hand (HandLights): their light levels, a cube of
@@ -121,6 +125,11 @@ private:
 	ComPtr<ID3D11VertexShader> items_vs_;
 	ComPtr<ID3D11PixelShader> items_ps_;
 	ComPtr<ID3D11Buffer> items_cb_;
+	ComPtr<ID3D11VertexShader> creatures_vs_;
+	ComPtr<ID3D11PixelShader> creatures_ps_;
+	ComPtr<ID3D11InputLayout> creatures_layout_;
+	ComPtr<ID3D11Buffer> creature_vertices_;
+	UINT creature_capacity_ = 0;
 	ComPtr<ID3D11Texture3D> hand_light_tex_;
 	ComPtr<ID3D11ShaderResourceView> hand_light_srv_;
 	DirectX::XMFLOAT3 hand_light_origin_ = {0, 0, 0};

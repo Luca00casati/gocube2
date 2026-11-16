@@ -80,6 +80,7 @@ when you quit.
 | `--pos=X,Y,Z`, `--look=YAW,PITCH` | Start flying at this position (feet), and view direction in degrees |
 | `--time=0..1` | Start at this time of day (0.5: noon) |
 | `--drop=ID,...` | Drop these items in front of the player (trying things out) |
+| `--spawn=KIND[=BLOCK],...` | Put creatures in front of the player (`block_eater=core:stone`) |
 | `--screen=inventory` | Open the inventory at the start (screenshots) |
 | `--menu` | The title menu even with testing options (`--frames`, `--screenshot` apply to it) |
 | `--warp` | Render on WARP, Windows' software adapter (no GPU needed) |

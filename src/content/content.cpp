@@ -281,6 +281,7 @@ std::map<std::string, Json> *Content::table(const std::string &section) {
 	if (section == "trees") return &trees;
 	if (section == "biomes") return &biomes;
 	if (section == "sound_sets") return &sound_sets;
+	if (section == "creatures") return &creatures;
 	return nullptr;
 }
 

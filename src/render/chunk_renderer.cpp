@@ -7,6 +7,8 @@
 #include "chunk_ps_fluid.h"
 #include "chunk_ps_opaque.h"
 #include "chunk_vs.h"
+#include "creatures_ps.h"
+#include "creatures_vs.h"
 #include "items_ps.h"
 #include "items_vs.h"
 #include "lines_ps.h"
@@ -292,6 +294,21 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 			!ok(device->CreateBuffer(&cb, nullptr, &items_cb_), "item constants")) {
 		return false;
 	}
+
+	// Creatures.
+	const D3D11_INPUT_ELEMENT_DESC creature_layout[] = {
+			{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(CreatureVertex, pos), D3D11_INPUT_PER_VERTEX_DATA, 0},
+			{"TEXCOORD", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(CreatureVertex, local), D3D11_INPUT_PER_VERTEX_DATA, 0},
+			{"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(CreatureVertex, normal), D3D11_INPUT_PER_VERTEX_DATA, 0},
+			{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, offsetof(CreatureVertex, color), D3D11_INPUT_PER_VERTEX_DATA, 0},
+			{"TEXCOORD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, offsetof(CreatureVertex, tile), D3D11_INPUT_PER_VERTEX_DATA, 0},
+	};
+	if (!ok(device->CreateVertexShader(g_creatures_vs, sizeof(g_creatures_vs), nullptr, &creatures_vs_), "creatures_vs") ||
+			!ok(device->CreatePixelShader(g_creatures_ps, sizeof(g_creatures_ps), nullptr, &creatures_ps_), "creatures_ps") ||
+			!ok(device->CreateInputLayout(creature_layout, 5, g_creatures_vs, sizeof(g_creatures_vs), &creatures_layout_),
+					"creature layout")) {
+		return false;
+	}
 	return true;
 }
 
@@ -369,6 +386,65 @@ void ChunkRenderer::set_hand_light(ID3D11DeviceContext *ctx, const std::vector<u
 		ctx->UpdateSubresource(hand_light_tex_.Get(), 0, nullptr, volume.data(), HAND_LIGHT_SIZE,
 				HAND_LIGHT_SIZE * HAND_LIGHT_SIZE);
 	}
+}
+
+void ChunkRenderer::draw_creatures(ID3D11DeviceContext *ctx, const std::vector<CreatureVertex> &vertices,
+		const XMMATRIX &view_proj, const XMFLOAT3 &eye, const SkyParams &sky) {
+	if (vertices.empty()) {
+		return;
+	}
+	if (vertices.size() > creature_capacity_) {
+		ComPtr<ID3D11Device> device;
+		ctx->GetDevice(&device);
+		creature_capacity_ = UINT(vertices.size() * 2);
+		D3D11_BUFFER_DESC bd = {};
+		bd.Usage = D3D11_USAGE_DYNAMIC;
+		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		bd.ByteWidth = creature_capacity_ * sizeof(CreatureVertex);
+		creature_vertices_.Reset();
+		if (FAILED(device->CreateBuffer(&bd, nullptr, &creature_vertices_))) {
+			creature_capacity_ = 0;
+			return;
+		}
+	}
+	D3D11_MAPPED_SUBRESOURCE m;
+	if (FAILED(ctx->Map(creature_vertices_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+		return;
+	}
+	std::memcpy(m.pData, vertices.data(), vertices.size() * sizeof(CreatureVertex));
+	ctx->Unmap(creature_vertices_.Get(), 0);
+	ItemConstants k = {};
+	XMStoreFloat4x4(&k.view_proj, view_proj);
+	k.eye = eye;
+	k.fog_start = sky.fog_start;
+	k.fog_end = sky.fog_end;
+	k.fog_color = sky.fog_color;
+	if (FAILED(ctx->Map(items_cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+		return;
+	}
+	std::memcpy(m.pData, &k, sizeof(k));
+	ctx->Unmap(items_cb_.Get(), 0);
+	ID3D11Buffer *cbs[] = {items_cb_.Get()};
+	ctx->VSSetConstantBuffers(0, 1, cbs);
+	ctx->PSSetConstantBuffers(0, 1, cbs);
+	ctx->IASetInputLayout(creatures_layout_.Get());
+	ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	const UINT stride = sizeof(CreatureVertex), offset = 0;
+	ID3D11Buffer *vb = creature_vertices_.Get();
+	ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+	ctx->VSSetShader(creatures_vs_.Get(), nullptr, 0);
+	ctx->PSSetShader(creatures_ps_.Get(), nullptr, 0);
+	ID3D11ShaderResourceView *srvs[] = {atlas_.Get()};
+	ctx->PSSetShaderResources(0, 1, srvs);
+	ID3D11SamplerState *samplers[] = {sampler_.Get()};
+	ctx->PSSetSamplers(0, 1, samplers);
+	ctx->RSSetState(cull_none_.Get());
+	ctx->OMSetDepthStencilState(depth_write_.Get(), 0);
+	ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+	ctx->Draw(UINT(vertices.size()), 0);
+	ctx->RSSetState(nullptr);
+	ctx->OMSetDepthStencilState(nullptr, 0);
 }
 
 void ChunkRenderer::clear_depth(ID3D11DeviceContext *ctx) {

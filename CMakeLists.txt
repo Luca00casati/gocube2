@@ -84,6 +84,10 @@ add_library(gocube_core STATIC
 target_sources(gocube_core PRIVATE
 	src/game/block_entities.cpp
 	src/game/block_entities.h
+	src/game/creature_models.cpp
+	src/game/creature_models.h
+	src/game/creatures.cpp
+	src/game/creatures.h
 	src/game/blocks.cpp
 	src/game/blocks.h
 	src/game/drops.cpp
@@ -137,6 +141,8 @@ add_shader(shaders/sky.hlsl vs_main vs_5_0 sky_vs)
 add_shader(shaders/sky.hlsl ps_main ps_5_0 sky_ps)
 add_shader(shaders/items.hlsl vs_main vs_5_0 items_vs)
 add_shader(shaders/items.hlsl ps_main ps_5_0 items_ps)
+add_shader(shaders/creatures.hlsl vs_main vs_5_0 creatures_vs)
+add_shader(shaders/creatures.hlsl ps_main ps_5_0 creatures_ps)
 add_shader(shaders/blit.hlsl vs_main vs_5_0 blit_vs)
 add_shader(shaders/blit.hlsl ps_main ps_5_0 blit_ps)
 
@@ -158,9 +164,11 @@ add_executable(gocube
 	shaders/sky.hlsl
 	shaders/items.hlsl
 	shaders/blit.hlsl
+	shaders/creatures.hlsl
 	${SHADER_HEADERS}
 )
 set_source_files_properties(shaders/chunk.hlsl shaders/lines.hlsl shaders/sky.hlsl shaders/items.hlsl shaders/blit.hlsl
+	shaders/creatures.hlsl
 	PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
 target_include_directories(gocube PRIVATE ${SHADER_DIR})
 target_link_libraries(gocube PRIVATE gocube_core imgui png miniaudio d3d11 dxgi dxguid shell32 ole32)
