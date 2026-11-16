@@ -11,6 +11,7 @@
 #include <png.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -106,7 +107,6 @@ void Renderer::set_render_scale(float scale) {
 	if (swap_chain_) {
 		context_->OMSetRenderTargets(0, nullptr, nullptr);
 		target_.Reset();
-		world_target_.Reset();
 		depth_.Reset();
 		create_targets();
 	}
@@ -146,12 +146,6 @@ bool Renderer::create_targets() {
 			failed(device_->CreateRenderTargetView(back_buffer.Get(), nullptr, &target_), "CreateRenderTargetView")) {
 		return false;
 	}
-	D3D11_RENDER_TARGET_VIEW_DESC rd = {};
-	rd.Format = WORLD_VIEW_FORMAT;
-	rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-	if (failed(device_->CreateRenderTargetView(back_buffer.Get(), &rd, &world_target_), "CreateRenderTargetView(sRGB)")) {
-		return false;
-	}
 	// Render scale: the world's own smaller target.
 	scaled_target_.Reset();
 	scaled_view_.Reset();
@@ -165,7 +159,7 @@ bool Renderer::create_targets() {
 		td.Height = static_cast<UINT>(scaled_height_);
 		td.MipLevels = 1;
 		td.ArraySize = 1;
-		td.Format = WORLD_VIEW_FORMAT;
+		td.Format = BACK_BUFFER_FORMAT;
 		td.SampleDesc.Count = 1;
 		td.Usage = D3D11_USAGE_DEFAULT;
 		td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
@@ -202,7 +196,6 @@ void Renderer::resize(int width, int height) {
 	}
 	context_->OMSetRenderTargets(0, nullptr, nullptr);
 	target_.Reset();
-	world_target_.Reset();
 	depth_.Reset();
 	DXGI_SWAP_CHAIN_DESC1 sd;
 	swap_chain_->GetDesc1(&sd);
@@ -218,9 +211,15 @@ void Renderer::resize(int width, int height) {
 
 void Renderer::begin_frame(const float clear_linear[4]) {
 	// The flip model unbinds the back buffer at every Present, so bind it each frame.
-	ID3D11RenderTargetView *world = scaled() ? scaled_target_.Get() : world_target_.Get();
+	ID3D11RenderTargetView *world = scaled() ? scaled_target_.Get() : target_.Get();
 	context_->OMSetRenderTargets(1, &world, depth_.Get());
-	context_->ClearRenderTargetView(world, clear_linear);
+	// (As the world's shaders write colours: Godot's curve, godot_color.hlsli.)
+	float clear[4];
+	for (int k = 0; k < 3; k++) {
+		clear[k] = std::max(1.055f * std::pow(std::max(clear_linear[k], 0.0f), 0.416666667f) - 0.055f, 0.0f);
+	}
+	clear[3] = clear_linear[3];
+	context_->ClearRenderTargetView(world, clear);
 	context_->ClearDepthStencilView(depth_.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
 	D3D11_VIEWPORT vp = {0, 0, float(scaled_width_), float(scaled_height_), 0.0f, 1.0f};
 	context_->RSSetViewports(1, &vp);
@@ -228,8 +227,8 @@ void Renderer::begin_frame(const float clear_linear[4]) {
 
 bool Renderer::end_frame(const char *screenshot_png) {
 	if (scaled()) {
-		// Stretch the world over the window (through sRGB views: filtered in linear light).
-		ID3D11RenderTargetView *full[] = {world_target_.Get()};
+		// Stretch the world over the window (bilinear, on the pixel values as Godot scales).
+		ID3D11RenderTargetView *full[] = {target_.Get()};
 		context_->OMSetRenderTargets(1, full, nullptr);
 		D3D11_VIEWPORT vp = {0, 0, float(width_), float(height_), 0.0f, 1.0f};
 		context_->RSSetViewports(1, &vp);

@@ -14,15 +14,14 @@
 // Fog: the Godot version's Environment depth fog, in the haze's colour:
 // pow(smoothstep(fog_start, fog_end, distance), 1.6), by 3D distance.
 //
-// Colours as the Godot version shows them: it runs on Godot's Compatibility
-// renderer (OpenGL; the only one the development PC's GPU has), which takes
-// textures and colour uniforms as they are (sRGB numbers, not decoded) and
-// writes EMISSION out as a pixel value, while the sun's share (its light())
-// is added as linear light. So: everything but the sun is worked out from
-// the raw texture (`atlas` is the atlas' plain view here) and turned into
-// linear light at the end (to_linear), and the sun's share is added after.
+// Colours as the Godot version shows them (godot_color.hlsli): everything but
+// the sun is worked out from the raw texture (`atlas` is the atlas' plain
+// view) and taken into linear light (godot_to_linear), the sun's share is
+// added after, and the result is written as Godot writes it (godot_to_srgb).
 // Measured on Godot 4.7 (tests/data/godot_screenshot.gd and probes):
-// linear result = to_linear(EMISSION) + DIFFUSE_LIGHT.
+// linear result = godot_to_linear(EMISSION) + DIFFUSE_LIGHT.
+
+#include "godot_color.hlsli"
 
 cbuffer Frame : register(b0) {
 	float4x4 view_proj;
@@ -121,12 +120,6 @@ float3 green_variation(float2 xz) {
 	return lerp(float3(0.8, 0.94, 0.78), float3(1.14, 1.08, 0.8), v);
 }
 
-// An sRGB number to linear light.
-float3 to_linear(float3 c) {
-	c = max(c, 0.0);
-	return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
-}
-
 float3 apply_fog(float3 color, float3 world) {
 	float d = length(world - camera_pos);
 	return lerp(color, fog_color, pow(smoothstep(fog_start, fog_end, d), 1.6));
@@ -163,8 +156,8 @@ float4 shade_terrain(PSIn i, float4 tex) {
 	lights(i, shade, full);
 	float facing = smoothstep(0.0, 0.25, dot(n, sun_dir));
 	float3 sun = base * (full - shade) * sunlit * facing * (1.0 - CLOUD_SHADE * cloud_cover(i.world.xz));
-	float3 color = to_linear(base * shade) + sun;
-	return float4(apply_fog(color, i.world), 1.0);
+	float3 color = godot_to_linear(base * shade) + sun;
+	return float4(godot_to_srgb(apply_fog(color, i.world)), 1.0);
 }
 
 float4 ps_opaque(PSIn i) : SV_Target {
@@ -204,6 +197,6 @@ float4 ps_fluid(PSIn i, bool front : SV_IsFrontFace) : SV_Target {
 	// (Unlike the terrain, every side of the surface takes the sun: the Godot
 	// version's fluid light() has no facing term.)
 	float3 sun = color * (full - shade) * sunlit * (1.0 - CLOUD_SHADE * cloud_cover(i.world.xz));
-	color = to_linear(color * shade) + sun;
-	return float4(apply_fog(color, i.world), alpha);
+	color = godot_to_linear(color * shade) + sun;
+	return float4(godot_to_srgb(apply_fog(color, i.world)), alpha); // (blended over what's there, in sRGB numbers, as in Godot)
 }

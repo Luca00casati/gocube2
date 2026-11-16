@@ -5,9 +5,10 @@
 // graphics such as the HD 4600, where every Direct3D 12 draw hangs the GPU,
 // while their Direct3D 11 drivers are mature. Feature level 11_0 is the minimum.
 //
-// The world is drawn through an sRGB view of the back buffer (its shaders work
-// out linear light; see shaders/chunk.hlsl); Dear ImGui through a plain view
-// (its colours are already what the screen shows). With a render scale below
+// The world is drawn into the plain back buffer: its shaders work out linear
+// light and write it as the Godot version's renderer does (shaders/
+// godot_color.hlsli), so see-through surfaces blend as there; Dear ImGui's
+// colours are already what the screen shows. With a render scale below
 // 1 the world is drawn into a smaller target first, then stretched over the
 // window (bilinear), under the full-size UI: the Godot version's setting.
 
@@ -31,7 +32,6 @@ class Renderer {
 public:
 	static constexpr UINT BUFFERS = 2; // swap chain buffers (the flip model needs at least 2)
 	static constexpr DXGI_FORMAT BACK_BUFFER_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
-	static constexpr DXGI_FORMAT WORLD_VIEW_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 	static constexpr DXGI_FORMAT DEPTH_FORMAT = DXGI_FORMAT_D32_FLOAT;
 
 	Renderer() = default;
@@ -79,10 +79,9 @@ private:
 	ComPtr<ID3D11DeviceContext> context_;
 	ComPtr<ID3D11InfoQueue> info_queue_;
 	ComPtr<IDXGISwapChain1> swap_chain_;
-	ComPtr<ID3D11RenderTargetView> target_;       // plain (ImGui)
-	ComPtr<ID3D11RenderTargetView> world_target_; // sRGB (the world)
+	ComPtr<ID3D11RenderTargetView> target_;
 	ComPtr<ID3D11DepthStencilView> depth_;
-	// Render scale below 1: the world's smaller target (sRGB), and the stretch.
+	// Render scale below 1: the world's smaller target, and the stretch.
 	float render_scale_ = 1.0f;
 	int scaled_width_ = 0, scaled_height_ = 0;
 	ComPtr<ID3D11RenderTargetView> scaled_target_;

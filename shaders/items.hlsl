@@ -7,6 +7,8 @@
 // texture (the atlas' plain view: raw sRGB numbers), or the colour alone (the
 // sleeve and hand: their tint times the light).
 
+#include "godot_color.hlsli"
+
 cbuffer Items : register(b0) {
 	float4x4 view_proj;
 	float3 eye;          // where distances are measured from (fog)
@@ -50,11 +52,9 @@ float4 ps_main(PSIn i) : SV_Target {
 	clip(c.a - 0.5);
 	float3 n = abs(i.normal);
 	float shade = i.normal.y > 0.5 ? 1.0 : (i.normal.y < -0.5 ? 0.55 : (n.x > 0.5 ? 0.8 : 0.7));
-	// (Unshaded, as the Godot version's Compatibility renderer shows it: the
-	// raw texture, shade and light written out as a pixel value; see chunk.hlsl.)
-	float3 color = max(c.rgb * shade * i.color.rgb, 0.0);
-	color = color <= 0.04045 ? color / 12.92 : pow((color + 0.055) / 1.055, 2.4);
+	// (Unshaded, as the Godot version's renderer shows it: godot_color.hlsli.)
+	float3 color = godot_to_linear(max(c.rgb * shade * i.color.rgb, 0.0));
 	float d = length(i.place - eye);
 	color = lerp(color, fog_color, pow(smoothstep(fog_start, fog_end, d), 1.6));
-	return float4(color, 1.0);
+	return float4(godot_to_srgb(color), 1.0);
 }

@@ -2,6 +2,8 @@
 // a drifting layer of blocky clouds. Ported from the Godot version's
 // sky.gdshader. Drawn first, behind everything (a full-screen triangle).
 
+#include "godot_color.hlsli"
+
 cbuffer Sky : register(b0) {
 	float4x4 inv_view_proj;
 	float3 top_color;    // (linear)
@@ -135,5 +137,5 @@ float4 ps_main(PSIn i) : SV_Target {
 		float3 cloud_col = lerp(lit * 0.86, lit, core);
 		col = lerp(col, cloud_col, cloud * fade * 0.92);
 	}
-	return float4(col, 1.0);
+	return float4(godot_to_srgb(col), 1.0); // (as the Godot version writes it: godot_color.hlsli)
 }

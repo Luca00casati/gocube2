@@ -118,7 +118,7 @@ function(add_shader file entry profile name)
 	add_custom_command(OUTPUT ${out}
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_DIR}
 		COMMAND ${FXC} /nologo /T ${profile} /E ${entry} /O3 /WX /Vn g_${name} /Fh ${out} ${CMAKE_CURRENT_SOURCE_DIR}/${file}
-		DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${file}
+		DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${file} ${CMAKE_CURRENT_SOURCE_DIR}/shaders/godot_color.hlsli
 		COMMENT "Compiling ${file} (${entry})")
 	set(SHADER_HEADERS ${SHADER_HEADERS} ${out} PARENT_SCOPE)
 endfunction()

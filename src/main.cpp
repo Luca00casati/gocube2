@@ -63,6 +63,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -199,6 +200,8 @@ std::filesystem::path user_dir() {
 
 struct Controls {
 	bool fly_key_was_down = false;
+	bool f3_was_down = false;
+	bool details = false; // F3: the details screen
 	bool number_was_down[10] = {};
 	bool key_was_down[256] = {};
 
@@ -243,70 +246,88 @@ bool death_screen() {
 	return respawn;
 }
 
+// Text with a black outline, as the Godot version's HUD draws it.
+void outlined_text(ImDrawList *dl, ImVec2 at, ImU32 col, const char *text) {
+	for (const ImVec2 o : {ImVec2(-1, 0), ImVec2(1, 0), ImVec2(0, -1), ImVec2(0, 1), ImVec2(-1, -1), ImVec2(1, 1)}) {
+		dl->AddText(ImVec2(at.x + o.x, at.y + o.y), IM_COL32(0, 0, 0, (col >> IM_COL32_A_SHIFT) & 0xff), text);
+	}
+	dl->AddText(at, col, text);
+}
+
+// A bar with its text on it (the Godot version's Hotbar._bar).
+void status_bar(ImDrawList *dl, ImVec2 a, ImVec2 size, float fraction, ImU32 fill, ImU32 highlight, const char *text) {
+	const ImVec2 b(a.x + size.x, a.y + size.y);
+	dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 140));
+	const float fx = a.x + size.x * std::clamp(fraction, 0.0f, 1.0f);
+	dl->AddRectFilled(a, ImVec2(fx, b.y), fill);
+	dl->AddRectFilled(a, ImVec2(fx, a.y + 3), highlight);
+	dl->AddRect(a, b, IM_COL32(255, 255, 255, 128));
+	const ImVec2 ts = ImGui::CalcTextSize(text);
+	outlined_text(dl, ImVec2(a.x + (size.x - ts.x) / 2, a.y + (size.y - ts.y) / 2), IM_COL32(255, 255, 255, 255), text);
+}
+
+// The HUD, as the Godot version's: the crosshair, the mining progress under
+// it, the 9 hotbar slots, health (and breath, and armour) bars above them in
+// survival, the held item's name, a red flash when hurt, notices.
 void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::ChunkRenderer &chunks,
 		const gc::BlockRules &rules, bool captured) {
 	const ImGuiIO &io = ImGui::GetIO();
 	ImDrawList *dl = ImGui::GetForegroundDrawList();
-	const ImVec2 c(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
-	if (captured) {
-		const ImU32 col = IM_COL32(255, 255, 255, 200);
-		dl->AddLine(ImVec2(c.x - 8, c.y), ImVec2(c.x + 9, c.y), col, 2.0f);
-		dl->AddLine(ImVec2(c.x, c.y - 8), ImVec2(c.x, c.y + 9), col, 2.0f);
+	const ImVec2 c(std::floor(io.DisplaySize.x * 0.5f), std::floor(io.DisplaySize.y * 0.5f));
+	if (captured) { // two bars, 16 x 2
+		const ImU32 col = IM_COL32(255, 255, 255, 191);
+		dl->AddRectFilled(ImVec2(c.x - 8, c.y - 1), ImVec2(c.x + 8, c.y + 1), col);
+		dl->AddRectFilled(ImVec2(c.x - 1, c.y - 8), ImVec2(c.x + 1, c.y - 1), col);
+		dl->AddRectFilled(ImVec2(c.x - 1, c.y + 1), ImVec2(c.x + 1, c.y + 8), col);
 	}
-	if (game.mining_progress() > 0) {
-		const float w = 60, h = 6, y = c.y + 22;
-		dl->AddRectFilled(ImVec2(c.x - w / 2, y), ImVec2(c.x + w / 2, y + h), IM_COL32(0, 0, 0, 140));
-		dl->AddRectFilled(ImVec2(c.x - w / 2, y), ImVec2(c.x - w / 2 + w * game.mining_progress(), y + h),
-				IM_COL32(255, 255, 255, 220));
+	if (game.mining_progress() > 0) { // 120 x 8, under the crosshair
+		const ImVec2 a(c.x - 60, c.y + 22), b(c.x + 60, c.y + 30);
+		dl->AddRectFilled(a, b, IM_COL32(26, 26, 26, 153), 3.0f);
+		dl->AddRectFilled(a, ImVec2(a.x + 120 * game.mining_progress(), b.y), IM_COL32(178, 196, 222, 255), 3.0f);
 	}
-	const float slot = 48, gap = 4;
+	const float slot = 52, gap = 4;
 	const float total = gc::Inventory::HOTBAR * slot + (gc::Inventory::HOTBAR - 1) * gap;
-	const float x0 = c.x - total / 2, y0 = io.DisplaySize.y - slot - 12;
+	const float x0 = std::floor((io.DisplaySize.x - total) / 2), y0 = io.DisplaySize.y - slot - 12;
 	const ImTextureID atlas = ImTextureID(chunks.ui_atlas());
 	for (int i = 0; i < gc::Inventory::HOTBAR; i++) {
 		const ImVec2 a(x0 + i * (slot + gap), y0), b(a.x + slot, a.y + slot);
 		const bool chosen = i == game.selected();
-		dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 120), 4.0f);
-		dl->AddRect(a, b, chosen ? IM_COL32(255, 255, 255, 255) : IM_COL32(255, 255, 255, 60), 4.0f, 0,
-				chosen ? 3.0f : 1.0f);
+		dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 115));
 		const gc::Stack &s = game.inventory().slots[i];
-		if (s.empty()) {
-			continue;
+		if (!s.empty()) {
+			float uv[4];
+			table.atlas.tile_uv(table.icon(s.id), uv);
+			dl->AddImage(atlas, ImVec2(a.x + 8, a.y + 8), ImVec2(b.x - 8, b.y - 8), ImVec2(uv[0], uv[1]),
+					ImVec2(uv[2], uv[3]));
+			if (!game.creative() && s.count > 1) {
+				const std::string n = std::to_string(s.count);
+				const ImVec2 size = ImGui::CalcTextSize(n.c_str());
+				outlined_text(dl, ImVec2(b.x - 6 - size.x, b.y - 6 - size.y), IM_COL32(255, 255, 255, 255), n.c_str());
+			}
 		}
-		float uv[4];
-		table.atlas.tile_uv(table.icon(s.id), uv);
-		dl->AddImage(atlas, ImVec2(a.x + 8, a.y + 8), ImVec2(b.x - 8, b.y - 8), ImVec2(uv[0], uv[1]), ImVec2(uv[2], uv[3]));
-		if (!game.creative() && s.count > 1) {
-			const std::string n = std::to_string(s.count);
-			const ImVec2 size = ImGui::CalcTextSize(n.c_str());
-			dl->AddText(ImVec2(b.x - size.x - 3, b.y - size.y - 1), IM_COL32(0, 0, 0, 255), n.c_str());
-			dl->AddText(ImVec2(b.x - size.x - 4, b.y - size.y - 2), IM_COL32(255, 255, 255, 255), n.c_str());
+		if (chosen) {
+			dl->AddRect(ImVec2(a.x + 1, a.y + 1), ImVec2(b.x - 1, b.y - 1), IM_COL32(255, 255, 255, 242), 0.0f, 0, 3.0f);
+		} else {
+			dl->AddRect(a, b, IM_COL32(255, 255, 255, 64));
 		}
 	}
-	// Health (hearts, 2 points each) and, underwater, breath.
+	// Survival: health on the left above the hotbar, breath on the right
+	// (while it's being used), armour above health.
+	const int armor = game.inventory().armor_points();
 	if (!game.creative()) {
-		const float hy = y0 - 22;
-		for (int i = 0; i < gc::Game::MAX_HEALTH / 2; i++) {
-			const ImVec2 hc(x0 + 9 + i * 20.0f, hy);
-			const int points = game.health() - i * 2; // 2 full, 1 half, <=0 empty
-			auto heart = [&](ImU32 col, float clip) {
-				// Two circles and a point, clipped from the right for half hearts.
-				dl->PushClipRect(ImVec2(hc.x - 9, hc.y - 9), ImVec2(hc.x - 9 + 18 * clip, hc.y + 10), true);
-				dl->AddCircleFilled(ImVec2(hc.x - 3.5f, hc.y - 2), 4.5f, col);
-				dl->AddCircleFilled(ImVec2(hc.x + 3.5f, hc.y - 2), 4.5f, col);
-				dl->AddTriangleFilled(ImVec2(hc.x - 8, hc.y), ImVec2(hc.x + 8, hc.y), ImVec2(hc.x, hc.y + 8), col);
-				dl->PopClipRect();
-			};
-			heart(IM_COL32(40, 10, 10, 200), 1.0f);
-			if (points > 0) {
-				heart(IM_COL32(220, 30, 40, 255), points >= 2 ? 1.0f : 0.5f);
-			}
-		}
+		const float width = (total - 12.0f) / 2.0f, y = y0 - 20;
+		char text[32];
+		std::snprintf(text, sizeof(text), "%d / %d", game.health(), gc::Game::MAX_HEALTH);
+		status_bar(dl, ImVec2(x0, y), ImVec2(width, 14), float(game.health()) / gc::Game::MAX_HEALTH,
+				IM_COL32(209, 41, 46, 255), IM_COL32(222, 117, 120, 255), text);
 		if (game.breath() < gc::Game::MAX_BREATH) {
-			const int bubbles = int(std::ceil(game.breath() / gc::Game::MAX_BREATH * 10));
-			for (int i = 0; i < bubbles; i++) {
-				dl->AddCircle(ImVec2(x0 + total - 9 - i * 20.0f, hy), 7, IM_COL32(170, 220, 255, 255), 0, 2.0f);
-			}
+			status_bar(dl, ImVec2(x0 + total - width, y), ImVec2(width, 14), game.breath() / gc::Game::MAX_BREATH,
+					IM_COL32(89, 166, 242, 255), IM_COL32(150, 199, 246, 255), "Air");
+		}
+		if (armor > 0) { // full iron armour is 15 points
+			std::snprintf(text, sizeof(text), "Armour %d", armor);
+			status_bar(dl, ImVec2(x0, y - 18), ImVec2(width, 12), armor / 15.0f, IM_COL32(158, 163, 179, 255),
+					IM_COL32(193, 196, 206, 255), text);
 		}
 	}
 	// Hurt: a red flash. A notice at the top.
@@ -316,15 +337,18 @@ void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::Chunk
 	if (game.notice_time() > 0) {
 		const ImVec2 size = ImGui::CalcTextSize(game.notice().c_str());
 		const int alpha = int(255 * std::min(1.0f, game.notice_time()));
-		dl->AddText(ImVec2(c.x - size.x / 2, 60), IM_COL32(255, 255, 255, alpha), game.notice().c_str());
+		outlined_text(dl, ImVec2(c.x - size.x / 2, 60), IM_COL32(255, 255, 255, alpha), game.notice().c_str());
 	}
-	// The held item's name above the hotbar.
+	// The held item's name above the hotbar (above the bars in survival).
 	const gc::Stack &held = game.inventory().slots[game.selected()];
 	if (!held.empty()) {
 		const std::string name = gc::display_name(rules.content(), held.id);
 		const ImVec2 size = ImGui::CalcTextSize(name.c_str());
-		dl->AddText(ImVec2(c.x - size.x / 2, y0 - size.y - (game.creative() ? 6 : 36)), IM_COL32(255, 255, 255, 230),
-				name.c_str());
+		float bottom = y0 - 10;
+		if (!game.creative()) {
+			bottom -= armor > 0 ? 46.0f : 18.0f;
+		}
+		outlined_text(dl, ImVec2(c.x - size.x / 2, bottom - size.y), IM_COL32(255, 255, 255, 255), name.c_str());
 	}
 }
 
@@ -341,11 +365,36 @@ gc::PlayerInput read_input(const gc::Window &window) {
 	return in;
 }
 
+// Top left: the Godot version's status line (frame rate, the time, mode,
+// flying), and with F3 the details (its debug screen); problems with mods
+// always.
 void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::World &world,
 		const gc::ChunkRenderer &chunks, const gc::WorldSave *save, uint32_t seed, const gc::Game &game,
-		const gc::Mods &mods, bool captured, double day_time) {
+		const gc::Mods &mods, bool captured, double day_time, bool details) {
 	const ImGuiIO &io = ImGui::GetIO();
-	ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
+	{
+		char clock[16], line[160];
+		gc::DayCycle::clock_text(day_time, false, clock, sizeof(clock));
+		std::snprintf(line, sizeof(line), "%.0f FPS \u00b7 %s \u00b7 %s \u00b7 %s \u00b7 E inventory", io.Framerate, clock,
+				game.creative() ? "creative" : "survival", player.flying ? "flying (F)" : "walking (F to fly)");
+		outlined_text(ImGui::GetForegroundDrawList(), ImVec2(8, 8), IM_COL32(255, 255, 255, 255), line);
+	}
+	float y = 30;
+	for (const auto &[id, why] : mods.problems()) {
+		const std::string text = "Mod " + id + ": " + why;
+		outlined_text(ImGui::GetForegroundDrawList(), ImVec2(8, y), IM_COL32(255, 160, 110, 255), text.c_str());
+		y += 18;
+	}
+	if (!captured) {
+		outlined_text(ImGui::GetForegroundDrawList(), ImVec2(8, y), IM_COL32(220, 220, 220, 255),
+				"Click to play. W A S D, Space, Shift, Ctrl, F to fly. Left click breaks, right click places, "
+				"1-9 or the wheel choose a slot. F3: details");
+		y += 18;
+	}
+	if (!details) {
+		return;
+	}
+	ImGui::SetNextWindowPos(ImVec2(8, y + 4), ImGuiCond_Always);
 	ImGui::SetNextWindowBgAlpha(0.6f);
 	const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
@@ -374,13 +423,6 @@ void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::W
 			names += (names.empty() ? "" : ", ") + m.id + " " + m.version;
 		}
 		ImGui::Text("Mods: %s", names.c_str());
-		for (const auto &[id, why] : mods.problems()) {
-			ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.4f, 1.0f), "Mod %s: %s", id.c_str(), why.c_str());
-		}
-		if (!captured) {
-			ImGui::TextDisabled("Click to play. W A S D, Space, Shift, Ctrl, F to fly. Left click breaks (hold it in");
-			ImGui::TextDisabled("survival), right click places, 1-9 or the wheel choose a hotbar slot, middle click picks (creative)");
-		}
 	}
 	ImGui::End();
 }
@@ -388,7 +430,8 @@ void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::W
 // sRGB (as colours are written, and as the Godot version gave them to its
 // shaders) to linear.
 DirectX::XMFLOAT3 linear(const gc::Rgb &c) {
-	auto f = [](float v) { return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f); };
+	// (Godot's fast approximation of the curve, as its renderer uses: shaders/godot_color.hlsli.)
+	auto f = [](float v) { return v * (v * (v * 0.305306011f + 0.682171111f) + 0.012522878f); };
 	return {f(c.r), f(c.g), f(c.b)};
 }
 
@@ -885,6 +928,11 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			player.velocity[1] = 0;
 		}
 		controls.fly_key_was_down = fly_key;
+		const bool f3 = window.key_down(VK_F3);
+		if (f3 && !controls.f3_was_down) {
+			controls.details = !controls.details;
+		}
+		controls.f3_was_down = f3;
 		const gc::PlayerInput input = read_input(window);
 		accumulator += paused ? 0.0f : dt;
 		while (accumulator >= gc::Player::STEP) {
@@ -983,7 +1031,7 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		ImGui::NewFrame();
 		if (screen == Screen::NONE) {
 			draw_ui(renderer, player, *world, chunks, save ? &*save : nullptr, seed,
-					game, mods, window.mouse_captured(), day.time);
+					game, mods, window.mouse_captured(), day.time, controls.details);
 		}
 		const gc::UiIcons icons{ImTextureID(chunks.ui_atlas()), &table, &content};
 		if (game.dead()) {
@@ -1064,7 +1112,7 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			chunks.clear_depth(renderer.context());
 			chunks.draw_items(renderer.context(), arm, projection, {0, 0, 0}, sky, false);
 			chunks.clear_depth(renderer.context());
-			chunks.draw_items(renderer.context(), held, projection, {0, 0, 0}, sky, true);
+			chunks.draw_items(renderer.context(), held, projection, {0, 0, 0}, sky, true, true);
 		}
 
 		// With a screenshot, count frames once the world around has loaded.

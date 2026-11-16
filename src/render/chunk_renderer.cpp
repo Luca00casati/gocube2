@@ -321,7 +321,7 @@ bool ChunkRenderer::upload_dynamic(ID3D11DeviceContext *ctx, const std::vector<W
 }
 
 void ChunkRenderer::draw_items(ID3D11DeviceContext *ctx, const std::vector<WorldVertex> &vertices,
-		const XMMATRIX &view_proj, const XMFLOAT3 &eye, const SkyParams &sky, bool textured) {
+		const XMMATRIX &view_proj, const XMFLOAT3 &eye, const SkyParams &sky, bool textured, bool cull_back) {
 	if (vertices.empty() || !upload_dynamic(ctx, vertices)) {
 		return;
 	}
@@ -352,7 +352,7 @@ void ChunkRenderer::draw_items(ID3D11DeviceContext *ctx, const std::vector<World
 	ctx->PSSetShaderResources(0, 1, srvs);
 	ID3D11SamplerState *samplers[] = {sampler_.Get()};
 	ctx->PSSetSamplers(0, 1, samplers);
-	ctx->RSSetState(cull_none_.Get());
+	ctx->RSSetState(cull_back ? cull_back_.Get() : cull_none_.Get());
 	ctx->OMSetDepthStencilState(depth_write_.Get(), 0);
 	ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
 	ctx->Draw(UINT(vertices.size()), 0);

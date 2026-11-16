@@ -64,9 +64,13 @@ public:
 	// Dropped items and the first-person hand (shaders/items.hlsl): vertices
 	// placed already, `view_proj` takes them to the screen; their colour is the
 	// light (times the texture if `textured`, else it's the whole colour).
-	// Fog by distance from `eye`, as the terrain's.
+	// Fog by distance from `eye`, as the terrain's. `cull_back`: faces wound
+	// the other way aren't drawn (the held item, as the Godot version's hand
+	// shader does: its extruded items are wound inside out, so it shows their
+	// far side); otherwise both sides (drops).
 	void draw_items(ID3D11DeviceContext *context, const std::vector<WorldVertex> &vertices,
-			const DirectX::XMMATRIX &view_proj, const DirectX::XMFLOAT3 &eye, const SkyParams &sky, bool textured);
+			const DirectX::XMMATRIX &view_proj, const DirectX::XMFLOAT3 &eye, const SkyParams &sky, bool textured,
+			bool cull_back = false);
 	// Clears the depth buffer (the hand is drawn over everything).
 	void clear_depth(ID3D11DeviceContext *context);
 	// Torches held in hand (HandLights): their light levels, a cube of
