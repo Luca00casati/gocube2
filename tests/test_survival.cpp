@@ -724,3 +724,111 @@ TEST_CASE("milestone 5: from a new survival world to a crafted tool and a contai
 	REQUIRE(opened);
 	CHECK(*opened == BlockPos{0, h + 1, -2});
 }
+
+namespace {
+
+// Stands the player on (1, 40, 1) looking straight down at it, holding `item`,
+// and right-clicks.
+void use_down(Play &p, const std::string &item) {
+	p.player.position[0] = 1.5f;
+	p.player.position[1] = 41.0f;
+	p.player.position[2] = 1.5f;
+	p.player.pitch = -1.5707f;
+	p.game->inventory().slots[0] = {item, 1};
+	gc::GameInput in;
+	in.captured = true;
+	in.use_pressed = true;
+	in.number_key = 1;
+	p.game->update(0.016f, in);
+}
+
+} // namespace
+
+TEST_CASE("farming (the core mod's Lua): a hoe tills grass and dirt; seeds are planted on farmland") {
+	Play p;
+	pool(p, "core:air");
+	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:stone")));
+	use_down(p, "core:wood_hoe");
+	CHECK(p.block(1, 40, 1) == "core:stone"); // not stone
+	use_down(p, "core:seeds");
+	CHECK(p.block(1, 41, 1) == "core:air"); // nor seeds on stone
+	CHECK(p.game->inventory().slots[0].count == 1);
+	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:dirt")));
+	use_down(p, "core:wood_hoe");
+	CHECK(p.block(1, 40, 1) == "core:farmland");
+	CHECK(p.game->inventory().slots[0].id == "core:wood_hoe"); // (a hoe isn't used up)
+	use_down(p, "core:seeds");
+	CHECK(p.block(1, 41, 1) == "core:wheat_0");
+	CHECK(p.game->inventory().slots[0].count == 0);
+	run_ticks(p, 0.2f);
+	CHECK(p.game->save_plants().size() == 1); // growing
+	// Something on top: no tilling.
+	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:grass")));
+	use_down(p, "core:wood_hoe");
+	CHECK(p.block(1, 40, 1) == "core:grass");
+	// Grass now and then turns up seeds (1 in 10).
+	REQUIRE(p.world->set_block({1, 41, 1}, 0));
+	for (int i = 0; i < 100; i++) {
+		REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:grass")));
+		use_down(p, "core:stone_hoe");
+		REQUIRE(p.block(1, 40, 1) == "core:farmland");
+	}
+	const int seeds = drops_of_item(p, "core:seeds");
+	CHECK(seeds >= 1);
+	CHECK(seeds <= 30);
+}
+
+TEST_CASE("fluids (the core mod's Lua): water spreads one level lower a block, and drains away") {
+	Play p;
+	pool(p, "core:air");
+	REQUIRE(p.world->set_block({0, 40, 0}, p.id("core:water")));
+	run_ticks(p, 3.0f);
+	CHECK(p.block(0, 40, 0) == "core:water");
+	CHECK(p.block(1, 40, 0) == "core:water_7");
+	CHECK(p.block(2, 40, 0) == "core:water_6");
+	CHECK(p.block(1, 40, 1) == "core:water_6");
+	CHECK(p.block(2, 40, 2) == "core:water_4");
+	CHECK(p.block(0, 41, 0) == "core:air");
+	REQUIRE(p.world->set_block({0, 40, 0}, 0)); // the source goes: it all drains
+	run_ticks(p, 10.0f);
+	for (int x = 0; x <= 2; x++) {
+		for (int z = 0; z <= 2; z++) {
+			CHECK(p.block(x, 40, z) == "core:air");
+		}
+	}
+	gc::Json pending = p.mods.rule("fluids_pending", Json::array()).value_or(Json());
+	CHECK(pending == 0);
+}
+
+TEST_CASE("fluids: a lava source touching water turns to stone") {
+	Play p;
+	pool(p, "core:air");
+	REQUIRE(p.world->set_block({0, 40, 0}, p.id("core:lava")));
+	REQUIRE(p.world->set_block({1, 40, 0}, p.id("core:water")));
+	run_ticks(p, 1.0f);
+	CHECK(p.block(0, 40, 0) == "core:stone");
+}
+
+TEST_CASE("fluids: a big flood stays within the mods' time limit") {
+	Play p;
+	// A 40 x 40 sheet of unfed flowing water over a pit: all of it changes at once.
+	for (int x = -20; x < 20; x++) {
+		for (int z = -20; z < 20; z++) {
+			REQUIRE(p.world->set_block({x, 45, z}, p.id("core:water_3")));
+			for (int y = 40; y <= 44; y++) {
+				REQUIRE(p.world->set_block({x, y, z}, 0));
+			}
+		}
+	}
+	double worst = 0;
+	for (int i = 0; i < 20 * 30; i++) {
+		p.game->tick(0.05);
+		const auto t0 = std::chrono::steady_clock::now();
+		p.mods.tick(0.05);
+		const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+		worst = std::max(worst, ms);
+	}
+	MESSAGE("worst mods tick: " << worst << " ms");
+	CHECK(p.mods.problems().empty());
+	CHECK(worst < 20.0); // (the limit per call: three calls stopped turn the core mod off)
+}

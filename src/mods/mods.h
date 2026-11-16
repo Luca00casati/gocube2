@@ -120,6 +120,9 @@ public:
 	//   fall_damage(blocks) -> health a fall of that many blocks takes
 	//   food(item) -> health eating it gives (0: not food)
 	//   save_plants() -> data for world.json's "plants"; load_plants(data)
+	//   use_item(item, x, y, z, nx, ny, nz) -> right click with item on that block's
+	//     side (nx, ny, nz): nil if nothing was done (the item is placed), else
+	//     {take = how many to use up, placed = {x, y, z} of a block put down}
 	std::optional<Json> rule(const std::string &name, const Json &args);
 
 	// The sandbox's state, for the tests.

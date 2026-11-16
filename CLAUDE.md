@@ -40,14 +40,19 @@ main thread; never call into it from a worker. Keep `mods/**` and `tests/data/**
 byte for byte (`.gitattributes`): fingerprints and test expectations hash bytes.
 
 ## Where the game's rules live
-Decisions (mining time, drops, recipes, smelting, fuel, fall damage, food, plants)
-are the base game's Lua in `mods/core/rules/`, set with `game.set_rule`; C++
+Decisions (mining time, drops, recipes, smelting, fuel, fall damage, food, plants,
+farming, flowing fluids) are the base game's Lua in `mods/core/rules/`, set with `game.set_rule`; C++
 (`src/game/`) keeps the data (inventory, block entities, drops, health, time) and
 asks `Mods::rule`, with a plain built-in default if no mod answers. Ports of the
 Godot version's GDScript keep its numbers and behaviour; tests in
 `tests/test_survival.cpp` pin them down. Saved data keeps the Godot `world.json`
 fields (`player.inventory`, `health`, `bed`, `block_entities`, `plants`, `spawn`,
 `time`).
+Every Lua call has the mods' time limit (20 ms, debug builds included; three
+overruns turn a mod off, the core mod too): work that grows with how many blocks
+changed is spread over ticks (`MAX_CHECKS`, `CELLS_PER_CALL`), and per-cell
+bookkeeping uses integer keys, not strings or tables (garbage collection lands
+inside a call). `tests/test_survival.cpp`'s flood test checks it.
 
 ## Seeing the result
 `build\Release\gocube.exe --hidden --frames=10 --screenshot=<file>.png` (add

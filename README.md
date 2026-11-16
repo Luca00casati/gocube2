@@ -5,7 +5,7 @@ A rewrite of the Godot version of GoCube; the plan is in the
 [GoCube Native Rewrite Plan](https://claude.ai/artifact/CMdng1jnMGWsAb7X84FHoy).
 
 Status: milestone 5. Survival: mining, drops, crafting, chests and furnaces,
-health, the day and night, growing plants; creative; a title menu and pause menu.
+health, the day and night, growing plants, farming, flowing water and lava; creative; a title menu and pause menu.
 Worlds are saved in the Godot version's format (worlds it saved open here, and the
 other way round) and generated exactly as it does. The rules of the game are the
 base game's Lua (`mods/core`), sandboxed like every mod.
@@ -90,7 +90,7 @@ A mod is a folder with `mod.json`, optional JSON content files and an optional
 `%APPDATA%/GoCube/mods`. `src/mods/mods.h` describes the format and the Lua API
 (`registry`, `events`, `world`, `game`). The base game is the example: its
 `main.lua` and `rules/` set the game's rules (mining time, drops, crafting,
-smelting, fuel, fall damage, food, plants) with `game.set_rule`; a mod can replace
+smelting, fuel, fall damage, food, plants, farming, fluids) with `game.set_rule`; a mod can replace
 one, or wrap it (`game.rule(name)` gives the one before).
 
 Mods are sandboxed: no files, OS, network or debug access, no bytecode, no

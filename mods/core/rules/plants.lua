@@ -16,18 +16,28 @@
 local TICK = 1.0
 local LEAF_REACH = 4
 local SAPLING_CHANCE = 0.05
+-- At most this many cells (and leaves) are looked at a game tick, the rest
+-- later: a call must stay well within the mods' time limit (20 ms) after many
+-- blocks change at once.
+local MAX_CHECKS = 2048
+local MAX_LEAF_CHECKS = 128
 local AROUND = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}}
 
-local growing = {}   -- "x,y,z" -> seconds left
+local growing = {}   -- cell (key) -> seconds left
 local check = {}     -- cells whose support (or falling) to check
 local leaf_check = {} -- leaves to test for a nearby log
 local decaying = {}  -- leaves -> seconds until they fall
 local timer = 0
 
-local function key(x, y, z) return x .. "," .. y .. "," .. z end
+-- A cell as one integer (21 bits a coordinate, up to a million blocks out):
+-- no string or table to collect for each cell looked at.
+local SPAN = 1 << 21
+local HALF = SPAN >> 1
+local function key(x, y, z) return ((x + HALF) * SPAN + (y + HALF)) * SPAN + (z + HALF) end
 local function unkey(k)
-	local x, y, z = k:match("^(-?%d+),(-?%d+),(-?%d+)$")
-	return tonumber(x), tonumber(y), tonumber(z)
+	local z = k % SPAN - HALF
+	k = k // SPAN
+	return k // SPAN - HALF, k % SPAN - HALF, z
 end
 
 -- Block definitions, looked up once each (they don't change while playing).
@@ -52,6 +62,17 @@ local function is_log(id)
 		end
 	end
 	return logs[id] == true
+end
+
+-- Up to n keys taken out of a set.
+local function take(set, n)
+	local out = {}
+	for k in pairs(set) do
+		if #out >= n then break end
+		out[#out + 1] = k
+		set[k] = nil -- (clearing a field while going through is allowed)
+	end
+	return out
 end
 
 local function is_leaves(id) return id ~= nil and def(id).leaves == true end
@@ -119,9 +140,7 @@ end
 
 events.on("tick", function(dt)
 	-- Falling and support.
-	local cells = check
-	check = {}
-	for k in pairs(cells) do
+	for _, k in ipairs(take(check, MAX_CHECKS)) do
 		local x, y, z = unkey(k)
 		local id = world.get_block(x, y, z)
 		local d = def(id)
@@ -141,13 +160,12 @@ events.on("tick", function(dt)
 		end
 	end
 	-- Leaves far from any log start to decay.
-	for k in pairs(leaf_check) do
+	for _, k in ipairs(take(leaf_check, MAX_LEAF_CHECKS)) do
 		local x, y, z = unkey(k)
 		if is_leaves(world.get_block(x, y, z)) and not decaying[k] and not near_log(x, y, z) then
 			decaying[k] = 0.3 + 2.7 * game.random()
 		end
 	end
-	leaf_check = {}
 	for k, left in pairs(decaying) do
 		left = left - dt
 		if left > 0 then
@@ -195,7 +213,11 @@ game.set_rule("save_plants", function()
 		local x, y, z = unkey(k)
 		out[#out + 1] = {x, y, z, left}
 	end
-	table.sort(out, function(a, b) return key(a[1], a[2], a[3]) < key(b[1], b[2], b[3]) end)
+	table.sort(out, function(a, b)
+		if a[1] ~= b[1] then return a[1] < b[1] end
+		if a[2] ~= b[2] then return a[2] < b[2] end
+		return a[3] < b[3]
+	end)
 	return out
 end)
 

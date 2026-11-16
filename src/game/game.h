@@ -122,6 +122,9 @@ public:
 
 	float mine_seconds(const std::string &block, const std::string &tool);
 	std::vector<std::string> drops_of(const std::string &block, const std::string &tool);
+	// Right click with the selected item through the use_item rule (hoes,
+	// seeds); false if the rule did nothing.
+	bool use_item(const RayHit &hit);
 
 private:
 	void fill_creative();

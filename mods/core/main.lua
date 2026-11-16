@@ -17,6 +17,8 @@ require("rules.mining")
 require("rules.crafting")
 require("rules.health")
 require("rules.plants")
+require("rules.farming")
+require("rules.fluids")
 
 -- What a new survival player starts with: a torch, in hand.
 game.set_rule("starting_items", function()

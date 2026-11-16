@@ -246,6 +246,31 @@ void Game::break_block(const BlockPos &p, const std::string &tool) {
 	}
 }
 
+bool Game::use_item(const RayHit &hit) {
+	const std::string item = selected_item();
+	if (item.empty()) {
+		return false;
+	}
+	const std::optional<Json> r = mods_.rule("use_item", Json::array({item, hit.position.x, hit.position.y,
+			hit.position.z, hit.normal.x, hit.normal.y, hit.normal.z}));
+	if (!r || r->is_null()) {
+		return false;
+	}
+	if (r->is_object()) {
+		const int take = int(r->value("take", 0.0));
+		for (int i = 0; i < take && !creative_; i++) {
+			inventory_.take_one(selected_);
+		}
+		const Json placed = r->value("placed", Json());
+		if (placed.is_array() && placed.size() == 3 && placed[0].is_number() && placed[1].is_number()
+				&& placed[2].is_number()) {
+			const BlockPos p{int(placed[0].get<double>()), int(placed[1].get<double>()), int(placed[2].get<double>())};
+			mods_.block_placed(p, rules_.id_of(world_.block_at(p.x, p.y, p.z)));
+		}
+	}
+	return true;
+}
+
 void Game::update(float dt, const GameInput &in) {
 	if (!in.captured) {
 		mining_progress_ = 0;
@@ -313,6 +338,8 @@ void Game::update(float dt, const GameInput &in) {
 			health_ = std::min(MAX_HEALTH, health_ + food);
 			inventory_.take_one(selected_);
 		}
+	} else if (in.use_pressed && hit.hit && use_item(hit)) {
+		// (a hoe tilled, seeds were planted: the use_item rule did it)
 	} else if (in.use_pressed) {
 		// Placing (or using a door) with the selected item; survival uses it up.
 		std::vector<BlockChange> changes;
