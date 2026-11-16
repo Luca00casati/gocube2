@@ -10,7 +10,10 @@ From PowerShell outside it:
     Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
     Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
 
-then `cmake --preset windows`, `cmake --build --preset debug`, `ctest --preset debug`.
+then, once, `cmake -B build -G "Visual Studio 18 2026" -A x64`; to build and test,
+`cmake --build build --config Release` and
+`ctest --test-dir build -C Release --output-on-failure` (Debug builds are slow:
+Release unless asked).
 
 ## World generation must not change
 `tests/test_worldgen.cpp` checks the Godot version's fingerprints (seed 777 with
@@ -30,7 +33,7 @@ Every data file is a Lua data table (`return { ... }`): a mod's `mod.lua`, a
 world's `world.lua`, the base game's content (`mods/core/content/*.lua`, Lua
 registry calls). `src/data/lua_data.h` reads them in an empty Lua state with a
 step and memory limit (nothing in a data file can run) and writes them. Don't
-add JSON files (only `CMakePresets.json` remains: CMake reads only JSON); old `mod.json`/`world.json` are refused with a message.
+add JSON files (there are none); old `mod.json`/`world.json` are refused with a message.
 A Lua list can't hold nil: an empty slot is `false`, and the writer throws on
 a null in a list; an empty table reads back as an empty object. Godot worlds
 (JSON) aren't read. A world folder is `world.lua` plus `chunks\c.X.Y.Z.bin`

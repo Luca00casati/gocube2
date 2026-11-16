@@ -31,11 +31,11 @@ drivers are mature, and nothing a voxel game needs is missing from Direct3D 11.
 From a **Developer PowerShell for VS** (it puts CMake and `fxc` on the path), in
 this folder (the build is Visual Studio's own: MSBuild, `build\gocube.slnx`):
 
-    cmake --preset windows        # once
-    cmake --build --preset debug  # or: release
-    ctest --preset debug          # or: release
+    cmake -B build -G "Visual Studio 18 2026" -A x64      # once
+    cmake --build build --config Release                  # or: Debug
+    ctest --test-dir build -C Release --output-on-failure # or: Debug
 
-Or open the folder in Visual Studio, which reads `CMakePresets.json`.
+Or open `build\gocube.slnx` in Visual Studio (after the first command).
 The game is `build\Debug\gocube.exe` (`build\Release\gocube.exe`); it finds `mods\`
 in its folder or a folder above it.
 
