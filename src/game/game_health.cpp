@@ -35,6 +35,9 @@ void Game::damage(int amount, const std::string &source) {
 	since_damage_ = 0;
 	regen_timer_ = 0;
 	since_hurt_ = 0;
+	float eye[3];
+	player_.eye(eye);
+	play_sound("core:effects", "hurt", eye);
 	if (health_ == 0) {
 		dead_ = true;
 		std::fill(player_.velocity, player_.velocity + 3, 0.0f);
@@ -43,11 +46,15 @@ void Game::damage(int amount, const std::string &source) {
 
 void Game::after_move(float dt) {
 	const float y = player_.position[1];
+	// The block under the feet (footsteps sound like it).
+	const std::string below = rules_.id_of(
+			world_.block_at(floor_i(player_.position[0]), floor_i(y - 0.1f), floor_i(player_.position[2])));
 	// Falling: remember the highest point since leaving the ground.
 	if (player_.on_floor || player_.in_water || player_.flying || player_.on_ladder) {
 		if (player_.on_floor && !was_on_floor_ && !player_.in_water && !player_.flying && !player_.on_ladder) {
 			const float fall = fall_peak_ - y;
 			if (fall > 0.6f) {
+				play_block_sound(below, "step", player_.position); // landing
 				const std::optional<Json> r = mods_.rule("fall_damage", Json::array({fall}));
 				damage(r && r->is_number() ? int(r->get<double>()) : int(std::floor(std::max(0.0f, fall - 3.0f))));
 			}
@@ -57,6 +64,25 @@ void Game::after_move(float dt) {
 		fall_peak_ = std::max(fall_peak_, y);
 	}
 	was_on_floor_ = player_.on_floor;
+
+	// Into water fast: a splash. Walking: a footstep every STRIDE metres
+	// (sooner sneaking), in the sound of the block underfoot.
+	const float vy = std::min(player_.velocity[1], last_vy_);
+	if (player_.in_water && !was_in_water_ && vy < -4.0f) {
+		play_sound("core:effects", "splash", player_.position);
+	}
+	was_in_water_ = player_.in_water;
+	last_vy_ = player_.velocity[1];
+	if (feet_known_ && player_.on_floor && !player_.in_water) {
+		constexpr float STRIDE = 1.7f;
+		step_distance_ += std::hypot(player_.position[0] - last_feet_[0], player_.position[2] - last_feet_[2]);
+		if (step_distance_ >= STRIDE * (player_.sneaking ? 0.6f : 1.0f)) {
+			step_distance_ = 0;
+			play_block_sound(below, "step", player_.position, -6.0f);
+		}
+	}
+	std::copy(player_.position, player_.position + 3, last_feet_);
+	feet_known_ = true;
 
 	if (creative_ || dead_) {
 		return;

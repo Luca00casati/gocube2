@@ -833,3 +833,71 @@ TEST_CASE("fluids: a big flood stays within the mods' time limit") {
 	CHECK(p.mods.problems().empty());
 	CHECK(worst < 20.0); // (the limit per call: three calls stopped turn the core mod off)
 }
+
+namespace {
+
+int count_sounds(const std::vector<gc::SoundEvent> &sounds, const std::string &set, const std::string &kind) {
+	return int(std::count_if(sounds.begin(), sounds.end(), [&](const gc::SoundEvent &e) {
+		return e.set == set && e.kind == kind;
+	}));
+}
+
+} // namespace
+
+TEST_CASE("sounds: breaking and placing sound like the block, steps like the ground, pickups and hurts") {
+	Play p;
+	p.game->take_sounds();
+	// Breaking stone by hand: the stone set's break, at the block.
+	const BlockPos at{2, 60, 0};
+	REQUIRE(p.world->set_block(at, p.id("core:stone")));
+	p.player.position[0] = 0.5f;
+	p.player.position[1] = 59.0f;
+	p.player.position[2] = 0.5f;
+	p.player.flying = true;
+	p.game->break_block(at, "");
+	auto sounds = p.game->take_sounds();
+	REQUIRE(count_sounds(sounds, "core:stone", "break") == 1);
+	CHECK(sounds[0].at[0] == doctest::Approx(2.5f));
+	// Hurt: the effects' hurt.
+	p.game->damage(2);
+	CHECK(count_sounds(p.game->take_sounds(), "core:effects", "hurt") == 1);
+
+	// Walking 10 blocks on grass: a footstep every 1.7 m (the Godot version's stride).
+	pool(p, "core:air");
+	for (int x = -1; x <= 3; x++) {
+		for (int z = -12; z <= 3; z++) {
+			REQUIRE(p.world->set_block({x, 39, z}, p.id("core:grass")));
+			for (int y = 40; y <= 43; y++) {
+				REQUIRE(p.world->set_block({x, y, z}, 0));
+			}
+		}
+	}
+	p.player.flying = false;
+	p.player.position[0] = 1.5f;
+	p.player.position[1] = 40.0f;
+	p.player.position[2] = 1.5f;
+	p.player.yaw = 0; // towards -z
+	gc::PlayerInput walk;
+	for (int i = 0; i < 30; i++) { // settle on the floor
+		p.player.step({}, *p.world, *p.rules);
+		p.game->after_move(gc::Player::STEP);
+	}
+	p.game->take_sounds();
+	walk.forward = 1;
+	const float start = p.player.position[2];
+	while (start - p.player.position[2] < 10.0f) {
+		p.player.step(walk, *p.world, *p.rules);
+		p.game->after_move(gc::Player::STEP);
+	}
+	const int steps = count_sounds(p.game->take_sounds(), "core:grass", "step");
+	CHECK(steps >= 5);
+	CHECK(steps <= 6);
+
+	// Picking up a drop.
+	const float near[3] = {p.player.position[0], p.player.position[1] + 0.5f, p.player.position[2]};
+	p.game->drop_item("core:dirt", 1, near);
+	for (int i = 0; i < 120; i++) {
+		p.game->physics_step(1.0f / 60.0f);
+	}
+	CHECK(count_sounds(p.game->take_sounds(), "core:effects", "pickup") == 1);
+}

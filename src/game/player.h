@@ -38,6 +38,7 @@ public:
 	float yaw = 0, pitch = 0;      // radians: yaw 0 looks towards -z, positive turns left; pitch up
 	bool flying = false;
 	bool on_floor = false, in_water = false, on_ladder = false;
+	bool sneaking = false; // in the last step (shorter footsteps)
 
 	// One physics step (STEP seconds).
 	void step(const PlayerInput &input, const World &world, const BlockRules &rules);
@@ -52,7 +53,7 @@ public:
 	// Right click: opens or closes a door aimed at (unless sneaking), else
 	// places `block` against the face aimed at. False if nothing happened.
 	// What was placed is added to `changes` if given.
-	bool use_or_place(World &world, const BlockRules &rules, const std::string &block, bool sneaking,
+	bool use_or_place(World &world, const BlockRules &rules, const std::string &block, bool sneak,
 			std::vector<BlockChange> *changes = nullptr) const;
 	// Whether a player standing with feet at `feet` overlaps the block `cell`.
 	static bool overlaps_block(const float feet[3], const BlockPos &cell);

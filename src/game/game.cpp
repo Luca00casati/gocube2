@@ -221,6 +221,26 @@ std::vector<std::string> Game::drops_of(const std::string &block, const std::str
 	return out;
 }
 
+void Game::play_sound(const std::string &set, const std::string &kind, const float at[3], float volume_db) {
+	SoundEvent e;
+	e.set = set;
+	e.kind = kind;
+	std::copy(at, at + 3, e.at);
+	e.volume_db = volume_db;
+	sounds_.push_back(std::move(e));
+}
+
+void Game::play_block_sound(const std::string &block, const std::string &kind, const float at[3], float volume_db) {
+	const int index = content_.block_index(block);
+	if (index < 0) {
+		return;
+	}
+	const Json &def = rules_.def(gocube::BlockId(index));
+	if (auto it = def.find("sound"); it != def.end() && it->is_string()) {
+		play_sound(it->get<std::string>(), kind, at, volume_db);
+	}
+}
+
 void Game::break_block(const BlockPos &p, const std::string &tool) {
 	const std::string broken = rules_.id_of(world_.block_at(p.x, p.y, p.z));
 	if (broken.empty() || broken == "core:air" || rules_.is_fluid(world_.block_at(p.x, p.y, p.z))) {
@@ -244,6 +264,8 @@ void Game::break_block(const BlockPos &p, const std::string &tool) {
 	for (const BlockChange &c : changes) {
 		mods_.block_broken(c.pos, c.id);
 	}
+	const float center[3] = {p.x + 0.5f, p.y + 0.5f, p.z + 0.5f};
+	play_block_sound(broken, "break", center);
 	swings_++;
 }
 
@@ -266,7 +288,10 @@ bool Game::use_item(const RayHit &hit) {
 		if (placed.is_array() && placed.size() == 3 && placed[0].is_number() && placed[1].is_number()
 				&& placed[2].is_number()) {
 			const BlockPos p{int(placed[0].get<double>()), int(placed[1].get<double>()), int(placed[2].get<double>())};
-			mods_.block_placed(p, rules_.id_of(world_.block_at(p.x, p.y, p.z)));
+			const std::string id = rules_.id_of(world_.block_at(p.x, p.y, p.z));
+			mods_.block_placed(p, id);
+			const float center[3] = {p.x + 0.5f, p.y + 0.5f, p.z + 0.5f};
+			play_block_sound(id, "place", center);
 		}
 	}
 	return true;
@@ -342,6 +367,9 @@ void Game::update(float dt, const GameInput &in) {
 			health_ = std::min(MAX_HEALTH, health_ + food);
 			inventory_.take_one(selected_);
 			swings_++;
+			float eye[3];
+			player_.eye(eye);
+			play_sound("core:effects", "pickup", eye, -4.0f); // (eating)
 		}
 	} else if (in.use_pressed && hit.hit && use_item(hit)) {
 		swings_++; // (a hoe tilled, seeds were planted: the use_item rule did it)
@@ -351,6 +379,11 @@ void Game::update(float dt, const GameInput &in) {
 		const std::string item = selected_item();
 		if (player_.use_or_place(world_, rules_, item, in.sneak, &changes)) {
 			swings_++;
+			// A door opened or closed sounds like the door; a placed block like itself.
+			const std::string id = changes.empty() ? rules_.id_of(hit.block) : changes.front().id;
+			const BlockPos at = changes.empty() ? hit.position : changes.front().pos;
+			const float center[3] = {at.x + 0.5f, at.y + 0.5f, at.z + 0.5f};
+			play_block_sound(id, "place", center);
 		}
 		const bool placed = std::any_of(changes.begin(), changes.end(), [](const BlockChange &c) { return c.placed; });
 		if (placed && !creative_) {
@@ -390,7 +423,11 @@ void Game::tick(double dt) {
 }
 
 void Game::physics_step(float dt) {
-	drops_.step(dt, world_, player_.position, true, inventory_);
+	if (!drops_.step(dt, world_, player_.position, true, inventory_).empty()) {
+		float eye[3];
+		player_.eye(eye);
+		play_sound("core:effects", "pickup", eye, -8.0f);
+	}
 }
 
 } // namespace gc

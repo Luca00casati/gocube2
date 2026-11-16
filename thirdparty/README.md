@@ -10,6 +10,7 @@ Only the files the build needs were copied, unchanged, with each project's licen
 | `imgui/` | [Dear ImGui](https://github.com/ocornut/imgui), with the Win32 and DX11 backends | 1.93.0 | tag `v1.93.0` | MIT (`LICENSE.txt`) |
 | `libpng/` | [libpng](https://github.com/pnggroup/libpng) (textures, screenshots) | 1.6.59 | tag `v1.6.59`; `pnglibconf.h` is its `scripts/pnglibconf.h.prebuilt` | libpng (`LICENSE`) |
 | `zlib/` | [zlib](https://github.com/madler/zlib) (for libpng) | 1.3.2 | tag `v1.3.2`, without the gz* file functions | zlib (`LICENSE`) |
+| `miniaudio/` | [miniaudio](https://github.com/mackron/miniaudio) (sound) | 0.11.26 | tag `0.11.26`: `miniaudio.h`, `miniaudio.c` (built with WAV decoding only) | MIT-0 or public domain (`LICENSE`) |
 | `nlohmann_json/` | [nlohmann/json](https://github.com/nlohmann/json) (the game's in-memory data values; no JSON files are read or written) | 3.12.0 | tag `v3.12.0`, `single_include/` | MIT (`LICENSE.MIT`) |
 | `doctest/` | [doctest](https://github.com/doctest/doctest) (tests only) | 2.5.3 | tag `v2.5.3` | MIT (`LICENSE.txt`) |
 

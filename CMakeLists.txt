@@ -39,6 +39,11 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC thirdparty/imgui thirdparty/imgui/backends)
 target_compile_options(imgui PRIVATE /W0 /MP)
 
+add_library(miniaudio STATIC thirdparty/miniaudio/miniaudio.c)
+target_include_directories(miniaudio PUBLIC thirdparty/miniaudio)
+target_compile_definitions(miniaudio PUBLIC MA_NO_MP3 MA_NO_FLAC MA_NO_ENCODING MA_NO_GENERATION) # (WAV only)
+target_compile_options(miniaudio PRIVATE /W0)
+
 add_library(nlohmann_json INTERFACE)
 target_include_directories(nlohmann_json INTERFACE thirdparty/nlohmann_json)
 add_library(doctest INTERFACE)
@@ -138,6 +143,8 @@ add_shader(shaders/blit.hlsl ps_main ps_5_0 blit_ps)
 add_executable(gocube
 	src/main.cpp
 	src/log.h
+	src/audio/audio.cpp
+	src/audio/audio.h
 	src/platform/window.cpp
 	src/platform/window.h
 	src/render/chunk_renderer.cpp
@@ -156,7 +163,7 @@ add_executable(gocube
 set_source_files_properties(shaders/chunk.hlsl shaders/lines.hlsl shaders/sky.hlsl shaders/items.hlsl shaders/blit.hlsl
 	PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
 target_include_directories(gocube PRIVATE ${SHADER_DIR})
-target_link_libraries(gocube PRIVATE gocube_core imgui png d3d11 dxgi dxguid shell32 ole32)
+target_link_libraries(gocube PRIVATE gocube_core imgui png miniaudio d3d11 dxgi dxguid shell32 ole32)
 target_compile_definitions(gocube PRIVATE
 	GOCUBE_VERSION="${PROJECT_VERSION}"
 	$<$<CONFIG:Debug>:GOCUBE_DEBUG>

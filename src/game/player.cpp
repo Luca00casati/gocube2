@@ -43,6 +43,7 @@ void Player::look(float out[3]) const {
 
 void Player::step(const PlayerInput &in, const World &world, const BlockRules &rules) {
 	const float dt = STEP;
+	sneaking = in.sneak;
 	// The wish direction from the input, turned by yaw only (looking down doesn't slow you).
 	float ix = in.right, iz = -in.forward;
 	const float il = std::sqrt(ix * ix + iz * iz);
@@ -171,14 +172,14 @@ bool Player::overlaps_block(const float feet[3], const BlockPos &cell) {
 	return true;
 }
 
-bool Player::use_or_place(World &world, const BlockRules &rules, const std::string &block, bool sneaking,
+bool Player::use_or_place(World &world, const BlockRules &rules, const std::string &block, bool sneak,
 		std::vector<BlockChange> *changes) const {
 	RayHit hit = target(world);
 	if (!hit.hit) {
 		return false;
 	}
 	// Doors open and close (sneak to place against them instead).
-	if (!sneaking) {
+	if (!sneak) {
 		const auto toggle = rules.toggle_door(rules.id_of(hit.block), hit.position);
 		if (!toggle.empty()) {
 			for (const auto &[cell, id] : toggle) {

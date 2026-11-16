@@ -87,6 +87,7 @@ when you quit.
 | `--frames=N` | Quit after N frames; exit code 1 if the debug layer reported errors or warnings |
 | `--screenshot=FILE` | Save the last frame as a PNG (frames are counted once the world around has loaded) |
 | `--render-scale=F` | Draw the world at this part of the window's resolution (0.25 to 1; stretched over it) |
+| `--no-sound` | Play without sound (`--hidden` never plays any) |
 | `--no-vsync` | Present as fast as possible |
 | `--debug`, `--no-debug` | Force the Direct3D 11 debug layer on or off (default: on in debug builds) |
 
@@ -146,4 +147,5 @@ statically (versions and licences: `thirdparty/README.md`):
 [libpng](https://github.com/pnggroup/libpng) 1.6.59 (libpng licence) with
 [zlib](https://github.com/madler/zlib) 1.3.2 (zlib licence),
 [nlohmann/json](https://github.com/nlohmann/json) 3.12.0 (MIT; in-memory values only),
+[miniaudio](https://github.com/mackron/miniaudio) 0.11.26 (MIT-0 or public domain),
 [doctest](https://github.com/doctest/doctest) 2.5.3 (MIT, tests only).

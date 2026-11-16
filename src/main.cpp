@@ -32,10 +32,13 @@
 //   --render-scale=F draw the world at this part of the window's resolution
 //                    (0.25..1, stretched over it; the Godot version offers
 //                    1, 0.85, 0.75 and 0.5)
+//   --no-sound       play without sound (--hidden always does)
+//   --sound          with --hidden: sound running but at volume 0 (tests)
 //   --no-vsync       present as fast as possible
 //   --debug / --no-debug   force the Direct3D 11 debug layer on or off
 //                    (default: on in debug builds)
 
+#include "audio/audio.h"
 #include "content/content.h"
 #include "data/lua_data.h"
 #include "game/blocks.h"
@@ -78,6 +81,8 @@ namespace {
 struct Options {
 	gc::RendererOptions renderer;
 	bool hidden = false;
+	bool no_sound = false;
+	bool sound = false;
 	long frames = 0; // 0: until the window is closed
 	std::string screenshot;
 	std::string world_name;
@@ -159,6 +164,10 @@ Options parse(int argc, char **argv) {
 			o.has_pos = sscanf_s(v, "%f,%f,%f", &o.pos[0], &o.pos[1], &o.pos[2]) == 3;
 		} else if ((v = value("--look="))) {
 			o.has_look = sscanf_s(v, "%f,%f", &o.look[0], &o.look[1]) == 2;
+		} else if (!strcmp(a, "--no-sound")) {
+			o.no_sound = true;
+		} else if (!strcmp(a, "--sound")) {
+			o.sound = true;
 		} else if (!strcmp(a, "--no-vsync")) {
 			o.renderer.vsync = false;
 		} else if (!strcmp(a, "--debug")) {
@@ -812,6 +821,10 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 	gc::Camera camera;
 	camera.far_z = float(options.view) * 2.0f;
 	gc::ItemModels item_models(content, table);
+	gc::Audio audio; // (silent in tests: --hidden)
+	if (!options.no_sound && (!options.hidden || options.sound)) {
+		audio.init(content, options.hidden ? 0.0f : 1.0f);
+	}
 	gc::Hand hand;
 	gc::HandLights hand_lights;
 	int seen_swings = game.swings();
@@ -1013,6 +1026,22 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		const float eye[3] = {camera.position.x, camera.position.y, camera.position.z};
 		const bool hand_light_changed = hand_lights.update(*world, held_lights, eye);
 
+		// Sounds: heard from the camera; muffled with the head in a fluid, which
+		// also tints the view (blue in water, orange in lava).
+		const gc::Json &eye_block = rules.def(world->block_at(int(std::floor(eye[0])), int(std::floor(eye[1])),
+				int(std::floor(eye[2]))));
+		const bool in_fluid = eye_block.contains("fluid");
+		const bool in_lava = in_fluid && eye_block.value("fluid", "") == "lava";
+		const DirectX::XMFLOAT3 facing = camera.forward();
+		const float forward[3] = {facing.x, facing.y, facing.z};
+		audio.set_listener(eye, forward);
+		for (const gc::SoundEvent &e : game.take_sounds()) {
+			audio.play(e.set, e.kind, e.at, e.volume_db);
+		}
+		audio.update_ambience(day.day_amount());
+		audio.set_underwater(in_fluid);
+		audio.update();
+
 		world->set_sun_angle(day.angle()); // (shadows follow it in steps)
 		world->update(player.position[0], player.position[1], player.position[2]);
 		for (const gc::ChunkPos &p : world->take_unloaded()) {
@@ -1059,6 +1088,10 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 				default:
 					break;
 			}
+		}
+		if (in_fluid) { // (under the HUD)
+			ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize,
+					in_lava ? IM_COL32(230, 89, 13, 191) : IM_COL32(26, 77, 140, 115));
 		}
 		draw_hud(game, table, chunks, rules, captured);
 		if (sleeping >= 0) {

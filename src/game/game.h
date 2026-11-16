@@ -28,6 +28,14 @@ struct Recipe {
 	int count = 1;
 };
 
+// A sound to play (the Godot version's Sounds.play): sound set ("core:grass"),
+// kind ("step", "break", "place", "hurt"...), where, and how loud.
+struct SoundEvent {
+	std::string set, kind;
+	float at[3] = {0, 0, 0};
+	float volume_db = 0;
+};
+
 struct GameInput {
 	bool captured = false;    // playing (not in a menu, mouse held by the game)
 	bool break_held = false;  // left button down
@@ -62,6 +70,13 @@ public:
 	std::optional<BlockPos> take_opened() { return std::exchange(opened_, std::nullopt); }
 	// A bed the player right-clicked this frame (sleeping is the caller's: it knows the time).
 	bool take_bed_used() { return std::exchange(bed_used_, false); }
+	// The sounds the game made since the last call (footsteps, breaking,
+	// placing, splashes, pickups, getting hurt), for the audio to play.
+	std::vector<SoundEvent> take_sounds() { return std::exchange(sounds_, {}); }
+	// A sound set's sound (as the Godot version: e.g. "core:effects", "splash").
+	void play_sound(const std::string &set, const std::string &kind, const float at[3], float volume_db = 0);
+	// A block's sound of `kind` ("step", "break", "place"), from its "sound".
+	void play_block_sound(const std::string &block, const std::string &kind, const float at[3], float volume_db = 0);
 
 	// A brand-new player: survival gets the starting items, creative the
 	// placeable blocks.
@@ -166,6 +181,12 @@ private:
 	BlockPos mining_target_{1 << 30, 0, 0};
 	float mining_progress_ = 0;
 	int swings_ = 0;
+	std::vector<SoundEvent> sounds_;
+	float step_distance_ = 0;       // walked since the last footstep
+	float last_feet_[3] = {0, 0, 0};
+	bool feet_known_ = false;
+	bool was_in_water_ = false;
+	float last_vy_ = 0;
 	float mining_seconds_ = 1;
 };
 
