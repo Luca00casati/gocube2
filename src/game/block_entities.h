@@ -2,9 +2,8 @@
 // Data attached to some blocks: chests (27 slots) and furnaces (input, fuel,
 // output; burning and smelting). A block gets one when it appears, if its
 // definition has "block_entity": "chest" or "furnace"; when it goes, its
-// contents spill. Saved in world.json's "block_entities" in the Godot
-// version's format:
-//   {"x,y,z": {"type", "slots": [[id, count] or null, ...], "burn", "burn_total", "progress"}}
+// contents spill. Saved in world.lua's block_entities:
+//   {["x,y,z"] = {type, slots = {{id, count} or false, ...}, burn, burn_total, progress}}
 // Furnaces ask the mods' smelting and fuel_seconds rules.
 
 #include "content/content.h"

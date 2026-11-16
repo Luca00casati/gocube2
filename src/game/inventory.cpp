@@ -150,7 +150,7 @@ Stack Inventory::close_cursor() {
 Json Inventory::serialize() const {
 	Json out = Json::array();
 	for (const Stack &s : slots) {
-		out.push_back(s.empty() ? Json(nullptr) : Json::array({s.id, s.count}));
+		out.push_back(s.empty() ? Json(false) : Json::array({s.id, s.count}));
 	}
 	Json worn = Json::array();
 	for (const Stack &s : armor) {

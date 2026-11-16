@@ -1,7 +1,0 @@
-{
-  "id": "core",
-  "name": "GoCube Base Game",
-  "version": "0.1.0",
-  "entry": "main.lua",
-  "api_version": 1
-}

@@ -2,6 +2,7 @@
 // reach, bytecode), undoing a failing mod, events, determinism and fingerprints.
 
 #include "content/content.h"
+#include "data/lua_data.h"
 #include "helpers.h"
 #include "game/blocks.h"
 #include "mods/mods.h"
@@ -34,7 +35,7 @@ void write(const fs::path &p, const std::string &text) {
 	std::ofstream(p, std::ios::binary | std::ios::trunc) << text;
 }
 
-// A mod folder `id` in `root` with main.lua (unless empty) and these extra mod.json fields.
+// A mod folder `id` in `root` with main.lua (unless empty) and these extra mod.lua fields.
 void make_mod(const fs::path &root, const std::string &id, const std::string &main_lua, Json extra = Json::object()) {
 	Json m = {{"id", id}, {"version", "1.0"}};
 	if (!main_lua.empty()) {
@@ -44,7 +45,7 @@ void make_mod(const fs::path &root, const std::string &id, const std::string &ma
 	for (const auto &[k, v] : extra.items()) {
 		m[k] = v;
 	}
-	write(root / id / "mod.json", m.dump(1, '\t'));
+	write(root / id / "mod.lua", gc::write_lua_data(m));
 }
 
 // Loads the base game and the mods in `root`.
@@ -254,35 +255,45 @@ registry.register_block('walk', {order = table.concat(order, ','), data = t})
 	}
 }
 
-TEST_CASE("broken mod.json files and newer mods are skipped") {
+TEST_CASE("broken mod.lua files and newer mods are skipped") {
 	const fs::path root = test_dir("manifests");
-	write(root / "badid" / "mod.json", R"({"id": "Bad Id"})");
-	write(root / "badjson" / "mod.json", "{ nope");
+	write(root / "badid" / "mod.lua", R"(return {id = "Bad Id"})");
+	write(root / "badlua" / "mod.lua", "return { nope");
+	// A manifest is data: nothing in it can run (there's nothing to call).
+	write(root / "runs" / "mod.lua", R"(os.exit(1) return {id = "runs"})");
+	write(root / "spins" / "mod.lua", R"(while true do end)");
+	write(root / "oldjson" / "mod.json", R"({"id": "oldjson"})");
 	make_mod(root, "future", "", {{"api_version", 2}});
 	make_mod(root, "noentry", "", {{"entry", "missing.lua"}});
 	make_mod(root, "escape", "", {{"entry", "../core/main.lua"}});
 	make_mod(root, "jsoncontent", "", {{"content", {"content/blocks.json"}}});
 	Loaded l(root, quick());
 	CHECK(l.problem("badid").find("\"id\"") != std::string::npos);
-	CHECK(l.problem("badjson").find("JSON") != std::string::npos);
+	CHECK(l.problem("badlua").find("can't be read") != std::string::npos);
+	CHECK(l.problem("runs").find("can't be read") != std::string::npos);
+	CHECK(l.problem("spins").find("too long") != std::string::npos);
+	CHECK(l.problem("oldjson").find("mod.lua now") != std::string::npos);
 	CHECK(l.problem("future").find("newer game") != std::string::npos);
 	CHECK(l.problem("noentry").find("doesn't exist") != std::string::npos);
 	CHECK(l.problem("escape").find("inside the mod") != std::string::npos);
-	// Content comes from Lua only: a mod still listing JSON content files is told so.
+	// Content comes from Lua only: a mod still listing content files is told so.
 	CHECK(l.problem("jsoncontent").find("from Lua") != std::string::npos);
 	CHECK(l.loaded("core"));
 }
 
-TEST_CASE("fingerprints are the Godot version's (same files, same fingerprint)") {
-	// The value the Godot version's ModLoader.fingerprint gives for this folder.
-	CHECK(gc::mod_fingerprint(fs::path(GOCUBE_SOURCE_DIR) / "tests" / "data" / "fingerprint_mod") == "79a49e7e89e7");
+TEST_CASE("fingerprints: the Godot version's algorithm (same files, same fingerprint)") {
+	// SHA-256 over the sorted relative paths (dot-names left out), each followed
+	// by a 0 byte and the file's bytes; the first 12 hex digits. The value was
+	// worked out separately (Python's hashlib) for this folder.
+	const char *const EXPECTED = "fb9aa5253cc6";
+	CHECK(gc::mod_fingerprint(fs::path(GOCUBE_SOURCE_DIR) / "tests" / "data" / "fingerprint_mod") == EXPECTED);
 	const fs::path copy = test_dir("fingerprint") / "copy";
 	fs::copy(fs::path(GOCUBE_SOURCE_DIR) / "tests" / "data" / "fingerprint_mod", copy, fs::copy_options::recursive);
-	CHECK(gc::mod_fingerprint(copy) == "79a49e7e89e7");
+	CHECK(gc::mod_fingerprint(copy) == EXPECTED);
 	write(copy / ".another_hidden", "dot-names don't count");
-	CHECK(gc::mod_fingerprint(copy) == "79a49e7e89e7");
+	CHECK(gc::mod_fingerprint(copy) == EXPECTED);
 	write(copy / "textures" / "a.bin", "changed");
-	CHECK(gc::mod_fingerprint(copy) != "79a49e7e89e7");
+	CHECK(gc::mod_fingerprint(copy) != EXPECTED);
 }
 
 TEST_CASE("event handlers see the world: block_placed and block_broken, get_block and set_block") {

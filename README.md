@@ -8,9 +8,10 @@ Status: milestone 6. Survival: mining, drops, crafting, chests and furnaces,
 health, the day and night, growing plants, farming, flowing water and lava; creative; a title menu and pause menu.
 It looks like the Godot version: its sky, fog, block and cloud shadows, light
 from torches (placed and held), dropped items and the first-person arm.
-Worlds are saved in the Godot version's format (worlds it saved open here, and the
-other way round) and generated exactly as it does. The rules of the game are the
-base game's Lua (`mods/core`), sandboxed like every mod.
+Worlds are generated exactly as the Godot version does. The rules of the game
+and its content are the base game's Lua (`mods/core`), sandboxed like every mod;
+every data file (a mod's manifest, a world's `world.lua`) is a Lua data table,
+not JSON. (So worlds the Godot version saved, as JSON, don't open here.)
 
 ## Requirements
 - Windows 10 or 11, x64
@@ -38,11 +39,11 @@ in its folder or a folder above it.
 
 ## Playing
 Run `gocube` for the title menu: your worlds (play, delete to the Recycle Bin),
-worlds the Godot version saved (in its own folder), and a new world (name, seed,
+and a new world (name, seed,
 survival or creative). Or straight into a world:
 
     gocube --world=MyWorld                # %APPDATA%\GoCube\worlds\MyWorld (made if new)
-    gocube --world-dir="%APPDATA%\Godot\app_userdata\GoCube\worlds\MyWorld"   # a Godot version world
+    gocube --world-dir="D:\Worlds\MyWorld"   # a world in any folder
 
 | Key | |
 | --- | --- |
@@ -70,7 +71,7 @@ when you quit.
 | --- | --- |
 | `--mode=survival\|creative` | Mode for a new world (default survival) |
 | `--world=NAME` | Play the world NAME in `%APPDATA%\GoCube\worlds` (a new one is made if needed) |
-| `--world-dir=DIR` | Play the world in this folder (for example one the Godot version saved) |
+| `--world-dir=DIR` | Play the world in this folder |
 | `--seed=N` | Seed for a new world (default 777) |
 | `--generator=N` | World generator version for an unsaved world: 1 (before biomes), 2, 3 (default, the newest) |
 | `--view=N` | View distance in blocks (default 128) |
@@ -88,10 +89,13 @@ when you quit.
 | `--debug`, `--no-debug` | Force the Direct3D 11 debug layer on or off (default: on in debug builds) |
 
 ## Mods
-A mod is a folder with `mod.json` and a `main.lua`; the game loads `mods/` next
+A mod is a folder with `mod.lua` (its manifest) and a `main.lua`; the game loads `mods/` next
 to it (the base game first) and `%APPDATA%/GoCube/mods`. Everything a mod adds
 is Lua: content too (`registry.register_block("ruby_ore", {...})`); there are no
-JSON content files. `src/mods/mods.h` describes the format and the Lua API
+JSON files. A manifest is a data table:
+
+    return {id = "mymod", name = "My Mod", version = "1.0", entry = "main.lua"}
+ `src/mods/mods.h` describes the format and the Lua API
 (`registry`, `events`, `world`, `game`). The base game is the example: its
 `content/` registers its blocks, items, recipes, ores, trees, biome and sounds,
 and its `main.lua` and `rules/` set the game's rules (mining time, drops, crafting,
@@ -116,7 +120,7 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 - `src/content/`: the content mods register, block ids, the block table, the texture
   atlas, item models and the generator's tables, as the Godot version builds them.
 - `src/world/`: chunk streaming on worker threads, editing, the raycast, collision;
-  the world folder (`world.json`, `chunks\`).
+  the world folder (`world.lua`, `chunks\`).
 - `src/game/`: the player (movement, breaking, placing) and the block rules
   (shaped blocks' variants, doors, beds, support).
 - `src/mods/`: finding, ordering and loading mods; the Lua sandbox and API;
@@ -129,9 +133,7 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 - `tests/`: doctest unit tests: the generation fingerprints, player movement and
   editing, saving, mods (the sandbox, undoing, events, fingerprints), survival,
   and what rendering works out on the CPU (item models, held light, block
-  shadows). `tests/data/godot_world` is a world the Godot version saved
-  (made by `tests/data/make_godot_world.gd`; `check_godot_opens.gd` checks the other
-  way round); `tests/data/godot_screenshot.gd` takes the Godot version's side of a
+  shadows). `tests/data/godot_screenshot.gd` takes the Godot version's side of a
   screenshot comparison.
 
 ## Dependencies

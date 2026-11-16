@@ -1,11 +1,13 @@
 #pragma once
-// A world's folder, as the Godot version keeps it:
-//   world.json   seed, generator version, game mode, the block id table, the
-//                player and everything else the game keeps (block entities,
-//                growing plants...)
-//   chunks/      one file per edited chunk (unedited chunks are generated again)
-// Fields this version doesn't use yet are kept as they are, so a world opened
-// here and saved loses nothing.
+// A world's folder:
+//   world.lua    a Lua data table (data/lua_data.h): seed, generator version,
+//                game mode, the block id table, the player and everything else
+//                the game keeps (block entities, growing plants...)
+//   chunks/      one file per edited chunk (unedited chunks are generated again;
+//                the Godot version's chunk file format)
+// Fields this version doesn't use are kept as they are, so a world opened and
+// saved loses nothing. Worlds saved as world.json (the Godot version's) aren't
+// read.
 
 #include "content/content.h"
 
@@ -17,11 +19,11 @@ namespace gc {
 
 class WorldSave {
 public:
-	static constexpr int FORMAT_VERSION = 2; // 2 = native engine (chunks/)
+	static constexpr int FORMAT_VERSION = 3; // 3: world.lua (2 was world.json)
 
-	// Opens (or, if it has no world.json, starts) the world in `dir`. New
+	// Opens (or, if it has no world.lua, starts) the world in `dir`. New
 	// worlds get `new_seed` and the newest generator. "" or why it can't be
-	// opened (a damaged world.json, or one from a newer version).
+	// opened (a damaged world.lua, one from a newer version, a world.json).
 	std::string open(const std::filesystem::path &dir, uint32_t new_seed, const std::string &new_mode = "creative");
 
 	const std::filesystem::path &dir() const { return dir_; }
@@ -38,11 +40,11 @@ public:
 
 	// The saved player ("position" is the feet; "rotation" is [pitch, yaw]), or an empty object.
 	const Json &player() const;
-	// Another field of world.json (null if it has none), and setting one
+	// Another field of world.lua (null if it has none), and setting one
 	// (written with the next save): "block_entities", "plants", "time"...
 	const Json &field(const std::string &key) const;
 	void set_field(const std::string &key, const Json &value) { meta_[key] = value; }
-	// Writes world.json (atomically); `player` replaces the saved player's
+	// Writes world.lua (atomically); `player` replaces the saved player's
 	// fields it has, keeping the others (inventory, health...).
 	bool save(const Json &player = Json::object());
 

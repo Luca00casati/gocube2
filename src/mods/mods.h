@@ -2,16 +2,19 @@
 // Mods: found in folders, loaded in dependency order (the base game, "core",
 // first), each with a Lua entry script, run in a sandbox. Content (blocks,
 // items, recipes, ...) is registered from Lua; there are no data-only content
-// files (a mod.json listing "content" files is refused, saying so).
+// files.
 //
-// A mod is a folder with mod.json:
-//   {
-//     "id": "mymod",                       required, a-z 0-9 _
-//     "name": "My Mod", "version": "1.0.0",
-//     "dependencies": ["othermod"],        "core" is implicit
-//     "entry": "main.lua",                 code (optional), see below
-//     "api_version": 1                     the modding API it was written for
+// A mod is a folder with mod.lua, its manifest: a Lua data table, read in an
+// empty Lua state (data/lua_data.h: nothing in it can run):
+//   return {
+//     id = "mymod",                        required, a-z 0-9 _
+//     name = "My Mod", version = "1.0.0",
+//     dependencies = {"othermod"},         "core" is implicit
+//     entry = "main.lua",                  code (optional), see below
+//     api_version = 1,                     the modding API it was written for
 //   }
+// (A folder with an old mod.json, or a manifest listing "content" files, is
+// refused with a message saying what changed.)
 //
 // The entry script runs once at load, in the mod's own environment: Lua's
 // string (without dump), table, math (without random) and utf8 libraries,
@@ -112,7 +115,7 @@ public:
 	void block_broken(const BlockPos &p, const std::string &id);
 
 	// Asks rule `name` (set by a mod with game.set_rule), with these arguments
-	// (a JSON array); its first result, or nothing if no mod set it, it failed
+	// (a list); its first result, or nothing if no mod set it, it failed
 	// or ran too long (the caller then uses its own default). Rules:
 	//   mine_seconds(block, tool) -> seconds to break block holding tool ("" = hand)
 	//   drops(block, tool) -> {item ids} breaking it gives (one each)
@@ -122,7 +125,7 @@ public:
 	//   fuel_seconds(item) -> seconds it burns in a furnace
 	//   fall_damage(blocks) -> health a fall of that many blocks takes
 	//   food(item) -> health eating it gives (0: not food)
-	//   save_plants() -> data for world.json's "plants"; load_plants(data)
+	//   save_plants() -> data for world.lua's "plants"; load_plants(data)
 	//   use_item(item, x, y, z, nx, ny, nz) -> right click with item on that block's
 	//     side (nx, ny, nz): nil if nothing was done (the item is placed), else
 	//     {take = how many to use up, placed = {x, y, z} of a block put down}

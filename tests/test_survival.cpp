@@ -85,17 +85,18 @@ TEST_CASE("inventory: stacks, limits, removing, mouse moves") {
 	CHECK_FALSE(inv.can_fit("core:glass"));
 }
 
-TEST_CASE("inventory: the Godot version's save format, both ways") {
+TEST_CASE("inventory: its save format, both ways (false for an empty slot)") {
 	gc::Content content;
 	gc::Mods mods(content);
 	mods.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"});
-	// As the Godot version's Inventory.serialize writes it.
+	// As Inventory.serialize writes it (the Godot version's layout, with false
+	// for an empty slot: a Lua list can't hold nil).
 	Json saved = Json::array();
 	saved.push_back(Json::array({"core:torch", 5}));
-	saved.push_back(nullptr);
+	saved.push_back(false);
 	saved.push_back(Json::array({"gone:item", 3})); // its mod isn't here: dropped
 	for (int i = 3; i < 36; i++) {
-		saved.push_back(nullptr);
+		saved.push_back(false);
 	}
 	saved.push_back({{"armor", {"core:iron_helmet", "", "", ""}}});
 	gc::Inventory inv(content);
@@ -106,7 +107,7 @@ TEST_CASE("inventory: the Godot version's save format, both ways") {
 	const Json again = inv.serialize();
 	CHECK(again.size() == 37);
 	CHECK(again[0] == Json::array({"core:torch", 5}));
-	CHECK(again[2].is_null());
+	CHECK(again[2] == false);
 	CHECK(again[36]["armor"][0] == "core:iron_helmet");
 }
 
@@ -281,7 +282,7 @@ TEST_CASE("crafting into a full inventory changes nothing") {
 	CHECK(inv.slots == before.slots);
 }
 
-TEST_CASE("a chest: made with its block, holds items, saved in the Godot format, spills when broken") {
+TEST_CASE("a chest: made with its block, holds items, saved (false for an empty slot), spills when broken") {
 	Play p;
 	const BlockPos at{3, 60, 3};
 	REQUIRE(p.world->set_block(at, p.id("core:chest")));
@@ -297,7 +298,7 @@ TEST_CASE("a chest: made with its block, holds items, saved in the Godot format,
 	const Json saved = be.serialize();
 	CHECK(saved["3,60,3"]["type"] == "chest");
 	CHECK(saved["3,60,3"]["slots"][0] == Json::array({"core:coal", 8}));
-	CHECK(saved["3,60,3"]["slots"][1].is_null());
+	CHECK(saved["3,60,3"]["slots"][1] == false);
 	gc::BlockEntities copy(p.content, p.mods);
 	copy.deserialize(saved);
 	REQUIRE(copy.at(at));

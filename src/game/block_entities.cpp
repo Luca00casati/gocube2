@@ -162,7 +162,7 @@ Json BlockEntities::serialize() const {
 		const auto &[x, y, z] = key;
 		Json slots = Json::array();
 		for (const Stack &s : e.slots) {
-			slots.push_back(s.empty() ? Json(nullptr) : Json::array({s.id, s.count}));
+			slots.push_back(s.empty() ? Json(false) : Json::array({s.id, s.count}));
 		}
 		out[std::to_string(x) + "," + std::to_string(y) + "," + std::to_string(z)] = {
 				{"type", e.type}, {"slots", slots}, {"burn", e.burn}, {"burn_total", e.burn_total}, {"progress", e.progress}};

@@ -1,5 +1,5 @@
 // GoCube: a voxel sandbox. The title menu lists the worlds (play, create,
-// delete); a world is saved in the Godot version's format; content and code
+// delete); a world is a folder with world.lua (a Lua data table); content and code
 // come from mods (Lua, sandboxed), the base game ("core") first. Esc pauses.
 // Started with --world, --world-dir or a testing option, it goes straight
 // into that world.
@@ -16,8 +16,7 @@
 // Mods are found in mods\ next to the game (built-in, the base game first) and
 // in %APPDATA%\GoCube\mods (one folder per mod).
 //
-//   --world-dir=DIR  play the world in this folder (for example one the Godot
-//                    version saved, in %APPDATA%\Godot\app_userdata\GoCube\worlds)
+//   --world-dir=DIR  play the world in this folder
 //                    Without either, the world isn't saved.
 //   --seed=N         seed for a new world (default 777)
 //   --generator=N    world generator version for an unsaved world (default: the newest)
@@ -38,6 +37,7 @@
 //                    (default: on in debug builds)
 
 #include "content/content.h"
+#include "data/lua_data.h"
 #include "game/blocks.h"
 #include "game/day_cycle.h"
 #include "game/game.h"
@@ -176,7 +176,7 @@ std::filesystem::path find_mods() {
 	wchar_t exe[MAX_PATH];
 	GetModuleFileNameW(nullptr, exe, MAX_PATH);
 	for (std::filesystem::path dir = std::filesystem::path(exe).parent_path(); !dir.empty(); dir = dir.parent_path()) {
-		if (std::filesystem::exists(dir / "mods" / "core" / "mod.json")) {
+		if (std::filesystem::exists(dir / "mods" / "core" / "mod.lua")) {
 			return dir / "mods";
 		}
 		if (dir == dir.parent_path()) {
@@ -474,7 +474,6 @@ PauseChoice pause_menu(bool saved, bool from_menu) {
 struct WorldEntry {
 	std::filesystem::path dir;
 	std::string name, mode, saved, seed;
-	bool godot = false; // saved by the Godot version (its user data folder)
 };
 
 struct TitleMenu {
@@ -489,27 +488,18 @@ struct TitleMenu {
 
 std::vector<WorldEntry> find_worlds() {
 	std::vector<WorldEntry> out;
-	PWSTR appdata = nullptr;
-	std::filesystem::path godot;
-	if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &appdata))) {
-		godot = std::filesystem::path(appdata) / "Godot" / "app_userdata" / "GoCube" / "worlds";
-	}
-	CoTaskMemFree(appdata);
-	for (const auto &[root, from_godot] : {std::pair{user_dir() / "worlds", false}, std::pair{godot, true}}) {
-		std::error_code ec;
-		std::vector<WorldEntry> found;
-		for (const auto &e : std::filesystem::directory_iterator(root, ec)) {
-			const std::filesystem::path meta_path = e.path() / "world.json";
-			if (!e.is_directory(ec) || !std::filesystem::exists(meta_path, ec)) {
-				continue;
-			}
-			std::ifstream f(meta_path, std::ios::binary);
-			const gc::Json meta = gc::Json::parse(f, nullptr, false);
-			WorldEntry w;
-			w.dir = e.path();
-			w.name = utf8_string(e.path().filename());
-			w.godot = from_godot;
-			if (meta.is_object()) {
+	std::error_code ec;
+	for (const auto &e : std::filesystem::directory_iterator(user_dir() / "worlds", ec)) {
+		if (!e.is_directory(ec)) {
+			continue;
+		}
+		WorldEntry w;
+		w.dir = e.path();
+		w.name = utf8_string(e.path().filename());
+		gc::Json meta;
+		std::string why;
+		if (std::filesystem::exists(e.path() / "world.lua", ec)) {
+			if (gc::read_lua_data(e.path() / "world.lua", meta, why) && meta.is_object()) {
 				w.mode = meta.value("mode", "creative");
 				w.saved = meta.value("saved", meta.value("created", ""));
 				if (meta.contains("seed") && meta["seed"].is_number()) {
@@ -518,11 +508,14 @@ std::vector<WorldEntry> find_worlds() {
 			} else {
 				w.mode = "(damaged)";
 			}
-			found.push_back(w);
+		} else if (std::filesystem::exists(e.path() / "world.json", ec)) {
+			w.mode = "(old world.json: not read)"; // (opening it says why)
+		} else {
+			continue;
 		}
-		std::sort(found.begin(), found.end(), [](const WorldEntry &a, const WorldEntry &b) { return a.saved > b.saved; });
-		out.insert(out.end(), found.begin(), found.end());
+		out.push_back(w);
 	}
+	std::sort(out.begin(), out.end(), [](const WorldEntry &a, const WorldEntry &b) { return a.saved > b.saved; });
 	return out;
 }
 
@@ -586,14 +579,8 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 
 		ImGui::TextUnformatted("Worlds");
 		ImGui::BeginChild("worlds", ImVec2(0, 250), ImGuiChildFlags_Borders);
-		bool any_godot = false;
 		for (int i = 0; i < int(menu.worlds.size()); i++) {
 			const WorldEntry &w = menu.worlds[i];
-			if (w.godot && !any_godot) {
-				any_godot = true;
-				ImGui::Separator();
-				ImGui::TextDisabled("Saved by the Godot version (played and saved in its folder)");
-			}
 			ImGui::PushID(i);
 			const std::string label = w.name + "##world";
 			if (ImGui::Selectable(label.c_str(), menu.selected == i, ImGuiSelectableFlags_AllowDoubleClick)) {

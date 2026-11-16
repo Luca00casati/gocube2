@@ -23,15 +23,19 @@ so where order reaches the generator (a biome's trees and plants) it is a list
 of `{id, value}` pairs. A real change to generation is a new generator version
 (old worlds keep theirs) with new fingerprints.
 
-## Worlds stay compatible with the Godot version
-A world folder is `world.json` plus `chunks\c.X.Y.Z.bin` (the Godot version's
-format). `tests/test_save.cpp` opens `tests/data/godot_world` (saved by the Godot
-version) and checks its edits, edits and saves it, and checks that world.json keeps
-every field this version doesn't use (inventory, block entities, plants): keep it
-that way, `WorldSave::save` only replaces the player fields it is given. To check
-the other direction, run the test with `GOCUBE_TEST_WORLD_OUT=<dir>`, copy `<dir>`
-into a Godot user data folder's `worlds\_cpp_edited` and run
-`tests/data/check_godot_opens.gd` with the Godot version (headless, `-s`).
+## Data files are Lua, never JSON
+Every data file is a Lua data table (`return { ... }`): a mod's `mod.lua`, a
+world's `world.lua`, the base game's content (`mods/core/content/*.lua`, Lua
+registry calls). `src/data/lua_data.h` reads them in an empty Lua state with a
+step and memory limit (nothing in a data file can run) and writes them. Don't
+add JSON files (only `CMakePresets.json` and `vcpkg.json` remain: CMake and
+vcpkg read only JSON); old `mod.json`/`world.json` are refused with a message.
+A Lua list can't hold nil: an empty slot is `false`, and the writer throws on
+a null in a list; an empty table reads back as an empty object. Godot worlds
+(JSON) aren't read. A world folder is `world.lua` plus `chunks\c.X.Y.Z.bin`
+(the Godot version's chunk file format); `tests/test_save.cpp` makes, edits,
+saves and reopens one and checks that every field survives (`WorldSave::save`
+only replaces the player fields it is given: keep it that way).
 
 ## Mods and the sandbox
 `tests/test_mods.cpp` checks what the sandbox promises: a mod's code is stopped

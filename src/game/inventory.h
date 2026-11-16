@@ -2,8 +2,8 @@
 // Item slots: 0..8 are the hotbar. A slot is empty or a stack {id, count}.
 // Blocks are items too (placing one uses it up). Also what the mouse holds in
 // an open screen (the cursor) and worn armour. Ported from the Godot
-// version's Inventory, including its save format (world.json, player.inventory):
-//   [[id, count] or null, ... (36), {"armor": [head, chest, legs, feet ids]}]
+// version's Inventory. Saved in world.lua's player.inventory:
+//   {{id, count} or false, ... (36), {armor = {head, chest, legs, feet ids}}}
 
 #include "content/content.h"
 

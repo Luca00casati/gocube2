@@ -35,6 +35,8 @@ add_library(gocube_core STATIC
 	src/content/content.h
 	src/content/item_models.cpp
 	src/content/item_models.h
+	src/data/lua_data.cpp
+	src/data/lua_data.h
 	src/voxel/chunk.h
 	src/voxel/generator.cpp
 	src/voxel/generator.h

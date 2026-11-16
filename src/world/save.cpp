@@ -1,10 +1,12 @@
 #include "world/save.h"
 
+#include "data/lua_data.h"
 #include "log.h"
 
 #include <windows.h>
 
 #include <ctime>
+#include <stdexcept>
 #include <fstream>
 #include <sstream>
 
@@ -12,7 +14,7 @@ namespace gc {
 
 namespace {
 
-// Godot's Time.get_datetime_string_from_system(): "YYYY-MM-DDTHH:MM:SS", local time.
+// "YYYY-MM-DDTHH:MM:SS", local time.
 std::string now_string() {
 	const std::time_t t = std::time(nullptr);
 	std::tm tm;
@@ -31,29 +33,25 @@ double number(const Json &j, const char *key, double fallback) {
 
 std::string WorldSave::open(const std::filesystem::path &dir, uint32_t new_seed, const std::string &new_mode) {
 	dir_ = dir;
-	const std::filesystem::path path = dir / "world.json";
+	const std::filesystem::path path = dir / "world.lua";
 	std::error_code ec;
 	if (std::filesystem::exists(path, ec)) {
-		std::ifstream f(path, std::ios::binary);
-		meta_ = Json::parse(f, nullptr, false);
-		// (As the Godot version: a world it can't read safely is left alone.)
-		if (meta_.is_discarded() || !meta_.is_object() || !meta_.contains("seed") || !meta_["seed"].is_number()) {
-			return "its world.json is damaged, so it isn't opened (to keep it safe).";
+		std::string why;
+		// A world that can't be read safely is left alone.
+		if (!read_lua_data(path, meta_, why) || !meta_.is_object() || !meta_.contains("seed") ||
+				!meta_["seed"].is_number()) {
+			return "its world.lua is damaged, so it isn't opened (to keep it safe).";
 		}
-		if (number(meta_, "format", 1) > FORMAT_VERSION || number(meta_, "generator", 1) > GENERATOR_VERSION) {
+		if (number(meta_, "format", FORMAT_VERSION) > FORMAT_VERSION ||
+				number(meta_, "generator", 1) > GENERATOR_VERSION) {
 			return "it was saved by a newer version of GoCube. Update the game to play it.";
 		}
-		if (number(meta_, "format", 1) < FORMAT_VERSION) {
-			// Format 1: the Godot voxel module's worlds (blocks.sqlite), whose terrain
-			// generator was different; their edits can't be carried over.
-			std::filesystem::copy_file(path, dir / "world.json.format1.bak",
-					std::filesystem::copy_options::overwrite_existing, ec);
-			log("World %s was made with the old voxel engine; its terrain is regenerated", dir.string().c_str());
-			meta_.erase("player"); // the old position may now be inside terrain
-		}
 		if (!meta_.contains("mode")) {
-			meta_["mode"] = "creative"; // worlds from before game modes played like creative
+			meta_["mode"] = "creative";
 		}
+	} else if (std::filesystem::exists(dir / "world.json", ec)) {
+		return "it was saved as world.json (by the Godot version, or before worlds were Lua), which this "
+			   "version doesn't read.";
 	} else {
 		meta_ = Json::object();
 		meta_["seed"] = new_seed;
@@ -125,17 +123,24 @@ bool WorldSave::save(const Json &player) {
 }
 
 // To a temporary file, then renamed over the old one: a crash mid-write can't
-// leave a broken world.json.
+// leave a broken world.lua.
 bool WorldSave::write_meta() {
-	const std::filesystem::path path = dir_ / "world.json";
-	const std::filesystem::path tmp = dir_ / "world.json.tmp";
+	const std::filesystem::path path = dir_ / "world.lua";
+	const std::filesystem::path tmp = dir_ / "world.lua.tmp";
+	std::string text;
+	try {
+		text = write_lua_data(meta_);
+	} catch (const std::invalid_argument &e) {
+		log("Can't save %s: %s", path.string().c_str(), e.what());
+		return false;
+	}
 	{
 		std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
 		if (!f) {
 			log("Can't write %s", tmp.string().c_str());
 			return false;
 		}
-		f << meta_.dump(1, '\t');
+		f << text;
 		if (!f.good()) {
 			return false;
 		}

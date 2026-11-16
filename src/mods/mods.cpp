@@ -1,5 +1,6 @@
 #include "mods/mods.h"
 
+#include "data/lua_data.h"
 #include "game/blocks.h"
 #include "log.h"
 
@@ -87,11 +88,11 @@ std::string file_problem(const Json &rel, const fs::path &root, const char *exte
 	return "";
 }
 
-// What is wrong with a mod.json for a mod in `root`, or "" (checked before
+// What is wrong with a mod.lua for a mod in `root`, or "" (checked before
 // anything of the mod loads, so a broken mod is skipped as a whole).
 std::string manifest_problem(const Json &m, const fs::path &root) {
 	if (!m.is_object()) {
-		return "not a JSON object";
+		return "it must return a table of named fields";
 	}
 	if (!m.contains("id") || !m["id"].is_string() || !valid_id(m["id"].get<std::string>())) {
 		return "\"id\" must be a string of a-z, 0-9 and _";
@@ -105,16 +106,16 @@ std::string manifest_problem(const Json &m, const fs::path &root) {
 		return "\"api_version\" must be a number";
 	}
 	const Json deps = m.value("dependencies", Json::array());
-	if (!deps.is_array()) {
+	if (!deps.is_array() && !(deps.is_object() && deps.empty())) { // ({} reads as an empty object)
 		return "\"dependencies\" must be a list";
 	}
 	for (const Json &d : deps) {
 		if (!d.is_string() || !valid_id(d.get<std::string>())) {
-			return "dependency " + d.dump() + " isn't a mod id";
+			return "\"dependencies\" must list mod ids";
 		}
 	}
 	if (m.contains("content")) {
-		return "has JSON content files (\"content\"), which the game no longer reads: register its content "
+		return "lists content files (\"content\"), which the game doesn't read: register its content "
 			   "from Lua instead (registry.register_block and the like, in its entry script)";
 	}
 	if (m.contains("entry")) {
@@ -389,96 +390,6 @@ struct Mods::Lua {
 		return 1;
 	}
 
-	// --- Converting between Lua values and JSON ---
-
-	static Json to_json(lua_State *L, int idx, int depth) {
-		idx = lua_absindex(L, idx);
-		switch (lua_type(L, idx)) {
-			case LUA_TNIL:
-				return nullptr;
-			case LUA_TBOOLEAN:
-				return bool(lua_toboolean(L, idx));
-			case LUA_TNUMBER: {
-				if (lua_isinteger(L, idx)) {
-					return int64_t(lua_tointeger(L, idx));
-				}
-				const double d = lua_tonumber(L, idx);
-				if (!std::isfinite(d)) {
-					luaL_error(L, "definitions can't hold nan or inf");
-				}
-				return d;
-			}
-			case LUA_TSTRING: {
-				size_t n;
-				const char *s = lua_tolstring(L, idx, &n);
-				return std::string(s, n);
-			}
-			case LUA_TTABLE: {
-				if (depth > 32) {
-					luaL_error(L, "definition nested too deeply");
-				}
-				// 1..n with nothing else: a list; otherwise string keys: an object.
-				const lua_Integer n = lua_Integer(lua_rawlen(L, idx));
-				lua_Integer count = 0;
-				lua_pushnil(L);
-				while (lua_next(L, idx)) {
-					count++;
-					lua_pop(L, 1);
-				}
-				if (n > 0 && count == n) {
-					Json a = Json::array();
-					for (lua_Integer i = 1; i <= n; i++) {
-						lua_rawgeti(L, idx, i);
-						a.push_back(to_json(L, -1, depth + 1));
-						lua_pop(L, 1);
-					}
-					return a;
-				}
-				Json o = Json::object();
-				lua_pushnil(L);
-				while (lua_next(L, idx)) {
-					if (lua_type(L, -2) != LUA_TSTRING) {
-						luaL_error(L, "definition keys must be strings (or a list 1..n)");
-					}
-					o[lua_tostring(L, -2)] = to_json(L, -1, depth + 1);
-					lua_pop(L, 1);
-				}
-				return o;
-			}
-			default:
-				luaL_error(L, "definitions can't hold a %s", luaL_typename(L, idx));
-				return nullptr;
-		}
-	}
-
-	static void push_json(lua_State *L, const Json &j) {
-		luaL_checkstack(L, 4, "definition nested too deeply");
-		if (j.is_null()) {
-			lua_pushnil(L);
-		} else if (j.is_boolean()) {
-			lua_pushboolean(L, j.get<bool>());
-		} else if (j.is_number_integer() || j.is_number_unsigned()) {
-			lua_pushinteger(L, j.get<int64_t>());
-		} else if (j.is_number()) {
-			lua_pushnumber(L, j.get<double>());
-		} else if (j.is_string()) {
-			const std::string &s = j.get_ref<const std::string &>();
-			lua_pushlstring(L, s.data(), s.size());
-		} else if (j.is_array()) {
-			lua_createtable(L, int(j.size()), 0);
-			for (size_t i = 0; i < j.size(); i++) {
-				push_json(L, j[i]);
-				lua_rawseti(L, -2, lua_Integer(i + 1));
-			}
-		} else {
-			lua_createtable(L, 0, int(j.size()));
-			for (const auto &[k, v] : j.items()) {
-				push_json(L, v);
-				lua_setfield(L, -2, k.c_str());
-			}
-		}
-	}
-
 	// --- registry ---
 
 	// registry.register_<section>(id, def); upvalues: mod index, section name.
@@ -491,7 +402,7 @@ struct Mods::Lua {
 		}
 		const std::string id = luaL_checkstring(L, 1);
 		luaL_checktype(L, 2, LUA_TTABLE);
-		Json def = to_json(L, 2, 0);
+		Json def = lua_to_data(L, 2, 0);
 		if (!def.is_object()) {
 			return luaL_error(L, "a definition must be a table with named fields");
 		}
@@ -512,7 +423,7 @@ struct Mods::Lua {
 		if (it == t->end()) {
 			lua_pushnil(L);
 		} else {
-			push_json(L, it->second);
+			push_data(L, it->second);
 		}
 		return 1;
 	}
@@ -526,7 +437,7 @@ struct Mods::Lua {
 		}
 		lua_createtable(L, 0, int(t->size()));
 		for (const auto &[id, def] : *t) {
-			push_json(L, def);
+			push_data(L, def);
 			lua_setfield(L, -2, id.c_str());
 		}
 		return 1;
@@ -537,7 +448,7 @@ struct Mods::Lua {
 		Lua *h = of(L);
 		lua_createtable(L, 0, int(h->content.recipes.size()));
 		for (const auto &[id, def] : h->content.recipes) {
-			push_json(L, def);
+			push_data(L, def);
 			lua_setfield(L, -2, id.c_str());
 		}
 		return 1;
@@ -872,13 +783,22 @@ void Mods::load_all(const std::vector<fs::path> &dirs) {
 	};
 	for (const fs::path &root : dirs) {
 		for (const fs::path &dir : visible_subdirs(root)) {
-			if (!fs::exists(dir / "mod.json")) {
+			if (!fs::exists(dir / "mod.lua")) {
+				if (fs::exists(dir / "mod.json")) {
+					fail(utf8(dir.filename()), "has a mod.json, which the game no longer reads: its manifest is a "
+							"mod.lua now (return {id = \"...\", ...}); skipping it");
+				}
 				continue;
 			}
-			std::ifstream f(dir / "mod.json", std::ios::binary);
-			const Json m = Json::parse(f, nullptr, false);
-			if (std::string why = m.is_discarded() ? "it isn't valid JSON" : manifest_problem(m, dir); !why.empty()) {
-				fail(utf8(dir.filename()), "invalid mod.json (" + why + "); skipping it");
+			Json m;
+			std::string why;
+			if (!read_lua_data(dir / "mod.lua", m, why)) {
+				why = "it can't be read: " + why;
+			} else {
+				why = manifest_problem(m, dir);
+			}
+			if (!why.empty()) {
+				fail(utf8(dir.filename()), "invalid mod.lua (" + why + "); skipping it");
 				continue;
 			}
 			const std::string id = m["id"].get<std::string>();
@@ -994,7 +914,7 @@ std::optional<Json> Mods::rule(const std::string &name, const Json &args) {
 	const int top = lua_gettop(L);
 	lua_rawgeti(L, LUA_REGISTRYINDEX, it->second.ref);
 	for (const Json &a : args) {
-		Lua::push_json(L, a);
+		push_data(L, a);
 	}
 	const std::string error = h.call(mod, int(args.size()), h.limits.callback_ms, 1);
 	if (!error.empty()) {
@@ -1006,7 +926,7 @@ std::optional<Json> Mods::rule(const std::string &name, const Json &args) {
 	// (Converting can raise a Lua error for a value that can't be data: protected.)
 	lua_pushcfunction(L, [](lua_State *L) -> int {
 		auto *result = static_cast<std::optional<Json> *>(lua_touserdata(L, 2));
-		*result = Lua::to_json(L, 1, 0);
+		*result = lua_to_data(L, 1, 0);
 		return 0;
 	});
 	lua_insert(L, -2);
