@@ -3,3 +3,5 @@
 # expected values (fingerprints, saved worlds) depend on them too.
 mods/** -text
 tests/data/** -text
+# Third-party sources stay exactly as their releases have them.
+thirdparty/** -text

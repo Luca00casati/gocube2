@@ -1,7 +1,8 @@
 # GoCube: notes for Claude
 
 ## Build and test
-Commands need the Visual Studio developer environment (MSVC, Ninja, `VCPKG_ROOT`).
+Commands need the Visual Studio developer environment (MSVC, Ninja, fxc). No
+package manager: every library is source in `thirdparty/` (`thirdparty/README.md`).
 From PowerShell outside it:
 
     $vs = "C:\Program Files\Microsoft Visual Studio\18\Community"
@@ -28,8 +29,7 @@ Every data file is a Lua data table (`return { ... }`): a mod's `mod.lua`, a
 world's `world.lua`, the base game's content (`mods/core/content/*.lua`, Lua
 registry calls). `src/data/lua_data.h` reads them in an empty Lua state with a
 step and memory limit (nothing in a data file can run) and writes them. Don't
-add JSON files (only `CMakePresets.json` and `vcpkg.json` remain: CMake and
-vcpkg read only JSON); old `mod.json`/`world.json` are refused with a message.
+add JSON files (only `CMakePresets.json` remains: CMake reads only JSON); old `mod.json`/`world.json` are refused with a message.
 A Lua list can't hold nil: an empty slot is `false`, and the writer throws on
 a null in a list; an empty table reads back as an empty object. Godot worlds
 (JSON) aren't read. A world folder is `world.lua` plus `chunks\c.X.Y.Z.bin`

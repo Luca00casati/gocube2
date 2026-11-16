@@ -8,11 +8,11 @@
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION // (this file only)
-#define STBI_WINDOWS_UTF8
-#include <stb_image_write.h>
+#include <png.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <string>
 #include <vector>
 
 namespace gc {
@@ -294,7 +294,24 @@ bool Renderer::save_png(const char *path) {
 		}
 	}
 	context_->Unmap(staging.Get(), 0);
-	return stbi_write_png(path, int(d.Width), int(d.Height), 3, rgb.data(), int(d.Width) * 3) != 0;
+	// (The path is UTF-8: opened through its wide form.)
+	const int n = MultiByteToWideChar(CP_UTF8, 0, path, -1, nullptr, 0);
+	std::wstring wide(n > 0 ? size_t(n) : 1, L'\0');
+	if (n <= 0 || !MultiByteToWideChar(CP_UTF8, 0, path, -1, wide.data(), n)) {
+		return false;
+	}
+	FILE *f = nullptr;
+	if (_wfopen_s(&f, wide.c_str(), L"wb") != 0 || !f) {
+		return false;
+	}
+	png_image image = {};
+	image.version = PNG_IMAGE_VERSION;
+	image.width = d.Width;
+	image.height = d.Height;
+	image.format = PNG_FORMAT_RGB;
+	const bool ok = png_image_write_to_stdio(&image, f, 0, rgb.data(), png_int_32(d.Width * 3), nullptr) != 0;
+	png_image_free(&image);
+	return fclose(f) == 0 && ok;
 }
 
 int Renderer::debug_messages() {

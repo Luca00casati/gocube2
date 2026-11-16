@@ -1,9 +1,6 @@
 #include "content/content.h"
 
-#define STB_IMAGE_IMPLEMENTATION // (this file only)
-#define STBI_ONLY_PNG
-#define STBI_WINDOWS_UTF8
-#include <stb_image.h>
+#include <png.h>
 
 #include <algorithm>
 #include <array>
@@ -514,26 +511,35 @@ struct AtlasBuilder {
 		return px;
 	}
 
+	// A PNG as 8-bit RGBA (libpng's simplified API, as Godot loads PNGs),
+	// resized to TILE x TILE.
 	static bool load_png(const std::filesystem::path &path, Pixels &out) {
-		int w, h, n;
 		FILE *f = nullptr;
 		if (_wfopen_s(&f, path.c_str(), L"rb") != 0 || !f) {
 			return false;
 		}
-		stbi_uc *data = stbi_load_from_file(f, &w, &h, &n, 4);
+		png_image image = {};
+		image.version = PNG_IMAGE_VERSION;
+		std::vector<uint8_t> data;
+		bool ok = png_image_begin_read_from_stdio(&image, f) != 0;
+		if (ok) {
+			image.format = PNG_FORMAT_RGBA;
+			data.resize(PNG_IMAGE_SIZE(image));
+			ok = png_image_finish_read(&image, nullptr, data.data(), 0, nullptr) != 0;
+		}
+		png_image_free(&image);
 		fclose(f);
-		if (!data) {
+		if (!ok || image.width == 0 || image.height == 0) {
 			return false;
 		}
+		const size_t w = image.width, h = image.height;
 		out.assign(size_t(T) * T * 4, 0);
-		for (int y = 0; y < T; y++) { // nearest-neighbour resize to TILE x TILE
-			for (int x = 0; x < T; x++) {
-				const int sx = x * w / T, sy = y * h / T;
-				std::copy(data + (size_t(sy) * w + sx) * 4, data + (size_t(sy) * w + sx) * 4 + 4,
-						&out[(size_t(y) * T + x) * 4]);
+		for (size_t y = 0; y < size_t(T); y++) { // nearest-neighbour resize to TILE x TILE
+			for (size_t x = 0; x < size_t(T); x++) {
+				const size_t sx = x * w / T, sy = y * h / T;
+				std::copy(&data[(sy * w + sx) * 4], &data[(sy * w + sx) * 4] + 4, &out[(y * T + x) * 4]);
 			}
 		}
-		stbi_image_free(data);
 		return true;
 	}
 

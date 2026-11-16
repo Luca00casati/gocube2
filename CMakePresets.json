@@ -3,12 +3,11 @@
   "configurePresets": [
     {
       "name": "windows",
-      "displayName": "Windows x64 (MSVC, Ninja, vcpkg)",
+      "displayName": "Windows x64 (MSVC, Ninja)",
       "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build",
-      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
-        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "CMAKE_C_COMPILER": "cl",
         "CMAKE_CXX_COMPILER": "cl"
       }
     }

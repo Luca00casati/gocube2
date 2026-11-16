@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(gocube VERSION 0.1.0 LANGUAGES CXX)
+project(gocube VERSION 0.1.0 LANGUAGES C CXX)
 
 if(NOT WIN32)
 	message(FATAL_ERROR "GoCube targets Windows only.")
@@ -8,13 +8,41 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-# Static runtime, matching the x64-windows-static vcpkg triplet: one .exe, no DLLs.
+# Static runtime: one .exe, no DLLs.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-find_package(imgui CONFIG REQUIRED)
-find_package(nlohmann_json CONFIG REQUIRED)
-find_package(doctest CONFIG REQUIRED)
-find_package(Stb REQUIRED)
+# Every dependency is in thirdparty/, as source pinned to a release (see
+# thirdparty/README.md), built here: nothing is downloaded at build time.
+# Their warnings are theirs: /W0.
+file(GLOB ZLIB_SOURCES ${CMAKE_SOURCE_DIR}/thirdparty/zlib/*.c)
+add_library(zlib STATIC ${ZLIB_SOURCES})
+target_include_directories(zlib PUBLIC thirdparty/zlib)
+target_compile_options(zlib PRIVATE /W0)
+target_compile_definitions(zlib PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
+
+file(GLOB PNG_SOURCES ${CMAKE_SOURCE_DIR}/thirdparty/libpng/*.c ${CMAKE_SOURCE_DIR}/thirdparty/libpng/intel/*.c)
+add_library(png STATIC ${PNG_SOURCES})
+target_include_directories(png PUBLIC thirdparty/libpng)
+target_link_libraries(png PUBLIC zlib)
+target_compile_options(png PRIVATE /W0)
+target_compile_definitions(png PRIVATE _CRT_SECURE_NO_WARNINGS)
+
+add_library(imgui STATIC
+	thirdparty/imgui/imgui.cpp
+	thirdparty/imgui/imgui_demo.cpp
+	thirdparty/imgui/imgui_draw.cpp
+	thirdparty/imgui/imgui_tables.cpp
+	thirdparty/imgui/imgui_widgets.cpp
+	thirdparty/imgui/backends/imgui_impl_dx11.cpp
+	thirdparty/imgui/backends/imgui_impl_win32.cpp
+)
+target_include_directories(imgui PUBLIC thirdparty/imgui thirdparty/imgui/backends)
+target_compile_options(imgui PRIVATE /W0)
+
+add_library(nlohmann_json INTERFACE)
+target_include_directories(nlohmann_json INTERFACE thirdparty/nlohmann_json)
+add_library(doctest INTERFACE)
+target_include_directories(doctest INTERFACE thirdparty/doctest)
 
 # Lua 5.4, from source (thirdparty/lua), compiled as C++ so its errors unwind
 # C++ code properly, with a fixed string-hash seed (gocube_lua_config.h).
@@ -71,8 +99,8 @@ target_sources(gocube_core PRIVATE
 	src/world/world.cpp
 	src/world/world.h
 )
-target_include_directories(gocube_core PUBLIC src PRIVATE ${Stb_INCLUDE_DIR})
-target_link_libraries(gocube_core PUBLIC nlohmann_json::nlohmann_json PRIVATE lua bcrypt)
+target_include_directories(gocube_core PUBLIC src)
+target_link_libraries(gocube_core PUBLIC nlohmann_json PRIVATE lua png bcrypt)
 target_compile_definitions(gocube_core PUBLIC ${GOCUBE_DEFINES})
 target_compile_options(gocube_core PRIVATE ${GOCUBE_OPTIONS})
 # The voxel engine is the Godot version's, unchanged: quiet its warnings here
@@ -127,8 +155,8 @@ add_executable(gocube
 )
 set_source_files_properties(shaders/chunk.hlsl shaders/lines.hlsl shaders/sky.hlsl shaders/items.hlsl shaders/blit.hlsl
 	PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
-target_include_directories(gocube PRIVATE ${SHADER_DIR} ${Stb_INCLUDE_DIR})
-target_link_libraries(gocube PRIVATE gocube_core imgui::imgui d3d11 dxgi dxguid shell32 ole32)
+target_include_directories(gocube PRIVATE ${SHADER_DIR})
+target_link_libraries(gocube PRIVATE gocube_core imgui png d3d11 dxgi dxguid shell32 ole32)
 target_compile_definitions(gocube PRIVATE
 	GOCUBE_VERSION="${PROJECT_VERSION}"
 	$<$<CONFIG:Debug>:GOCUBE_DEBUG>
@@ -148,7 +176,7 @@ add_executable(gocube_tests
 	tests/test_survival.cpp
 	tests/test_worldgen.cpp
 )
-target_link_libraries(gocube_tests PRIVATE gocube_core doctest::doctest bcrypt)
+target_link_libraries(gocube_tests PRIVATE gocube_core doctest bcrypt)
 target_compile_definitions(gocube_tests PRIVATE GOCUBE_SOURCE_DIR="${CMAKE_SOURCE_DIR}" _CRT_SECURE_NO_WARNINGS)
 target_compile_options(gocube_tests PRIVATE ${GOCUBE_OPTIONS})
 
