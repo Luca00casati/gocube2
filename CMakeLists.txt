@@ -33,6 +33,8 @@ set(GOCUBE_OPTIONS /W4 /permissive- /utf-8 /EHsc /MP)
 add_library(gocube_core STATIC
 	src/content/content.cpp
 	src/content/content.h
+	src/content/item_models.cpp
+	src/content/item_models.h
 	src/voxel/chunk.h
 	src/voxel/generator.cpp
 	src/voxel/generator.h
@@ -54,6 +56,8 @@ target_sources(gocube_core PRIVATE
 	src/game/game.cpp
 	src/game/game_health.cpp
 	src/game/game.h
+	src/game/hand.cpp
+	src/game/hand.h
 	src/game/inventory.cpp
 	src/game/inventory.h
 	src/game/player.cpp
@@ -96,6 +100,10 @@ add_shader(shaders/lines.hlsl vs_main vs_5_0 lines_vs)
 add_shader(shaders/lines.hlsl ps_main ps_5_0 lines_ps)
 add_shader(shaders/sky.hlsl vs_main vs_5_0 sky_vs)
 add_shader(shaders/sky.hlsl ps_main ps_5_0 sky_ps)
+add_shader(shaders/items.hlsl vs_main vs_5_0 items_vs)
+add_shader(shaders/items.hlsl ps_main ps_5_0 items_ps)
+add_shader(shaders/blit.hlsl vs_main vs_5_0 blit_vs)
+add_shader(shaders/blit.hlsl ps_main ps_5_0 blit_ps)
 
 add_executable(gocube
 	src/main.cpp
@@ -111,9 +119,12 @@ add_executable(gocube
 	shaders/chunk.hlsl
 	shaders/lines.hlsl
 	shaders/sky.hlsl
+	shaders/items.hlsl
+	shaders/blit.hlsl
 	${SHADER_HEADERS}
 )
-set_source_files_properties(shaders/chunk.hlsl shaders/lines.hlsl shaders/sky.hlsl PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
+set_source_files_properties(shaders/chunk.hlsl shaders/lines.hlsl shaders/sky.hlsl shaders/items.hlsl shaders/blit.hlsl
+	PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
 target_include_directories(gocube PRIVATE ${SHADER_DIR} ${Stb_INCLUDE_DIR})
 target_link_libraries(gocube PRIVATE gocube_core imgui::imgui d3d11 dxgi dxguid shell32 ole32)
 target_compile_definitions(gocube PRIVATE
@@ -130,6 +141,7 @@ add_executable(gocube_tests
 	tests/main.cpp
 	tests/test_mods.cpp
 	tests/test_player.cpp
+	tests/test_rendering.cpp
 	tests/test_save.cpp
 	tests/test_survival.cpp
 	tests/test_worldgen.cpp

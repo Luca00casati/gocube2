@@ -14,6 +14,7 @@
 #include "voxel/mesher.h"
 
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <cstdint>
@@ -91,6 +92,16 @@ public:
 	void set_view_distance(int blocks) { view_distance_ = blocks > 0 ? blocks : 1; }
 	int view_distance() const { return view_distance_; }
 
+	// Block shadows (the Godot version's "blocks" sun shadows): each face is in
+	// the sun or in a block's shadow, worked out by the mesher from where the
+	// sun is (radians above the eastern horizon). They follow the sun in steps
+	// of SUN_STEP_DEGREES; each step (or turning them on or off) remeshes every
+	// chunk, nearest first. At night the last step stays, for the morning.
+	static constexpr int SUN_STEP_DEGREES = 2;
+	void set_block_shadows(bool enabled);
+	bool block_shadows() const { return block_shadows_.load(); }
+	void set_sun_angle(float radians);
+
 	// Main thread, once per frame: takes finished work, asks for chunks around
 	// the viewer, saves and forgets far ones, schedules meshing.
 	void update(float viewer_x, float viewer_y, float viewer_z);
@@ -107,10 +118,17 @@ public:
 	// Sky and block light (0..15 each) at a block, as of its chunk's last
 	// mesh; open sky where it isn't known.
 	void light_at(int x, int y, int z, int &sky, int &block) const;
+	// Light held in hand (a torch: x, y, z, level 0..15) spread like placed
+	// light, one level less per block and stopped by opaque blocks, in the cube
+	// of `size` blocks from `origin`: a level per block, indexed
+	// (y * size + z) * size + x. (The Godot version's GoCubeWorld.held_light.)
+	std::vector<uint8_t> held_light(const BlockPos &origin, int size, const std::vector<std::array<float, 4>> &lights) const;
 	// Told about every block change (position, the new block), after it happened.
 	std::function<void(const BlockPos &, gocube::BlockId)> on_block_changed;
 	// Changes a block; false if its chunk isn't loaded.
 	bool set_block(const BlockPos &p, gocube::BlockId id);
+	// Goes up with every block changed, and every chunk loaded or forgotten.
+	uint64_t revision() const { return revision_; }
 	// Writes every edited chunk to its file; returns how many.
 	int save_modified();
 
@@ -169,6 +187,7 @@ private:
 	void update_column_tops(int cx, int cz);
 	void schedule_meshing(const ChunkPos &center, int radius);
 	void request_remesh(int cx, int cy, int cz);
+	void remesh_all();
 	void relight_around(const BlockPos &p, int y_low, int y_high);
 	bool save_chunk(const ChunkPos &p, Chunk &c);
 	const gocube::ChunkData *chunk_data_at(int x, int y, int z, int &lx, int &ly, int &lz) const;
@@ -181,6 +200,7 @@ private:
 	const std::string save_dir_;
 	int view_distance_ = 128;
 	uint64_t next_serial_ = 1;
+	uint64_t revision_ = 0;
 	ChunkPos center_;  // at the last update
 	int radius_ = 0;   // in chunks, at the last update
 
@@ -197,6 +217,8 @@ private:
 	std::condition_variable job_cv_;
 	std::vector<Job> jobs_;
 	int running_ = 0; // jobs being worked on
+	std::atomic<bool> block_shadows_{false};
+	std::atomic<int> sun_step_{45}; // SUN_STEP_DEGREES steps above the eastern horizon
 	bool stop_ = false;
 	std::mutex result_mutex_;
 	std::vector<Result> results_;

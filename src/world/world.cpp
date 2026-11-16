@@ -124,6 +124,10 @@ void World::run(Job &job, Result &r) const {
 			hood[neighbourhood_index(0, 0, 1)], hood[neighbourhood_index(0, 0, -1)]};
 	MeshOptions options;
 	options.smooth_lighting = true;
+	options.sun_shadows = block_shadows_.load();
+	const float sun = float(sun_step_.load() * SUN_STEP_DEGREES) * 3.14159265f / 180.0f;
+	options.sun_x = std::cos(sun);
+	options.sun_y = std::sin(sun);
 	options.tops = tops;
 	options.origin_x = job.pos.x * CHUNK;
 	options.origin_y = job.pos.y * CHUNK;
@@ -165,6 +169,7 @@ void World::update(float viewer_x, float /*viewer_y*/, float viewer_z) {
 		Chunk &c = it->second;
 		if (res.kind == JOB_GENERATE) {
 			c.data = std::move(res.data);
+			revision_++;
 			c.local_tops = res.local_tops;
 			update_column_tops(res.pos.x, res.pos.z);
 			// It and every neighbour may now have all they need to be meshed.
@@ -227,6 +232,7 @@ void World::update(float viewer_x, float /*viewer_y*/, float viewer_z) {
 			save_chunk(p, it->second);
 			if (it->second.meshed_version || it->second.mesh_queued) {
 				unloaded_.push_back(p);
+				revision_++;
 			}
 			column_tops_.erase(key(p.x, 0, p.z));
 			mesh_candidates_.erase(it->first);
@@ -377,6 +383,56 @@ void World::light_at(int x, int y, int z, int &sky, int &block) const {
 	block = v & 15;
 }
 
+std::vector<uint8_t> World::held_light(const BlockPos &origin, int size,
+		const std::vector<std::array<float, 4>> &lights) const {
+	size = std::clamp(size, 1, 128);
+	std::vector<uint8_t> vol(size_t(size) * size * size, 0);
+	// Whether light passes through the block at a volume position (unloaded: no;
+	// above the world: open air).
+	auto passes = [&](int x, int y, int z) {
+		const int wy = origin.y + y;
+		if (floor_div(wy, CHUNK) > CHUNK_Y_MAX) {
+			return true;
+		}
+		const int id = block_id_at(origin.x + x, wy, origin.z + z);
+		return id >= 0 && (size_t(id) >= blocks_.size() || !blocks_[size_t(id)].opaque);
+	};
+	auto index = [size](int x, int y, int z) { return size_t((y * size + z) * size + x); };
+	std::vector<size_t> queue;
+	for (const auto &l : lights) {
+		const int x = int(std::floor(l[0])) - origin.x, y = int(std::floor(l[1])) - origin.y,
+				  z = int(std::floor(l[2])) - origin.z;
+		const int level = std::clamp(int(l[3]), 0, int(LIGHT_MAX));
+		if (x < 0 || y < 0 || z < 0 || x >= size || y >= size || z >= size || level <= vol[index(x, y, z)]) {
+			continue;
+		}
+		vol[index(x, y, z)] = uint8_t(level);
+		queue.push_back(index(x, y, z));
+	}
+	static const int DIRS[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+	for (size_t q = 0; q < queue.size(); q++) {
+		const size_t i = queue[q];
+		const int x = int(i % size_t(size)), z = int((i / size_t(size)) % size_t(size)), y = int(i / size_t(size * size));
+		const int next = vol[i] - 1;
+		if (next <= 0) {
+			continue;
+		}
+		for (const auto &d : DIRS) {
+			const int nx = x + d[0], ny = y + d[1], nz = z + d[2];
+			if (nx < 0 || ny < 0 || nz < 0 || nx >= size || ny >= size || nz >= size) {
+				continue;
+			}
+			const size_t n = index(nx, ny, nz);
+			if (vol[n] >= next || !passes(nx, ny, nz)) {
+				continue;
+			}
+			vol[n] = uint8_t(next);
+			queue.push_back(n);
+		}
+	}
+	return vol;
+}
+
 bool World::is_loaded(int x, int y, int z) const {
 	int lx, ly, lz;
 	return chunk_data_at(x, y, z, lx, ly, lz) != nullptr;
@@ -402,6 +458,7 @@ bool World::set_block(const BlockPos &p, BlockId id) {
 	copy->compact();
 	chunk.data = copy;
 	chunk.dirty = true;
+	revision_++;
 
 	// Column top within this chunk, then for the whole column.
 	const int column = lz * CHUNK + lx;
@@ -446,6 +503,36 @@ void World::relight_around(const BlockPos &p, int y_low, int y_high) {
 			for (int cx = ax; cx <= bx; cx++) {
 				request_remesh(cx, cy, cz);
 			}
+		}
+	}
+}
+
+void World::set_block_shadows(bool enabled) {
+	if (block_shadows_.exchange(enabled) != enabled) {
+		remesh_all();
+	}
+}
+
+void World::set_sun_angle(float radians) {
+	const float degrees = radians * 180.0f / 3.14159265f;
+	if (!(degrees > 0.0f && degrees < 180.0f)) {
+		return; // night: keep the last shadows for the morning's first frames
+	}
+	const int last = 180 / SUN_STEP_DEGREES - 1;
+	const int step = std::clamp(int(std::lround(degrees / SUN_STEP_DEGREES)), 1, last);
+	if (sun_step_.exchange(step) != step && block_shadows_.load()) {
+		remesh_all();
+	}
+}
+
+// Every meshed chunk again (not urgent: nearest first); the old meshes stay
+// until the new ones arrive.
+void World::remesh_all() {
+	for (auto &[k, c] : chunks_) {
+		if (c.data && c.meshed_version > 0) {
+			c.mesh_version++;
+			c.mesh_queued = false;
+			mesh_candidates_.insert(k);
 		}
 	}
 }

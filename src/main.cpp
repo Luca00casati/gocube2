@@ -30,6 +30,9 @@
 //                    reported errors or warnings. With --screenshot, counted
 //                    from when the world around has finished loading.
 //   --screenshot=F   save the last frame as a PNG
+//   --render-scale=F draw the world at this part of the window's resolution
+//                    (0.25..1, stretched over it; the Godot version offers
+//                    1, 0.85, 0.75 and 0.5)
 //   --no-vsync       present as fast as possible
 //   --debug / --no-debug   force the Direct3D 11 debug layer on or off
 //                    (default: on in debug builds)
@@ -38,6 +41,7 @@
 #include "game/blocks.h"
 #include "game/day_cycle.h"
 #include "game/game.h"
+#include "game/hand.h"
 #include "game/player.h"
 #include "log.h"
 #include "mods/mods.h"
@@ -80,6 +84,7 @@ struct Options {
 	uint32_t seed = 777;
 	int generator = gc::GENERATOR_VERSION;
 	int view = 128;
+	float render_scale = 1.0f;
 	bool has_pos = false;
 	float pos[3] = {0, 0, 0};
 	bool has_look = false;
@@ -147,6 +152,8 @@ Options parse(int argc, char **argv) {
 			o.mode = v;
 		} else if ((v = value("--view="))) {
 			o.view = int(strtol(v, nullptr, 10));
+		} else if ((v = value("--render-scale="))) {
+			o.render_scale = strtof(v, nullptr);
 		} else if ((v = value("--pos="))) {
 			o.has_pos = sscanf_s(v, "%f,%f,%f", &o.pos[0], &o.pos[1], &o.pos[2]) == 3;
 		} else if ((v = value("--look="))) {
@@ -387,15 +394,15 @@ DirectX::XMFLOAT3 linear(const gc::Rgb &c) {
 
 // The sky and the terrain's light for this time of day.
 void apply_day(const gc::DayCycle &day, float view, gc::SkyParams &sky) {
+	sky.fog_start = day.fog_begin(view);
+	sky.fog_end = day.fog_end(view);
 	sky.daylight = day.daylight();
 	sky.sun_amount = day.sun_amount();
-	sky.sky_tint = linear(day.sky_tint());
+	sky.sky_tint = {day.sky_tint().r, day.sky_tint().g, day.sky_tint().b}; // (raw: see chunk.hlsl)
 	float sun[3];
 	day.sun_dir(sun);
 	sky.sun_dir = {sun[0], sun[1], sun[2]};
 	sky.fog_color = linear(day.haze());
-	sky.fog_start = day.fog_begin(view * 0.7f);
-	sky.fog_end = day.fog_end(view);
 	sky.sky_top = linear(day.sky_top());
 	sky.sky_horizon = linear(day.sky_horizon());
 	sky.sky_ground = sky.fog_color; // below the horizon: the haze, so faded hills meet the sky without a seam
@@ -774,6 +781,10 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 
 	gc::Camera camera;
 	camera.far_z = float(options.view) * 2.0f;
+	gc::ItemModels item_models(content, table);
+	gc::Hand hand;
+	gc::HandLights hand_lights;
+	int seen_swings = game.swings();
 	gc::SkyParams sky;
 	gc::DayCycle day;
 	day.time = gc::DayCycle::system_time(); // a new world starts at the computer's clock
@@ -789,6 +800,9 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		day.time = std::fmod(options.time, 1.0);
 	}
 	float sleeping = -1; // seconds asleep (-1: awake)
+	// Block shadows (the Godot version's default sun shadows), from where the sun is.
+	world->set_sun_angle(day.angle());
+	world->set_block_shadows(true);
 
 	auto save_all = [&] {
 		if (save) {
@@ -944,6 +958,27 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		camera.yaw = player.yaw;
 		camera.pitch = player.pitch;
 
+		// The arm swings with every hit, place, use and meal, and keeps
+		// swinging while mining; it bobs while walking.
+		if (game.swings() != seen_swings) {
+			seen_swings = game.swings();
+			hand.swing();
+		}
+		const bool walking = player.on_floor && std::hypot(player.velocity[0], player.velocity[2]) > 0.5f;
+		hand.update(paused ? 0.0f : dt, game.mining_progress() > 0.0f, walking);
+		// A light-giving block in hand (a torch) lights the world around
+		// (the Godot version's main._update_hand_light).
+		std::vector<std::array<float, 4>> held_lights;
+		if (auto it = content.blocks.find(game.selected_item()); !game.dead() && it != content.blocks.end()) {
+			const float level = float(it->second.value("light", 0.0));
+			if (level > 0) {
+				held_lights.push_back({camera.position.x, camera.position.y, camera.position.z, level});
+			}
+		}
+		const float eye[3] = {camera.position.x, camera.position.y, camera.position.z};
+		const bool hand_light_changed = hand_lights.update(*world, held_lights, eye);
+
+		world->set_sun_angle(day.angle()); // (shadows follow it in steps)
 		world->update(player.position[0], player.position[1], player.position[2]);
 		for (const gc::ChunkPos &p : world->take_unloaded()) {
 			chunks.remove(p);
@@ -999,20 +1034,50 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		ImGui::Render();
 
 		sky.time = std::chrono::duration<float>(now - start).count();
+		if (!options.screenshot.empty()) {
+			// The clouds (and their shadows) as 3 seconds in, however long
+			// loading took: the same in every screenshot (and in
+			// tests/data/godot_screenshot.gd's).
+			day.cloud_offset[0] = 0.35f * 3.0f;
+			day.cloud_offset[1] = 0.12f * 3.0f;
+		}
 		apply_day(day, float(options.view), sky);
 		const float clear[4] = {sky.fog_color.x, sky.fog_color.y, sky.fog_color.z, 1.0f};
 		renderer.begin_frame(clear);
-		chunks.draw_sky(renderer.context(), camera, float(renderer.width()) / float(std::max(1, renderer.height())), sky);
-		chunks.draw(renderer.context(), camera, float(renderer.width()) / float(std::max(1, renderer.height())), sky);
+		const float aspect = float(renderer.width()) / float(std::max(1, renderer.height()));
+		chunks.set_hand_light(renderer.context(), hand_lights.volume(), hand_lights.origin(), hand_lights.count(),
+				hand_light_changed);
+		chunks.draw_sky(renderer.context(), camera, aspect, sky);
+		chunks.draw(renderer.context(), camera, aspect, sky);
+		// Dropped items, and the hand: lit like the terrain around them
+		// (never quite black: a ninja's sword in the dark is a faint shape).
+		const gc::Rgb tint = day.sky_tint();
+		const float sky_light[3] = {tint.r * day.daylight(), tint.g * day.daylight(), tint.b * day.daylight()};
+		constexpr float NIGHT_CREATURE_LIGHT = 0.07f;
 		{
 			std::vector<gc::WorldVertex> drop_mesh;
-			game.drops().build_mesh(*world, table, content, sky.time, drop_mesh);
-			chunks.draw_triangles(renderer.context(), drop_mesh);
+			game.drops().build_mesh(item_models, [&](const float at[3], float out[3]) {
+				gc::light_for(*world, hand_lights, sky_light, at, NIGHT_CREATURE_LIGHT, out);
+			}, drop_mesh);
+			chunks.draw_items(renderer.context(), drop_mesh, camera.view() * camera.projection(aspect), camera.position,
+					sky, true);
 		}
 		if (const gc::RayHit hit = player.target(*world); hit.hit) {
 			std::vector<gocube::Box> boxes;
 			world->block_boxes(hit.position.x, hit.position.y, hit.position.z, hit.block, false, boxes);
 			chunks.draw_outline(renderer.context(), boxes);
+		}
+		if (!game.dead() && sleeping < 0) {
+			// Over everything (it never pokes into walls), the item over the arm.
+			float lit[3];
+			gc::light_for(*world, hand_lights, sky_light, eye, NIGHT_CREATURE_LIGHT, lit);
+			std::vector<gc::WorldVertex> arm, held;
+			hand.build(item_models, game.selected_item(), lit, arm, held);
+			const DirectX::XMMATRIX projection = camera.projection(aspect);
+			chunks.clear_depth(renderer.context());
+			chunks.draw_items(renderer.context(), arm, projection, {0, 0, 0}, sky, false);
+			chunks.clear_depth(renderer.context());
+			chunks.draw_items(renderer.context(), held, projection, {0, 0, 0}, sky, true);
 		}
 
 		// With a screenshot, count frames once the world around has loaded.
@@ -1058,6 +1123,7 @@ int main(int argc, char **argv) {
 		gc::log("Couldn't start Direct3D 11");
 		return 1;
 	}
+	renderer.set_render_scale(options.render_scale);
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGui::GetIO().IniFilename = nullptr; // no imgui.ini next to the game

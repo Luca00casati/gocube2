@@ -2,6 +2,9 @@
 
 #include "log.h"
 
+#include "blit_ps.h"
+#include "blit_vs.h"
+
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
 
@@ -80,7 +83,33 @@ bool Renderer::init(HWND hwnd, int width, int height, const RendererOptions &opt
 	factory_->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER); // fullscreen comes later, our way
 	width_ = width;
 	height_ = height;
-	return create_targets();
+	return create_targets() && create_blit();
+}
+
+bool Renderer::create_blit() {
+	D3D11_SAMPLER_DESC sd = {};
+	sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+	sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+	sd.MaxLOD = D3D11_FLOAT32_MAX;
+	sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
+	return !failed(device_->CreateVertexShader(g_blit_vs, sizeof(g_blit_vs), nullptr, &blit_vs_), "blit_vs") &&
+			!failed(device_->CreatePixelShader(g_blit_ps, sizeof(g_blit_ps), nullptr, &blit_ps_), "blit_ps") &&
+			!failed(device_->CreateSamplerState(&sd, &bilinear_), "CreateSamplerState(bilinear)");
+}
+
+void Renderer::set_render_scale(float scale) {
+	scale = std::clamp(scale, 0.25f, 1.0f);
+	if (scale == render_scale_) {
+		return;
+	}
+	render_scale_ = scale;
+	if (swap_chain_) {
+		context_->OMSetRenderTargets(0, nullptr, nullptr);
+		target_.Reset();
+		world_target_.Reset();
+		depth_.Reset();
+		create_targets();
+	}
 }
 
 bool Renderer::create_device() {
@@ -123,9 +152,34 @@ bool Renderer::create_targets() {
 	if (failed(device_->CreateRenderTargetView(back_buffer.Get(), &rd, &world_target_), "CreateRenderTargetView(sRGB)")) {
 		return false;
 	}
+	// Render scale: the world's own smaller target.
+	scaled_target_.Reset();
+	scaled_view_.Reset();
+	scaled_width_ = width_;
+	scaled_height_ = height_;
+	if (render_scale_ < 0.999f) {
+		scaled_width_ = std::max(1, int(float(width_) * render_scale_ + 0.5f));
+		scaled_height_ = std::max(1, int(float(height_) * render_scale_ + 0.5f));
+		D3D11_TEXTURE2D_DESC td = {};
+		td.Width = static_cast<UINT>(scaled_width_);
+		td.Height = static_cast<UINT>(scaled_height_);
+		td.MipLevels = 1;
+		td.ArraySize = 1;
+		td.Format = WORLD_VIEW_FORMAT;
+		td.SampleDesc.Count = 1;
+		td.Usage = D3D11_USAGE_DEFAULT;
+		td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		ComPtr<ID3D11Texture2D> scaled;
+		if (failed(device_->CreateTexture2D(&td, nullptr, &scaled), "CreateTexture2D(scaled)") ||
+				failed(device_->CreateRenderTargetView(scaled.Get(), nullptr, &scaled_target_), "scaled target") ||
+				failed(device_->CreateShaderResourceView(scaled.Get(), nullptr, &scaled_view_), "scaled view")) {
+			scaled_target_.Reset();
+			return false;
+		}
+	}
 	D3D11_TEXTURE2D_DESC dd = {};
-	dd.Width = static_cast<UINT>(width_);
-	dd.Height = static_cast<UINT>(height_);
+	dd.Width = static_cast<UINT>(scaled_width_);
+	dd.Height = static_cast<UINT>(scaled_height_);
 	dd.MipLevels = 1;
 	dd.ArraySize = 1;
 	dd.Format = DEPTH_FORMAT;
@@ -164,15 +218,36 @@ void Renderer::resize(int width, int height) {
 
 void Renderer::begin_frame(const float clear_linear[4]) {
 	// The flip model unbinds the back buffer at every Present, so bind it each frame.
-	ID3D11RenderTargetView *targets[] = {world_target_.Get()};
-	context_->OMSetRenderTargets(1, targets, depth_.Get());
-	context_->ClearRenderTargetView(world_target_.Get(), clear_linear);
+	ID3D11RenderTargetView *world = scaled() ? scaled_target_.Get() : world_target_.Get();
+	context_->OMSetRenderTargets(1, &world, depth_.Get());
+	context_->ClearRenderTargetView(world, clear_linear);
 	context_->ClearDepthStencilView(depth_.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
-	D3D11_VIEWPORT vp = {0, 0, float(width_), float(height_), 0.0f, 1.0f};
+	D3D11_VIEWPORT vp = {0, 0, float(scaled_width_), float(scaled_height_), 0.0f, 1.0f};
 	context_->RSSetViewports(1, &vp);
 }
 
 bool Renderer::end_frame(const char *screenshot_png) {
+	if (scaled()) {
+		// Stretch the world over the window (through sRGB views: filtered in linear light).
+		ID3D11RenderTargetView *full[] = {world_target_.Get()};
+		context_->OMSetRenderTargets(1, full, nullptr);
+		D3D11_VIEWPORT vp = {0, 0, float(width_), float(height_), 0.0f, 1.0f};
+		context_->RSSetViewports(1, &vp);
+		context_->IASetInputLayout(nullptr);
+		context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		context_->VSSetShader(blit_vs_.Get(), nullptr, 0);
+		context_->PSSetShader(blit_ps_.Get(), nullptr, 0);
+		ID3D11ShaderResourceView *views[] = {scaled_view_.Get()};
+		context_->PSSetShaderResources(0, 1, views);
+		ID3D11SamplerState *samplers[] = {bilinear_.Get()};
+		context_->PSSetSamplers(0, 1, samplers);
+		context_->RSSetState(nullptr);
+		context_->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+		context_->OMSetDepthStencilState(nullptr, 0);
+		context_->Draw(3, 0);
+		ID3D11ShaderResourceView *none[] = {nullptr}; // (it's a render target again next frame)
+		context_->PSSetShaderResources(0, 1, none);
+	}
 	ID3D11RenderTargetView *targets[] = {target_.Get()};
 	context_->OMSetRenderTargets(1, targets, nullptr);
 	if (imgui_) {

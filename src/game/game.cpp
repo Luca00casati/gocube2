@@ -244,6 +244,7 @@ void Game::break_block(const BlockPos &p, const std::string &tool) {
 	for (const BlockChange &c : changes) {
 		mods_.block_broken(c.pos, c.id);
 	}
+	swings_++;
 }
 
 bool Game::use_item(const RayHit &hit) {
@@ -287,6 +288,9 @@ void Game::update(float dt, const GameInput &in) {
 
 	const RayHit hit = player_.target(world_);
 	const std::string tool = selected_item();
+	if (in.break_pressed && !hit.hit) {
+		swings_++; // at nothing
+	}
 	// Breaking: at once in creative, by holding the button in survival.
 	if (creative_) {
 		if (in.break_pressed && hit.hit) {
@@ -337,14 +341,17 @@ void Game::update(float dt, const GameInput &in) {
 		if (!creative_ && health_ < MAX_HEALTH) {
 			health_ = std::min(MAX_HEALTH, health_ + food);
 			inventory_.take_one(selected_);
+			swings_++;
 		}
 	} else if (in.use_pressed && hit.hit && use_item(hit)) {
-		// (a hoe tilled, seeds were planted: the use_item rule did it)
+		swings_++; // (a hoe tilled, seeds were planted: the use_item rule did it)
 	} else if (in.use_pressed) {
 		// Placing (or using a door) with the selected item; survival uses it up.
 		std::vector<BlockChange> changes;
 		const std::string item = selected_item();
-		player_.use_or_place(world_, rules_, item, in.sneak, &changes);
+		if (player_.use_or_place(world_, rules_, item, in.sneak, &changes)) {
+			swings_++;
+		}
 		const bool placed = std::any_of(changes.begin(), changes.end(), [](const BlockChange &c) { return c.placed; });
 		if (placed && !creative_) {
 			inventory_.take_one(selected_);

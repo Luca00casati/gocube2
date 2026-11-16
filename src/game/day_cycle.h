@@ -70,9 +70,10 @@ public:
 	Rgb sky_horizon() const {
 		return NIGHT_HORIZON.lerp(DAY_HORIZON, day_amount()).lerp(DUSK_HORIZON, dusk() * 0.65f);
 	}
-	// Fog: near at night, out to the view distance by day.
-	float fog_begin(float day_begin) const { return NIGHT_FOG_BEGIN + (day_begin - NIGHT_FOG_BEGIN) * day_amount(); }
-	float fog_end(float day_end) const { return NIGHT_FOG_END + (day_end - NIGHT_FOG_END) * day_amount(); }
+	// Depth fog: from 0.45 of the view distance, thick at 0.95, by day (the
+	// Godot version's main._set_fog_range); much nearer at night.
+	float fog_begin(float view) const { return NIGHT_FOG_BEGIN + (view * 0.45f - NIGHT_FOG_BEGIN) * day_amount(); }
+	float fog_end(float view) const { return NIGHT_FOG_END + (view * 0.95f - NIGHT_FOG_END) * day_amount(); }
 
 	// "7:05 AM" or "07:05".
 	static void clock_text(double time, bool use_24h, char *out, size_t size) {

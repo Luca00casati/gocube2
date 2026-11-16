@@ -4,9 +4,11 @@
 // and disappear after LIFETIME. As the Godot version's ItemDrop(s).
 
 #include "content/content.h"
+#include "content/item_models.h"
 #include "game/inventory.h"
 #include "world/world.h"
 
+#include <functional>
 #include <random>
 #include <string>
 #include <vector>
@@ -29,6 +31,7 @@ public:
 		float pos[3] = {0, 0, 0}; // bottom centre
 		float vel[3] = {0, 0, 0};
 		float age = 0;
+		float turn = 0; // the model's starting spin (radians)
 	};
 
 	void spawn(const std::string &item, int count, const float at[3]);
@@ -37,8 +40,10 @@ public:
 	std::vector<Stack> step(float dt, const World &world, const float player[3], bool player_alive, Inventory &inventory);
 	const std::vector<Drop> &drops() const { return drops_; }
 
-	// Their geometry (world coordinates), for this moment (`time`: for the bob and spin).
-	void build_mesh(const World &world, const BlockTable &table, const Content &content, float time,
+	// Their models (world coordinates; ItemModels), bobbing and slowly
+	// spinning, each coloured by `light` at it (linear rgb: the light where it
+	// is, for shaders/items.hlsl).
+	void build_mesh(ItemModels &models, const std::function<void(const float at[3], float out[3])> &light,
 			std::vector<WorldVertex> &out) const;
 
 private:

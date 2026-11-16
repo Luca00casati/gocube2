@@ -22,7 +22,7 @@ struct Camera {
 	DirectX::XMFLOAT3 position = {0, 0, 0};
 	float yaw = 0;   // radians; 0 looks towards -z, positive turns left
 	float pitch = 0; // radians; positive looks up
-	float fov_y = DirectX::XMConvertToRadians(70.0f);
+	float fov_y = DirectX::XMConvertToRadians(75.0f); // (Godot's Camera3D default)
 	float near_z = 0.05f, far_z = 1000.0f;
 
 	DirectX::XMFLOAT3 forward() const; // unit view direction
@@ -36,7 +36,7 @@ struct SkyParams {
 	DirectX::XMFLOAT3 sun_dir = {0.36f, 0.86f, 0.36f}; // towards the sun
 	DirectX::XMFLOAT3 sky_tint = {1, 1, 1};
 	DirectX::XMFLOAT3 fog_color = {0.62f, 0.78f, 0.95f}; // linear
-	float fog_start = 80, fog_end = 120;
+	float fog_start = 58, fog_end = 122; // depth fog (see chunk.hlsl), by 3D distance
 	float time = 0;
 	// The sky (linear colours): gradient, sun, moon, stars, clouds.
 	DirectX::XMFLOAT3 sky_top = {0.08f, 0.24f, 0.71f}, sky_horizon = {0.42f, 0.59f, 0.83f};
@@ -61,11 +61,22 @@ public:
 	void draw(ID3D11DeviceContext *context, const Camera &camera, float aspect, const SkyParams &sky);
 	// First of all: the sky behind everything.
 	void draw_sky(ID3D11DeviceContext *context, const Camera &camera, float aspect, const SkyParams &sky);
-	// After draw(): triangles in world coordinates (dropped items), drawn like
-	// cutout blocks, from both sides.
-	void draw_triangles(ID3D11DeviceContext *context, const std::vector<WorldVertex> &vertices);
+	// Dropped items and the first-person hand (shaders/items.hlsl): vertices
+	// placed already, `view_proj` takes them to the screen; their colour is the
+	// light (times the texture if `textured`, else it's the whole colour).
+	// Fog by distance from `eye`, as the terrain's.
+	void draw_items(ID3D11DeviceContext *context, const std::vector<WorldVertex> &vertices,
+			const DirectX::XMMATRIX &view_proj, const DirectX::XMFLOAT3 &eye, const SkyParams &sky, bool textured);
+	// Clears the depth buffer (the hand is drawn over everything).
+	void clear_depth(ID3D11DeviceContext *context);
+	// Torches held in hand (HandLights): their light levels, a cube of
+	// HAND_LIGHT_SIZE blocks from `origin` ((y * size + z) * size + x), uploaded
+	// when `changed`; none while `volume` is empty.
+	static constexpr int HAND_LIGHT_SIZE = 48;
+	void set_hand_light(ID3D11DeviceContext *context, const std::vector<uint8_t> &volume, const BlockPos &origin,
+			int count, bool changed);
 	// The block atlas for Dear ImGui (a plain view: ImGui draws without sRGB).
-	ID3D11ShaderResourceView *ui_atlas() const { return ui_atlas_.Get(); }
+	ID3D11ShaderResourceView *ui_atlas() const { return atlas_.Get(); }
 	// After draw(): the edges of these boxes (world coordinates), just outside
 	// them so the lines don't fight with the faces.
 	void draw_outline(ID3D11DeviceContext *context, const std::vector<gocube::Box> &boxes);
@@ -88,7 +99,7 @@ private:
 	ComPtr<ID3D11PixelShader> ps_opaque_, ps_cutout_, ps_fluid_;
 	ComPtr<ID3D11InputLayout> layout_;
 	ComPtr<ID3D11Buffer> frame_cb_, draw_cb_;
-	ComPtr<ID3D11ShaderResourceView> atlas_, ui_atlas_;
+	ComPtr<ID3D11ShaderResourceView> atlas_; // plain (not sRGB) view: see init()
 	ComPtr<ID3D11Buffer> dynamic_vertices_;
 	UINT dynamic_capacity_ = 0;
 	ComPtr<ID3D11SamplerState> sampler_;
@@ -103,6 +114,14 @@ private:
 	ComPtr<ID3D11VertexShader> sky_vs_;
 	ComPtr<ID3D11PixelShader> sky_ps_;
 	ComPtr<ID3D11Buffer> sky_cb_;
+	ComPtr<ID3D11VertexShader> items_vs_;
+	ComPtr<ID3D11PixelShader> items_ps_;
+	ComPtr<ID3D11Buffer> items_cb_;
+	ComPtr<ID3D11Texture3D> hand_light_tex_;
+	ComPtr<ID3D11ShaderResourceView> hand_light_srv_;
+	DirectX::XMFLOAT3 hand_light_origin_ = {0, 0, 0};
+	int hand_light_count_ = 0;
+	bool upload_dynamic(ID3D11DeviceContext *context, const std::vector<WorldVertex> &vertices);
 	ChunkRenderStats stats_;
 };
 

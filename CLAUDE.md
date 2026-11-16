@@ -59,6 +59,22 @@ inside a call). `tests/test_survival.cpp`'s flood test checks it.
 `--pos=X,Y,Z --look=YAW,PITCH`) renders once the world around has loaded; read the
 PNG to check what a rendering change looks like.
 
+## Looking like the Godot version
+The target is what the Godot version shows on the development PC: Godot's
+Compatibility renderer (its only one there). That renderer uses textures and
+colours as they are (sRGB numbers) and writes emission and unshaded colour
+out as pixel values; only the sun's share (`light()`) is added as linear
+light. `shaders/chunk.hlsl` and `shaders/items.hlsl` do the same
+(`to_linear(everything but the sun) + sun`), with the atlas read through its
+plain view: keep it that way, or the colours drift. Fog is Godot's depth fog
+(`main._set_fog_range`), not its default exponential one.
+To compare, take the same shot with both: `gocube.exe --hidden --frames=10
+--seed=777 --time=T --pos=... --look=... --screenshot=a.png`, and from
+`..\gocube`, `Godot_v4.7.2-stable_win64_console.exe --path . --resolution
+1280x720 -s <this repo>\tests\data\godot_screenshot.gd -- --world=_shot
+--seed=777 --time=T --pos=... --look=... --out=b.png`. Both pin the clouds
+(they drift from the start); compare pixels, not impressions.
+
 ## Graphics
 Direct3D 11, feature level 11_0 minimum. Not Direct3D 12: the development PC's
 Intel HD Graphics 4600 hangs on every Direct3D 12 draw (Intel disabled Direct3D 12

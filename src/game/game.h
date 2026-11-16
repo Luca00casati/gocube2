@@ -53,6 +53,9 @@ public:
 	int selected() const { return selected_; }
 	const std::string &selected_item() const { return inventory_.slots[selected_].id; }
 	float mining_progress() const { return mining_progress_; } // 0..1 while mining
+	// Goes up with every swing of the arm: breaking, placing or using, eating,
+	// a click at nothing (mining swings on its own: mining_progress).
+	int swings() const { return swings_; }
 	const ItemDrops &drops() const { return drops_; }
 	BlockEntities &block_entities() { return entities_; }
 	// A container the player right-clicked this frame (the caller opens its screen).
@@ -162,6 +165,7 @@ private:
 	float notice_time_ = 0;
 	BlockPos mining_target_{1 << 30, 0, 0};
 	float mining_progress_ = 0;
+	int swings_ = 0;
 	float mining_seconds_ = 1;
 };
 

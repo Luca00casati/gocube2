@@ -5,9 +5,11 @@
 // graphics such as the HD 4600, where every Direct3D 12 draw hangs the GPU,
 // while their Direct3D 11 drivers are mature. Feature level 11_0 is the minimum.
 //
-// The world is drawn through an sRGB view of the back buffer (textures are
-// sRGB, lighting is linear, as in the Godot version); Dear ImGui through a
-// plain view (its colours are already what the screen shows).
+// The world is drawn through an sRGB view of the back buffer (its shaders work
+// out linear light; see shaders/chunk.hlsl); Dear ImGui through a plain view
+// (its colours are already what the screen shows). With a render scale below
+// 1 the world is drawn into a smaller target first, then stretched over the
+// window (bilinear), under the full-size UI: the Godot version's setting.
 
 #include <d3d11_1.h>
 #include <dxgi1_6.h>
@@ -41,7 +43,12 @@ public:
 	bool init_imgui(); // after ImGui_ImplWin32_Init
 	void resize(int width, int height);
 
-	// Clears the back buffer (to a linear colour) and the depth buffer, and
+	// The world's resolution as a part of the window's (0.25..1; the Godot
+	// version offers 1, 0.85, 0.75 and 0.5).
+	void set_render_scale(float scale);
+	float render_scale() const { return render_scale_; }
+
+	// Clears the world's target (to a linear colour) and the depth buffer, and
 	// binds them for drawing the world.
 	void begin_frame(const float clear_linear[4]);
 	// Draws the ImGui draw data, saves a screenshot if `screenshot_png` is
@@ -60,7 +67,9 @@ public:
 private:
 	bool create_device();
 	bool create_targets();
+	bool create_blit();
 	bool save_png(const char *path);
+	bool scaled() const { return scaled_target_ != nullptr; }
 
 	RendererOptions options_;
 	std::string adapter_name_;
@@ -73,6 +82,14 @@ private:
 	ComPtr<ID3D11RenderTargetView> target_;       // plain (ImGui)
 	ComPtr<ID3D11RenderTargetView> world_target_; // sRGB (the world)
 	ComPtr<ID3D11DepthStencilView> depth_;
+	// Render scale below 1: the world's smaller target (sRGB), and the stretch.
+	float render_scale_ = 1.0f;
+	int scaled_width_ = 0, scaled_height_ = 0;
+	ComPtr<ID3D11RenderTargetView> scaled_target_;
+	ComPtr<ID3D11ShaderResourceView> scaled_view_;
+	ComPtr<ID3D11VertexShader> blit_vs_;
+	ComPtr<ID3D11PixelShader> blit_ps_;
+	ComPtr<ID3D11SamplerState> bilinear_;
 	bool tearing_ = false;
 	bool imgui_ = false;
 	int debug_messages_ = 0;

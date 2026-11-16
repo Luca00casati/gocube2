@@ -7,6 +7,8 @@
 #include "chunk_ps_fluid.h"
 #include "chunk_ps_opaque.h"
 #include "chunk_vs.h"
+#include "items_ps.h"
+#include "items_vs.h"
 #include "lines_ps.h"
 #include "lines_vs.h"
 #include "sky_ps.h"
@@ -36,7 +38,10 @@ struct FrameConstants {
 	XMFLOAT3 block_light_color;
 	float fog_end;
 	float time;
-	float pad[3];
+	float cloud_offset[2];
+	float pad1;
+	XMFLOAT3 hand_light_origin;
+	float hand_light_count;
 };
 static_assert(sizeof(FrameConstants) % 16 == 0);
 
@@ -55,6 +60,18 @@ struct SkyConstants {
 	float pad[2];
 };
 static_assert(sizeof(SkyConstants) % 16 == 0);
+
+// Matches cbuffer Items in items.hlsl.
+struct ItemConstants {
+	XMFLOAT4X4 view_proj;
+	XMFLOAT3 eye;
+	float fog_start;
+	XMFLOAT3 fog_color;
+	float fog_end;
+	float use_texture;
+	float pad[3];
+};
+static_assert(sizeof(ItemConstants) % 16 == 0);
 
 struct DrawConstants {
 	XMFLOAT3 chunk_origin;
@@ -159,35 +176,30 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 		return false;
 	}
 
-	// The atlas: sRGB, with mipmaps made by the GPU (tiles repeat within their
-	// cells, so mip levels don't mix neighbouring tiles).
+	// The atlas, with mipmaps made by the GPU (tiles repeat within their cells,
+	// so mip levels don't mix neighbouring tiles). Read as it is, sRGB numbers
+	// not decoded: by the world's shaders as the Godot version's renderer does
+	// (see chunk.hlsl), and by ImGui.
 	D3D11_TEXTURE2D_DESC td = {};
 	td.Width = UINT(atlas.width);
 	td.Height = UINT(atlas.height);
 	td.MipLevels = 0; // the full chain
 	td.ArraySize = 1;
-	td.Format = DXGI_FORMAT_R8G8B8A8_TYPELESS; // sRGB view for the world, plain one for ImGui
+	td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	td.SampleDesc.Count = 1;
 	td.Usage = D3D11_USAGE_DEFAULT;
 	td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 	td.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
 	ComPtr<ID3D11Texture2D> tex;
-	D3D11_SHADER_RESOURCE_VIEW_DESC sv = {};
-	sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-	sv.Texture2D.MipLevels = UINT(-1);
-	sv.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-	D3D11_SHADER_RESOURCE_VIEW_DESC uv = sv;
-	uv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	if (!ok(device->CreateTexture2D(&td, nullptr, &tex), "CreateTexture2D(atlas)") ||
-			!ok(device->CreateShaderResourceView(tex.Get(), &sv, &atlas_), "CreateShaderResourceView(atlas)") ||
-			!ok(device->CreateShaderResourceView(tex.Get(), &uv, &ui_atlas_), "CreateShaderResourceView(ui atlas)")) {
+			!ok(device->CreateShaderResourceView(tex.Get(), nullptr, &atlas_), "CreateShaderResourceView(atlas)")) {
 		return false;
 	}
 	ComPtr<ID3D11DeviceContext> ctx;
 	device->GetImmediateContext(&ctx);
 	ctx->UpdateSubresource(tex.Get(), 0, nullptr, atlas.rgba.data(), UINT(atlas.width) * 4, 0);
 	// (Mipmaps averaged in sRGB, as the Godot version's Image.generate_mipmaps does.)
-	ctx->GenerateMips(ui_atlas_.Get());
+	ctx->GenerateMips(atlas_.Get());
 
 	D3D11_SAMPLER_DESC sd = {};
 	sd.Filter = D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR; // crisp pixels, smooth with distance
@@ -258,7 +270,113 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 			!ok(device->CreateBuffer(&cb, nullptr, &sky_cb_), "sky constants")) {
 		return false;
 	}
+
+	// Held torches' light (HandLights): one level per block, written whenever it changes.
+	D3D11_TEXTURE3D_DESC hd = {};
+	hd.Width = hd.Height = hd.Depth = HAND_LIGHT_SIZE;
+	hd.MipLevels = 1;
+	hd.Format = DXGI_FORMAT_R8_UNORM;
+	hd.Usage = D3D11_USAGE_DEFAULT;
+	hd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	const std::vector<uint8_t> dark(size_t(HAND_LIGHT_SIZE) * HAND_LIGHT_SIZE * HAND_LIGHT_SIZE, 0);
+	const D3D11_SUBRESOURCE_DATA hdata = {dark.data(), HAND_LIGHT_SIZE, HAND_LIGHT_SIZE * HAND_LIGHT_SIZE};
+	if (!ok(device->CreateTexture3D(&hd, &hdata, &hand_light_tex_), "CreateTexture3D(hand light)") ||
+			!ok(device->CreateShaderResourceView(hand_light_tex_.Get(), nullptr, &hand_light_srv_), "hand light view")) {
+		return false;
+	}
+
+	// Items and the hand (the terrain's vertex layout).
+	cb.ByteWidth = sizeof(ItemConstants);
+	if (!ok(device->CreateVertexShader(g_items_vs, sizeof(g_items_vs), nullptr, &items_vs_), "items_vs") ||
+			!ok(device->CreatePixelShader(g_items_ps, sizeof(g_items_ps), nullptr, &items_ps_), "items_ps") ||
+			!ok(device->CreateBuffer(&cb, nullptr, &items_cb_), "item constants")) {
+		return false;
+	}
 	return true;
+}
+
+bool ChunkRenderer::upload_dynamic(ID3D11DeviceContext *ctx, const std::vector<WorldVertex> &vertices) {
+	if (vertices.size() > dynamic_capacity_) {
+		ComPtr<ID3D11Device> device;
+		ctx->GetDevice(&device);
+		dynamic_capacity_ = UINT(vertices.size() * 2);
+		D3D11_BUFFER_DESC bd = {};
+		bd.Usage = D3D11_USAGE_DYNAMIC;
+		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		bd.ByteWidth = dynamic_capacity_ * sizeof(WorldVertex);
+		dynamic_vertices_.Reset();
+		if (FAILED(device->CreateBuffer(&bd, nullptr, &dynamic_vertices_))) {
+			dynamic_capacity_ = 0;
+			return false;
+		}
+	}
+	D3D11_MAPPED_SUBRESOURCE m;
+	if (FAILED(ctx->Map(dynamic_vertices_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+		return false;
+	}
+	std::memcpy(m.pData, vertices.data(), vertices.size() * sizeof(WorldVertex));
+	ctx->Unmap(dynamic_vertices_.Get(), 0);
+	return true;
+}
+
+void ChunkRenderer::draw_items(ID3D11DeviceContext *ctx, const std::vector<WorldVertex> &vertices,
+		const XMMATRIX &view_proj, const XMFLOAT3 &eye, const SkyParams &sky, bool textured) {
+	if (vertices.empty() || !upload_dynamic(ctx, vertices)) {
+		return;
+	}
+	ItemConstants k = {};
+	XMStoreFloat4x4(&k.view_proj, view_proj); // (HLSL reads it transposed: mul(view_proj, v) == v * vp)
+	k.eye = eye;
+	k.fog_start = sky.fog_start;
+	k.fog_end = sky.fog_end;
+	k.fog_color = sky.fog_color;
+	k.use_texture = textured ? 1.0f : 0.0f;
+	D3D11_MAPPED_SUBRESOURCE m;
+	if (FAILED(ctx->Map(items_cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+		return;
+	}
+	std::memcpy(m.pData, &k, sizeof(k));
+	ctx->Unmap(items_cb_.Get(), 0);
+	ID3D11Buffer *cbs[] = {items_cb_.Get()};
+	ctx->VSSetConstantBuffers(0, 1, cbs);
+	ctx->PSSetConstantBuffers(0, 1, cbs);
+	ctx->IASetInputLayout(layout_.Get());
+	ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	const UINT stride = sizeof(WorldVertex), offset = 0;
+	ID3D11Buffer *vb = dynamic_vertices_.Get();
+	ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+	ctx->VSSetShader(items_vs_.Get(), nullptr, 0);
+	ctx->PSSetShader(items_ps_.Get(), nullptr, 0);
+	ID3D11ShaderResourceView *srvs[] = {atlas_.Get()};
+	ctx->PSSetShaderResources(0, 1, srvs);
+	ID3D11SamplerState *samplers[] = {sampler_.Get()};
+	ctx->PSSetSamplers(0, 1, samplers);
+	ctx->RSSetState(cull_none_.Get());
+	ctx->OMSetDepthStencilState(depth_write_.Get(), 0);
+	ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+	ctx->Draw(UINT(vertices.size()), 0);
+	ctx->RSSetState(nullptr);
+	ctx->OMSetDepthStencilState(nullptr, 0);
+}
+
+void ChunkRenderer::set_hand_light(ID3D11DeviceContext *ctx, const std::vector<uint8_t> &volume, const BlockPos &origin,
+		int count, bool changed) {
+	hand_light_origin_ = {float(origin.x), float(origin.y), float(origin.z)};
+	hand_light_count_ = volume.empty() ? 0 : count;
+	const size_t size = size_t(HAND_LIGHT_SIZE) * HAND_LIGHT_SIZE * HAND_LIGHT_SIZE;
+	if (changed && volume.size() == size) {
+		ctx->UpdateSubresource(hand_light_tex_.Get(), 0, nullptr, volume.data(), HAND_LIGHT_SIZE,
+				HAND_LIGHT_SIZE * HAND_LIGHT_SIZE);
+	}
+}
+
+void ChunkRenderer::clear_depth(ID3D11DeviceContext *ctx) {
+	ComPtr<ID3D11DepthStencilView> dsv;
+	ctx->OMGetRenderTargets(0, nullptr, &dsv);
+	if (dsv) {
+		ctx->ClearDepthStencilView(dsv.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
+	}
 }
 
 void ChunkRenderer::draw_sky(ID3D11DeviceContext *ctx, const Camera &camera, float aspect, const SkyParams &sky) {
@@ -291,57 +409,6 @@ void ChunkRenderer::draw_sky(ID3D11DeviceContext *ctx, const Camera &camera, flo
 	ctx->OMSetDepthStencilState(depth_off_.Get(), 0);
 	ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
 	ctx->Draw(3, 0);
-	ctx->RSSetState(nullptr);
-	ctx->OMSetDepthStencilState(nullptr, 0);
-}
-
-void ChunkRenderer::draw_triangles(ID3D11DeviceContext *ctx, const std::vector<WorldVertex> &vertices) {
-	if (vertices.empty()) {
-		return;
-	}
-	if (vertices.size() > dynamic_capacity_) {
-		ComPtr<ID3D11Device> device;
-		ctx->GetDevice(&device);
-		dynamic_capacity_ = UINT(vertices.size() * 2);
-		D3D11_BUFFER_DESC bd = {};
-		bd.Usage = D3D11_USAGE_DYNAMIC;
-		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-		bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-		bd.ByteWidth = dynamic_capacity_ * sizeof(WorldVertex);
-		dynamic_vertices_.Reset();
-		if (FAILED(device->CreateBuffer(&bd, nullptr, &dynamic_vertices_))) {
-			dynamic_capacity_ = 0;
-			return;
-		}
-	}
-	D3D11_MAPPED_SUBRESOURCE m;
-	if (FAILED(ctx->Map(dynamic_vertices_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
-		return;
-	}
-	std::memcpy(m.pData, vertices.data(), vertices.size() * sizeof(WorldVertex));
-	ctx->Unmap(dynamic_vertices_.Get(), 0);
-	const DrawConstants d = {{0, 0, 0}, 0}; // already in world coordinates
-	if (SUCCEEDED(ctx->Map(draw_cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
-		std::memcpy(m.pData, &d, sizeof(d));
-		ctx->Unmap(draw_cb_.Get(), 0);
-	}
-	ID3D11Buffer *cbs[] = {frame_cb_.Get(), draw_cb_.Get()};
-	ctx->VSSetConstantBuffers(0, 2, cbs);
-	ctx->PSSetConstantBuffers(0, 2, cbs);
-	ctx->IASetInputLayout(layout_.Get());
-	ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	const UINT stride = sizeof(WorldVertex), offset = 0;
-	ID3D11Buffer *vb = dynamic_vertices_.Get();
-	ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
-	ctx->VSSetShader(vs_.Get(), nullptr, 0);
-	ctx->PSSetShader(ps_cutout_.Get(), nullptr, 0);
-	ID3D11ShaderResourceView *srvs[] = {atlas_.Get()};
-	ctx->PSSetShaderResources(0, 1, srvs);
-	ID3D11SamplerState *samplers[] = {sampler_.Get()};
-	ctx->PSSetSamplers(0, 1, samplers);
-	ctx->RSSetState(cull_none_.Get());
-	ctx->OMSetDepthStencilState(depth_write_.Get(), 0);
-	ctx->Draw(UINT(vertices.size()), 0);
 	ctx->RSSetState(nullptr);
 	ctx->OMSetDepthStencilState(nullptr, 0);
 }
@@ -455,8 +522,12 @@ void ChunkRenderer::draw(ID3D11DeviceContext *ctx, const Camera &camera, float a
 	f.fog_color = sky.fog_color;
 	f.fog_start = sky.fog_start;
 	f.fog_end = sky.fog_end;
-	f.block_light_color = {linear(1.0f), linear(0.85f), linear(0.62f)}; // the Godot version's, as it looks
+	f.cloud_offset[0] = sky.cloud_offset[0];
+	f.cloud_offset[1] = sky.cloud_offset[1];
+	f.block_light_color = {1.0f, 0.85f, 0.62f}; // the Godot version's, as it is (raw: see chunk.hlsl)
 	f.time = sky.time;
+	f.hand_light_origin = hand_light_origin_;
+	f.hand_light_count = float(hand_light_count_);
 	D3D11_MAPPED_SUBRESOURCE m;
 	if (SUCCEEDED(ctx->Map(frame_cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
 		std::memcpy(m.pData, &f, sizeof(f));
@@ -474,8 +545,8 @@ void ChunkRenderer::draw(ID3D11DeviceContext *ctx, const Camera &camera, float a
 	ctx->IASetInputLayout(layout_.Get());
 	ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	ctx->VSSetShader(vs_.Get(), nullptr, 0);
-	ID3D11ShaderResourceView *srvs[] = {atlas_.Get()};
-	ctx->PSSetShaderResources(0, 1, srvs);
+	ID3D11ShaderResourceView *srvs[] = {atlas_.Get(), hand_light_srv_.Get()};
+	ctx->PSSetShaderResources(0, 2, srvs);
 	ID3D11SamplerState *samplers[] = {sampler_.Get()};
 	ctx->PSSetSamplers(0, 1, samplers);
 

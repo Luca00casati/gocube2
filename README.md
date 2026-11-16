@@ -4,8 +4,10 @@ Voxel sandbox for Windows, in C++20 with Direct3D 11, gameplay and mods in Lua.
 A rewrite of the Godot version of GoCube; the plan is in the
 [GoCube Native Rewrite Plan](https://claude.ai/artifact/CMdng1jnMGWsAb7X84FHoy).
 
-Status: milestone 5. Survival: mining, drops, crafting, chests and furnaces,
+Status: milestone 6. Survival: mining, drops, crafting, chests and furnaces,
 health, the day and night, growing plants, farming, flowing water and lava; creative; a title menu and pause menu.
+It looks like the Godot version: its sky, fog, block and cloud shadows, light
+from torches (placed and held), dropped items and the first-person arm.
 Worlds are saved in the Godot version's format (worlds it saved open here, and the
 other way round) and generated exactly as it does. The rules of the game are the
 base game's Lua (`mods/core`), sandboxed like every mod.
@@ -81,6 +83,7 @@ when you quit.
 | `--hidden` | Don't show the window (tests) |
 | `--frames=N` | Quit after N frames; exit code 1 if the debug layer reported errors or warnings |
 | `--screenshot=FILE` | Save the last frame as a PNG (frames are counted once the world around has loaded) |
+| `--render-scale=F` | Draw the world at this part of the window's resolution (0.25 to 1; stretched over it) |
 | `--no-vsync` | Present as fast as possible |
 | `--debug`, `--no-debug` | Force the Direct3D 11 debug layer on or off (default: on in debug builds) |
 
@@ -116,15 +119,18 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
   (shaped blocks' variants, doors, beds, support).
 - `src/mods/`: finding, ordering and loading mods; the Lua sandbox and API;
   fingerprints.
-- `src/render/`, `shaders/`: Direct3D 11 and the terrain shaders (HLSL, compiled by
-  FXC at build time).
+- `src/render/`, `shaders/`: Direct3D 11, the terrain, sky and item shaders (HLSL,
+  compiled by FXC at build time), drawn as the Godot version shows them.
 - `mods/core/`: the base game: content, assets and `main.lua` (the Godot version's
   `main.gd`, which registered one block and one recipe from code).
 - `thirdparty/lua/`: Lua 5.4.8's sources, built with a fixed string-hash seed.
 - `tests/`: doctest unit tests: the generation fingerprints, player movement and
-  editing, saving, and mods (the sandbox, undoing, events, fingerprints). `tests/data/godot_world` is a world the Godot version saved
+  editing, saving, mods (the sandbox, undoing, events, fingerprints), survival,
+  and what rendering works out on the CPU (item models, held light, block
+  shadows). `tests/data/godot_world` is a world the Godot version saved
   (made by `tests/data/make_godot_world.gd`; `check_godot_opens.gd` checks the other
-  way round).
+  way round); `tests/data/godot_screenshot.gd` takes the Godot version's side of a
+  screenshot comparison.
 
 ## Dependencies
 Pinned through `vcpkg.json` (its `builtin-baseline`), linked statically:
