@@ -29,7 +29,7 @@ drivers are mature, and nothing a voxel game needs is missing from Direct3D 11.
 
 ## Build and test
 From a **Developer PowerShell for VS** (it puts CMake and `fxc` on the path), in
-this folder (the build is Visual Studio's own: MSBuild, `build\gocube.sln`):
+this folder (the build is Visual Studio's own: MSBuild, `build\gocube.slnx`):
 
     cmake --preset windows        # once
     cmake --build --preset debug  # or: release
