@@ -73,11 +73,15 @@ PNG to check what a rendering change looks like.
 ## Looking like the Godot version
 The target is what the Godot version shows on the development PC: Godot's
 Compatibility renderer (its only one there). That renderer uses textures and
-colours as they are (sRGB numbers) and writes emission and unshaded colour
-out as pixel values; only the sun's share (`light()`) is added as linear
-light. `shaders/chunk.hlsl` and `shaders/items.hlsl` do the same
-(`to_linear(everything but the sun) + sun`), with the atlas read through its
-plain view: keep it that way, or the colours drift. Fog is Godot's depth fog
+colours as they are (sRGB numbers), takes emission and unshaded colour into
+linear light through its fast approximation of the sRGB curve, adds the sun's
+share (`light()`) as linear light, and writes the result through its own
+approximation back (no linear toe) into a plain 8-bit target, where
+see-through surfaces blend. `shaders/godot_color.hlsli` has both curves; the
+world's shaders use them and draw into the plain back buffer, with the atlas
+read through its plain view: keep it that way, or the colours drift. The held
+item culls back faces (Godot's extruded items are wound inside out, so it
+shows their far side). Fog is Godot's depth fog
 (`main._set_fog_range`), not its default exponential one.
 To compare, take the same shot with both: `gocube.exe --hidden --frames=10
 --seed=777 --time=T --pos=... --look=... --screenshot=a.png`, and from
