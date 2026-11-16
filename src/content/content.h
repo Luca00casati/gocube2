@@ -1,6 +1,6 @@
 #pragma once
 // Mods' content: blocks, items, recipes, ores, trees, biomes and sound sets
-// from each mod's JSON content files; numeric block ids; the engine's block
+// that mods register from Lua; numeric block ids; the engine's block
 // table and texture atlas; the world generator's tables.
 //
 // Mirrors the Godot version (Registry, BlockShapes, BlockAtlas, World's
@@ -34,12 +34,8 @@ public:
 	std::map<std::string, Json> blocks, items, recipes, ores, trees, biomes, sound_sets;
 	std::map<std::string, std::filesystem::path> mod_dirs; // mod id -> folder
 
-	// Reads a mod folder (mod.json and its content files), without running any
-	// code (Mods loads mods properly). "" or what's wrong.
-	std::string load_mod(const std::filesystem::path &dir);
-	// Registers one content file's sections ("blocks": {id: def}, ...) for `mod`.
-	void register_content(const std::string &mod, const Json &data);
-	// One entry: `id` gets "mod:" in front unless it has a ":".
+	// One entry (mods' registry.register_* calls): `id` gets "mod:" in front
+	// unless it has a ":".
 	void register_entry(std::map<std::string, Json> &table, const std::string &mod, const std::string &id,
 			const Json &def);
 	// The table for a section name ("blocks", "items", ...), or nullptr.

@@ -276,37 +276,6 @@ uint32_t godot_string_hash(const std::string &s) {
 
 // --- Content ---------------------------------------------------------------------
 
-std::string Content::load_mod(const std::filesystem::path &dir) {
-	auto read = [](const std::filesystem::path &p, Json &out) -> std::string {
-		std::ifstream f(p, std::ios::binary);
-		if (!f) {
-			return "can't read " + p.string();
-		}
-		out = Json::parse(f, nullptr, false);
-		return out.is_discarded() ? "invalid JSON in " + p.string() : "";
-	};
-	Json manifest;
-	if (std::string e = read(dir / "mod.json", manifest); !e.empty()) {
-		return e;
-	}
-	const std::string mod = str(manifest, "id");
-	if (mod.empty()) {
-		return "mod.json in " + dir.string() + " has no id";
-	}
-	mod_dirs[mod] = dir;
-	for (const Json &file : manifest.value("content", Json::array())) {
-		if (!file.is_string()) {
-			continue;
-		}
-		Json data;
-		if (std::string e = read(dir / file.get<std::string>(), data); !e.empty()) {
-			return e;
-		}
-		register_content(mod, data);
-	}
-	return "";
-}
-
 std::map<std::string, Json> *Content::table(const std::string &section) {
 	if (section == "blocks") return &blocks;
 	if (section == "items") return &items;
@@ -316,23 +285,6 @@ std::map<std::string, Json> *Content::table(const std::string &section) {
 	if (section == "biomes") return &biomes;
 	if (section == "sound_sets") return &sound_sets;
 	return nullptr;
-}
-
-void Content::register_content(const std::string &mod, const Json &data) {
-	if (!data.is_object()) {
-		return;
-	}
-	for (const auto &[section, entries] : data.items()) {
-		std::map<std::string, Json> *t = table(section);
-		if (!t || !entries.is_object()) {
-			continue;
-		}
-		for (const auto &[id, def] : entries.items()) {
-			if (def.is_object()) {
-				register_entry(*t, mod, id, def);
-			}
-		}
-	}
 }
 
 void Content::register_entry(std::map<std::string, Json> &table, const std::string &mod, const std::string &id,
@@ -389,6 +341,32 @@ std::filesystem::path Content::asset_path(const Json &def, const std::string &re
 }
 
 // --- Generator tables --------------------------------------------------------------
+
+namespace {
+
+// A biome's "trees" or "plants": a list of {id, value} pairs, in their order
+// (it reaches the generator); a table keyed by id has no order in Lua, so
+// that form is taken in id order.
+std::vector<std::pair<std::string, double>> id_values(const Json &j) {
+	std::vector<std::pair<std::string, double>> out;
+	if (j.is_array()) {
+		for (const Json &e : j) {
+			if (e.is_array() && e.size() == 2 && e[0].is_string() && e[1].is_number()) {
+				out.push_back({e[0].get<std::string>(), e[1].get<double>()});
+			}
+		}
+	} else if (j.is_object()) {
+		for (const auto &[id, v] : j.items()) {
+			if (v.is_number()) {
+				out.push_back({id, v.get<double>()});
+			}
+		}
+		std::sort(out.begin(), out.end());
+	}
+	return out;
+}
+
+} // namespace
 
 GeneratorConfig generator_config(const Content &content, int generator_version) {
 	GeneratorConfig g;
@@ -474,19 +452,15 @@ GeneratorConfig generator_config(const Content &content, int generator_version) 
 		b.cap_above = inum(def, "cap_above", 1 << 20);
 		b.cover = block(str(def, "cover"));
 		b.cover_above = inum(def, "cover_above", 1 << 20);
-		// (Locals: iterating items() of the temporary that value() returns would
-		// outlive the temporary.)
-		const Json biome_trees = def.value("trees", Json::object());
-		const Json biome_plants = def.value("plants", Json::object());
-		for (const auto &[tree, percent] : biome_trees.items()) {
+		for (const auto &[tree, percent] : id_values(def.value("trees", Json()))) {
 			auto it = std::find(tree_order.begin(), tree_order.end(), tree);
-			if (it != tree_order.end() && percent.is_number()) {
-				b.trees.push_back({int(it - tree_order.begin()), int(percent.get<double>())});
+			if (it != tree_order.end()) {
+				b.trees.push_back({int(it - tree_order.begin()), int(percent)});
 			}
 		}
-		for (const auto &[plant, per_mille] : biome_plants.items()) {
-			if (content.block_index(plant) > 0 && per_mille.is_number()) {
-				b.plants.push_back({block(plant), int(per_mille.get<double>())});
+		for (const auto &[plant, per_mille] : id_values(def.value("plants", Json()))) {
+			if (content.block_index(plant) > 0) {
+				b.plants.push_back({block(plant), int(per_mille)});
 			}
 		}
 		if (b.surface && b.filler) {

@@ -1,8 +1,14 @@
 -- Code entry point of the base game. Other mods use the same shape: a main.lua
 -- that registers content (and event handlers and rules) through `registry`,
--- `events` and `game`, plus optional JSON content files.
+-- `events` and `game`.
 
--- Content that needs logic can be registered from code instead of JSON.
+-- The content: blocks, items, recipes, what the world generator makes, sounds.
+require("content.blocks")
+require("content.items")
+require("content.recipes")
+require("content.world")
+require("content.sounds")
+
 registry.register_block("planks", {hardness = 2.0, flammable = true, color = "#b8945f",
 	textures = {all = "textures/planks.png"}, sound = "core:wood", tool = "axe", fuel = 7.5})
 registry.register_recipe("planks_to_sticks", {

@@ -260,13 +260,16 @@ TEST_CASE("broken mod.json files and newer mods are skipped") {
 	write(root / "badjson" / "mod.json", "{ nope");
 	make_mod(root, "future", "", {{"api_version", 2}});
 	make_mod(root, "noentry", "", {{"entry", "missing.lua"}});
-	make_mod(root, "escape", "", {{"content", {"../core/content/base.json"}}});
+	make_mod(root, "escape", "", {{"entry", "../core/main.lua"}});
+	make_mod(root, "jsoncontent", "", {{"content", {"content/blocks.json"}}});
 	Loaded l(root, quick());
 	CHECK(l.problem("badid").find("\"id\"") != std::string::npos);
 	CHECK(l.problem("badjson").find("JSON") != std::string::npos);
 	CHECK(l.problem("future").find("newer game") != std::string::npos);
 	CHECK(l.problem("noentry").find("doesn't exist") != std::string::npos);
 	CHECK(l.problem("escape").find("inside the mod") != std::string::npos);
+	// Content comes from Lua only: a mod still listing JSON content files is told so.
+	CHECK(l.problem("jsoncontent").find("from Lua") != std::string::npos);
 	CHECK(l.loaded("core"));
 }
 

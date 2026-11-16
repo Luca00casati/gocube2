@@ -1,14 +1,14 @@
 #pragma once
 // Mods: found in folders, loaded in dependency order (the base game, "core",
-// first), each with its JSON content files and a Lua entry script, run in a
-// sandbox.
+// first), each with a Lua entry script, run in a sandbox. Content (blocks,
+// items, recipes, ...) is registered from Lua; there are no data-only content
+// files (a mod.json listing "content" files is refused, saying so).
 //
 // A mod is a folder with mod.json:
 //   {
 //     "id": "mymod",                       required, a-z 0-9 _
 //     "name": "My Mod", "version": "1.0.0",
 //     "dependencies": ["othermod"],        "core" is implicit
-//     "content": ["content/blocks.json"],  data-only content (optional)
 //     "entry": "main.lua",                 code (optional), see below
 //     "api_version": 1                     the modding API it was written for
 //   }
@@ -19,7 +19,10 @@
 //   registry   register_block/item/recipe/ore/tree/biome/sound_set(id, def),
 //              get_block(id), get_item(id), recipes() -> {[id] = def},
 //              all(section) -> {[id] = def} ("blocks", "trees", ...);
-//              ids without "mod:" get this mod's
+//              ids without "mod:" get this mod's. A definition is a
+//              table of named fields (lists 1..n inside it stay lists); a
+//              biome's "trees" and "plants" are lists of {id, value} pairs
+//              (their order reaches the world generator)
 //   events     on(name, function): "tick" (dt), "block_placed" and
 //              "block_broken" (x, y, z, block id; by the player),
 //              "block_changed" (x, y, z, new block id; any change, told on

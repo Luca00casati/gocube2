@@ -113,36 +113,13 @@ std::string manifest_problem(const Json &m, const fs::path &root) {
 			return "dependency " + d.dump() + " isn't a mod id";
 		}
 	}
-	const Json content = m.value("content", Json::array());
-	if (!content.is_array()) {
-		return "\"content\" must be a list";
-	}
-	for (const Json &rel : content) {
-		if (std::string why = file_problem(rel, root, ".json"); !why.empty()) {
-			return "content " + why;
-		}
+	if (m.contains("content")) {
+		return "has JSON content files (\"content\"), which the game no longer reads: register its content "
+			   "from Lua instead (registry.register_block and the like, in its entry script)";
 	}
 	if (m.contains("entry")) {
 		if (std::string why = file_problem(m["entry"], root, ".lua"); !why.empty()) {
 			return "entry " + why;
-		}
-	}
-	return "";
-}
-
-// What is wrong with a parsed content file, or "".
-std::string content_problem(const Json &data) {
-	if (!data.is_object()) {
-		return "isn't a JSON object";
-	}
-	for (const auto &[section, entries] : data.items()) {
-		if (!entries.is_object()) {
-			return "has \"" + section + "\" not mapping ids to objects";
-		}
-		for (const auto &[id, def] : entries.items()) {
-			if (!def.is_object()) {
-				return "has \"" + section + "\" not mapping ids to objects";
-			}
 		}
 	}
 	return "";
@@ -979,26 +956,6 @@ void Mods::load_all(const std::vector<fs::path> &dirs) {
 			failed.insert(id);
 			continue;
 		}
-		// Every content file is read and checked before anything of the mod is registered.
-		std::vector<Json> files;
-		std::string why;
-		for (const Json &rel : f.manifest.value("content", Json::array())) {
-			const std::string r = rel.get<std::string>();
-			std::ifstream in(f.dir / fs::path(reinterpret_cast<const char8_t *>(r.c_str())), std::ios::binary);
-			Json data = Json::parse(in, nullptr, false);
-			why = data.is_discarded() ? "isn't valid JSON" : content_problem(data);
-			if (!why.empty()) {
-				why = "content file " + r + " " + why;
-				break;
-			}
-			files.push_back(std::move(data));
-		}
-		if (!why.empty()) {
-			fail(id, why + "; skipping it");
-			failed.insert(id);
-			continue;
-		}
-
 		// What's registered so far, to undo this mod if its entry fails.
 		const Content before = content;
 		ModInfo info;
@@ -1008,9 +965,6 @@ void Mods::load_all(const std::vector<fs::path> &dirs) {
 		info.dir = f.dir;
 		info.fingerprint = mod_fingerprint(f.dir);
 		content.mod_dirs[id] = f.dir;
-		for (const Json &data : files) {
-			content.register_content(id, data);
-		}
 		const int index = int(lua_->mods.size());
 		lua_->mods.push_back({info});
 		if (f.manifest.contains("entry")) {

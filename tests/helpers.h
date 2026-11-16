@@ -6,7 +6,7 @@
 
 #include <doctest/doctest.h>
 
-// Loads the base game (mods/core: its JSON content and main.lua) into `content`.
+// Loads the base game (mods/core: main.lua, which registers its content) into `content`.
 inline void load_base_game(gc::Content &content) {
 	gc::Mods mods(content);
 	mods.load_all({GOCUBE_SOURCE_DIR "/mods"});

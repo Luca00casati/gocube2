@@ -17,8 +17,11 @@ the origin. Unedited chunks are generated again every time a world is opened, so
 change in what comes out moves caves, ores and light in worlds already played. Block
 ids (`core:air`, then sorted ids after shaped blocks' variants are added), the block
 table and the generator tables in `src/content/` feed into it as much as
-`src/voxel/` does. A real change to generation is a new generator version (old
-worlds keep theirs) with new fingerprints.
+`src/voxel/` does, and so does the content in `mods/core/content/*.lua` (Lua
+only: there are no JSON content files). Lua tables keyed by id have no order,
+so where order reaches the generator (a biome's trees and plants) it is a list
+of `{id, value}` pairs. A real change to generation is a new generator version
+(old worlds keep theirs) with new fingerprints.
 
 ## Worlds stay compatible with the Godot version
 A world folder is `world.json` plus `chunks\c.X.Y.Z.bin` (the Godot version's

@@ -88,11 +88,13 @@ when you quit.
 | `--debug`, `--no-debug` | Force the Direct3D 11 debug layer on or off (default: on in debug builds) |
 
 ## Mods
-A mod is a folder with `mod.json`, optional JSON content files and an optional
-`main.lua`; the game loads `mods/` next to it (the base game first) and
-`%APPDATA%/GoCube/mods`. `src/mods/mods.h` describes the format and the Lua API
+A mod is a folder with `mod.json` and a `main.lua`; the game loads `mods/` next
+to it (the base game first) and `%APPDATA%/GoCube/mods`. Everything a mod adds
+is Lua: content too (`registry.register_block("ruby_ore", {...})`); there are no
+JSON content files. `src/mods/mods.h` describes the format and the Lua API
 (`registry`, `events`, `world`, `game`). The base game is the example: its
-`main.lua` and `rules/` set the game's rules (mining time, drops, crafting,
+`content/` registers its blocks, items, recipes, ores, trees, biome and sounds,
+and its `main.lua` and `rules/` set the game's rules (mining time, drops, crafting,
 smelting, fuel, fall damage, food, plants, farming, fluids) with `game.set_rule`; a mod can replace
 one, or wrap it (`game.rule(name)` gives the one before).
 
@@ -111,8 +113,8 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 ## Layout
 - `src/voxel/`: the voxel engine (chunks, world generation, light, meshing, chunk
   files), copied unchanged from the Godot version's GDExtension (GoCube `4425f46`).
-- `src/content/`: mods' JSON content, block ids, the block table, the texture atlas
-  and the generator's tables, as the Godot version builds them.
+- `src/content/`: the content mods register, block ids, the block table, the texture
+  atlas, item models and the generator's tables, as the Godot version builds them.
 - `src/world/`: chunk streaming on worker threads, editing, the raycast, collision;
   the world folder (`world.json`, `chunks\`).
 - `src/game/`: the player (movement, breaking, placing) and the block rules
