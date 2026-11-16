@@ -145,6 +145,25 @@ public:
 
 	WorldStats stats() const;
 
+	// --- Multiplayer ---
+	// Chunks as sent over the network: the chunk file format (voxel/storage.h).
+	// A world without a folder (a client's, or one not saved) keeps edited
+	// chunks in memory when it forgets them, so walking back finds them.
+	// The chunk at `p` (loaded, kept or saved); empty if it was never edited
+	// and isn't loaded.
+	std::vector<uint8_t> chunk_bytes(const ChunkPos &p) const;
+	// Puts a chunk from the host in place (loaded or for when it is); false if
+	// the data is bad (unknown block ids included).
+	bool set_chunk(const ChunkPos &p, const uint8_t *data, size_t size);
+	// Every edited chunk (loaded, kept in memory or saved): what differs from
+	// what the generator makes.
+	std::vector<std::pair<ChunkPos, std::vector<uint8_t>>> edited_chunks() const;
+	// The host: other players' feet. Chunks within EXTRA_RADIUS chunks of each
+	// stay loaded (block data only, not meshed), so their moves, edits and
+	// health are checked against real blocks.
+	static constexpr int EXTRA_RADIUS = 2;
+	void set_extra_viewers(std::vector<std::array<float, 3>> feet) { extra_viewers_ = std::move(feet); }
+
 private:
 	enum JobKind { JOB_GENERATE, JOB_MESH };
 	struct Job {
@@ -153,6 +172,7 @@ private:
 		float priority = 0; // lower first
 		uint64_t serial = 0; // the chunk entry it was made for
 		uint64_t version = 0; // JOB_MESH: the chunk's mesh_version
+		std::shared_ptr<const gocube::ChunkData> kept; // JOB_GENERATE: kept in memory (no file)
 		std::shared_ptr<const gocube::ChunkData> hood[27];
 		std::shared_ptr<const gocube::ColumnTops> tops[9];
 	};
@@ -211,6 +231,9 @@ private:
 	std::unordered_set<int64_t> urgent_; // remeshed after an edit: before anything else
 	std::vector<ChunkMesh> meshes_;
 	std::vector<ChunkPos> unloaded_;
+	std::unordered_map<int64_t, std::shared_ptr<const gocube::ChunkData>> kept_; // edited, not loaded (no folder)
+	std::vector<std::array<float, 3>> extra_viewers_;
+	void load_column_chunks(const ChunkPos &center, int dx, int dz, float priority_bias);
 
 	// Shared with the workers.
 	mutable std::mutex job_mutex_;

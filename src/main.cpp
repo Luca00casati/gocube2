@@ -34,6 +34,9 @@
 //   --render-scale=F draw the world at this part of the window's resolution
 //                    (0.25..1, stretched over it; the Godot version offers
 //                    1, 0.85, 0.75 and 0.5)
+//   --host[=PORT]    open the world to other players (default port 24680)
+//   --join=ADDRESS[:PORT]  play in someone else's world
+//   --name=NAME      the name others see (default "Player")
 //   --no-sound       play without sound (--hidden always does)
 //   --sound          with --hidden: sound running but at volume 0 (tests)
 //   --no-vsync       present as fast as possible
@@ -51,6 +54,7 @@
 #include "game/player.h"
 #include "log.h"
 #include "mods/mods.h"
+#include "net/session.h"
 #include "platform/window.h"
 #include "render/chunk_renderer.h"
 #include "render/renderer.h"
@@ -104,6 +108,10 @@ struct Options {
 	std::string screen;            // a screen open at the start ("inventory")
 	double time = -1;              // time of day to start at (0..1; -1: the world's)
 	bool menu = false;             // the title menu even with testing options (--frames, --screenshot: of it)
+	int host_port = 0;             // --host: open to others on this port (0: not)
+	std::string join;              // --join: the host's address
+	int join_port = gc::Session::DEFAULT_PORT;
+	std::string name = "Player";
 };
 
 std::filesystem::path utf8_path(const char *s) {
@@ -177,6 +185,18 @@ Options parse(int argc, char **argv) {
 			o.has_pos = sscanf_s(v, "%f,%f,%f", &o.pos[0], &o.pos[1], &o.pos[2]) == 3;
 		} else if ((v = value("--look="))) {
 			o.has_look = sscanf_s(v, "%f,%f", &o.look[0], &o.look[1]) == 2;
+		} else if (!strcmp(a, "--host")) {
+			o.host_port = gc::Session::DEFAULT_PORT;
+		} else if ((v = value("--host="))) {
+			o.host_port = int(strtol(v, nullptr, 10));
+		} else if ((v = value("--join="))) {
+			o.join = v;
+			if (const size_t colon = o.join.rfind(':'); colon != std::string::npos) {
+				o.join_port = int(strtol(o.join.c_str() + colon + 1, nullptr, 10));
+				o.join.resize(colon);
+			}
+		} else if ((v = value("--name="))) {
+			o.name = v;
 		} else if (!strcmp(a, "--no-sound")) {
 			o.no_sound = true;
 		} else if (!strcmp(a, "--sound")) {
@@ -392,13 +412,14 @@ gc::PlayerInput read_input(const gc::Window &window) {
 // always.
 void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::World &world,
 		const gc::ChunkRenderer &chunks, const gc::WorldSave *save, uint32_t seed, const gc::Game &game,
-		const gc::Mods &mods, bool captured, double day_time, bool details) {
+		const gc::Mods &mods, bool captured, double day_time, bool details, const std::string &net_status) {
 	const ImGuiIO &io = ImGui::GetIO();
 	{
-		char clock[16], line[160];
+		char clock[16], line[320];
 		gc::DayCycle::clock_text(day_time, false, clock, sizeof(clock));
-		std::snprintf(line, sizeof(line), "%.0f FPS \u00b7 %s \u00b7 %s \u00b7 %s \u00b7 E inventory", io.Framerate, clock,
-				game.creative() ? "creative" : "survival", player.flying ? "flying (F)" : "walking (F to fly)");
+		std::snprintf(line, sizeof(line), "%.0f FPS \u00b7 %s \u00b7 %s \u00b7 %s \u00b7 E inventory%s", io.Framerate, clock,
+				game.creative() ? "creative" : "survival", player.flying ? "flying (F)" : "walking (F to fly)",
+				net_status.c_str());
 		outlined_text(ImGui::GetForegroundDrawList(), ImVec2(8, 8), IM_COL32(255, 255, 255, 255), line);
 	}
 	float y = 30;
@@ -436,7 +457,7 @@ void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::W
 		if (save) {
 			ImGui::Text("World: %s  (%d edited chunks not saved yet)", utf8_string(save->dir().filename()).c_str(), ws.dirty);
 		} else {
-			ImGui::TextDisabled("World not saved (use --world=NAME)");
+			ImGui::TextDisabled("World not saved (use --world=NAME), or someone else's");
 		}
 		ImGui::Text("%s  -  %d items lying around", game.creative() ? "Creative" : "Survival",
 				int(game.drops().drops().size()));
@@ -506,11 +527,16 @@ void restore_player(gc::Player &p, const gc::Json &s) {
 
 enum class End { QUIT, MENU, FAILED };
 
-// What to play: a world folder (empty: not saved), and for a new one its seed and mode.
+// What to play: a world folder (empty: not saved), and for a new one its seed
+// and mode; or someone else's world (join).
 struct WorldChoice {
 	std::filesystem::path dir;
 	uint32_t seed = 777;
 	std::string mode = "survival";
+	int host_port = 0;    // open it to others on this port (0: not)
+	std::string join;     // play in the world of the host at this address
+	int join_port = gc::Session::DEFAULT_PORT;
+	std::string name = "Player";
 };
 
 enum class PauseChoice { NONE, RESUME, QUIT };
@@ -549,6 +575,9 @@ struct TitleMenu {
 	char new_name[64] = "New World";
 	char new_seed[24] = "";
 	int new_mode = 0; // 0 survival, 1 creative
+	char player_name[32] = "Player";
+	bool open_to_others = false;
+	char join_address[64] = "127.0.0.1";
 };
 
 std::vector<WorldEntry> find_worlds() {
@@ -633,7 +662,7 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 		ImGui::NewFrame();
 		const ImGuiIO &io = ImGui::GetIO();
 		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-		ImGui::SetNextWindowSize(ImVec2(std::min(760.0f, io.DisplaySize.x - 40), std::min(560.0f, io.DisplaySize.y - 40)));
+		ImGui::SetNextWindowSize(ImVec2(std::min(760.0f, io.DisplaySize.x - 40), std::min(680.0f, io.DisplaySize.y - 40)));
 		ImGui::Begin("GoCube", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
 				ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
 		ImGui::SetWindowFontScale(2.0f);
@@ -643,7 +672,7 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 		ImGui::Separator();
 
 		ImGui::TextUnformatted("Worlds");
-		ImGui::BeginChild("worlds", ImVec2(0, 250), ImGuiChildFlags_Borders);
+		ImGui::BeginChild("worlds", ImVec2(0, 220), ImGuiChildFlags_Borders);
 		for (int i = 0; i < int(menu.worlds.size()); i++) {
 			const WorldEntry &w = menu.worlds[i];
 			ImGui::PushID(i);
@@ -713,6 +742,27 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 			ImGui::SameLine();
 			ImGui::TextDisabled("%s", why.c_str());
 		}
+
+		ImGui::Dummy(ImVec2(0, 8));
+		ImGui::Separator();
+		ImGui::TextUnformatted("Playing with others");
+		ImGui::SetNextItemWidth(260);
+		ImGui::InputText("Your name", menu.player_name, sizeof(menu.player_name));
+		ImGui::Checkbox("Open the world I play to others (port 24680)", &menu.open_to_others);
+		ImGui::SetNextItemWidth(260);
+		ImGui::InputText("Address##join", menu.join_address, sizeof(menu.join_address));
+		ImGui::SameLine();
+		ImGui::BeginDisabled(menu.join_address[0] == 0);
+		if (ImGui::Button("Join their world", ImVec2(160, 0)) && menu.join_address[0]) {
+			WorldChoice c;
+			c.join = menu.join_address;
+			if (const size_t colon = c.join.rfind(':'); colon != std::string::npos) {
+				c.join_port = int(strtol(c.join.c_str() + colon + 1, nullptr, 10));
+				c.join.resize(colon);
+			}
+			choice = c;
+		}
+		ImGui::EndDisabled();
 		if (!problem.empty()) {
 			ImGui::TextColored(ImVec4(1, 0.6f, 0.4f, 1), "%s", problem.c_str());
 		}
@@ -723,6 +773,10 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 		const bool last_frame = options.frames > 0 && ++frame >= options.frames; // (testing)
 		renderer.end_frame(last_frame && !options.screenshot.empty() ? options.screenshot.c_str() : nullptr);
 		if (choice) {
+			choice->name = menu.player_name;
+			if (choice->join.empty() && menu.open_to_others) {
+				choice->host_port = gc::Session::DEFAULT_PORT;
+			}
 			return true;
 		}
 		if (last_frame) {
@@ -750,12 +804,65 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		return End::FAILED;
 	}
 
+	// Multiplayer: someone else's world comes from its host (after a welcome).
+	gc::Session session;
+	const bool joining = !choice.join.empty();
+	if (joining) {
+		if (std::string e = session.join(choice.join, choice.join_port, choice.name, gc::Session::mod_list(mods.loaded()));
+				!e.empty()) {
+			problem = e;
+			return End::FAILED;
+		}
+		bool cancelled = false;
+		while (!session.welcomed() && session.ended().empty() && !cancelled) {
+			if (!window.pump()) {
+				return End::QUIT;
+			}
+			if (window.take_resized()) {
+				renderer.resize(window.width(), window.height());
+			}
+			session.poll();
+			ImGui_ImplDX11_NewFrame();
+			ImGui_ImplWin32_NewFrame();
+			ImGui::NewFrame();
+			const ImGuiIO &io = ImGui::GetIO();
+			ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+			ImGui::Begin("Joining", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+					ImGuiWindowFlags_NoSavedSettings);
+			ImGui::Text("Connecting to %s...", choice.join.c_str());
+			cancelled = ImGui::Button("Cancel", ImVec2(160, 32));
+			ImGui::End();
+			ImGui::Render();
+			const float clear[4] = {0.18f, 0.32f, 0.62f, 1.0f};
+			renderer.begin_frame(clear);
+			renderer.end_frame(nullptr);
+		}
+		if (!session.welcomed()) {
+			problem = cancelled ? "" : session.ended();
+			return cancelled ? End::MENU : End::FAILED;
+		}
+	}
+	const gc::Json &welcome = session.welcome();
+
 	// The world: its folder decides the seed, generator and block ids.
 	std::optional<gc::WorldSave> save;
 	const std::filesystem::path &dir = choice.dir;
 	uint32_t seed = choice.seed;
 	int generator_version = options.generator;
-	if (!dir.empty()) {
+	if (joining) {
+		seed = uint32_t(welcome.value("seed", 0.0));
+		generator_version = int(welcome.value("generator", double(gc::GENERATOR_VERSION)));
+		std::vector<std::string> ids;
+		for (const gc::Json &id : welcome.value("block_ids", gc::Json::array())) {
+			ids.push_back(id.is_string() ? id.get<std::string>() : "");
+		}
+		content.freeze(ids); // (the host's block ids)
+		if (content.block_ids().size() < ids.size() || !std::equal(ids.begin(), ids.end(), content.block_ids().begin())) {
+			problem = "The server's blocks differ from ours.";
+			return End::FAILED;
+		}
+		gc::log("Joined %s: seed %u, generator %d", choice.join.c_str(), seed, generator_version);
+	} else if (!dir.empty()) {
 		save.emplace();
 		if (std::string e = save->open(dir, choice.seed, choice.mode); !e.empty()) {
 			gc::log("Can't open the world in %s: %s", utf8_string(dir).c_str(), e.c_str());
@@ -795,6 +902,14 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 	if (save) {
 		restore_player(player, save->player());
 	}
+	if (joining) { // where the host put us
+		const gc::Json spawn = welcome.value("spawn", gc::Json::array());
+		if (spawn.is_array() && spawn.size() == 3 && spawn[0].is_number()) {
+			player.position[0] = spawn[0].get<float>();
+			player.position[1] = spawn[1].get<float>() - gc::Player::EYE_HEIGHT;
+			player.position[2] = spawn[2].get<float>();
+		}
+	}
 	if (options.has_pos) {
 		std::copy(options.pos, options.pos + 3, player.position);
 		player.flying = true; // stays where it was put
@@ -808,7 +923,7 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 	Controls controls;
 	Screen screen = options.screen == "inventory" ? Screen::INVENTORY : Screen::NONE;
 	gc::BlockPos container; // (Screen::CONTAINER)
-	const bool creative = (save ? save->mode() : choice.mode) == "creative";
+	const bool creative = (joining ? welcome.value("mode", "survival") : save ? save->mode() : choice.mode) == "creative";
 	gc::Game game(content, table, rules, *world, mods, player, creative);
 	game.set_generator(&generator);
 	if (save) {
@@ -821,7 +936,11 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 	} else {
 		game.start_new_player();
 	}
-	if (!options.has_pos && !(save && save->player().contains("position"))) {
+	if (joining) {
+		game.set_world_spawn(welcome.value("world_spawn", gc::Json()));
+		game.set_first_night(welcome.value("first_night", "over"));
+	}
+	if (!options.has_pos && !joining && !(save && save->player().contains("position"))) {
 		game.spawn_on_ground(); // a new player: on dry ground near the origin, once it's loaded
 	}
 	for (size_t i = 0; i < options.drop.size(); i++) { // (for trying things out)
@@ -883,7 +1002,31 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 	if (options.time >= 0) {
 		day.time = std::fmod(options.time, 1.0);
 	}
+	if (joining) {
+		day.time = welcome.value("time", day.time);
+		day.day_length = std::max(10.0, welcome.value("day_length", day.day_length));
+	}
+	// Multiplayer: as a client (the host does what we do to the world), or
+	// the host (open to others).
+	gc::Session::Attach attach{&game, world.get(), &player, &content, &rules, &mods, &day};
+	std::string net_problem;
+	if (joining) {
+		session.attach(attach);
+	} else if (choice.host_port > 0) {
+		if (std::string e = session.host(choice.host_port, choice.name, gc::Session::mod_list(mods.loaded())); !e.empty()) {
+			net_problem = e;
+			gc::log("%s", e.c_str());
+		} else {
+			session.set_world_info({{"seed", seed}, {"generator", generator_version}, {"block_ids", content.block_ids()}});
+			if (save) {
+				session.set_saved_players(save->field("players"));
+			}
+			session.attach(attach);
+		}
+	}
+	const bool online = session.mode() != gc::Session::Mode::OFFLINE;
 	float sleeping = -1; // seconds asleep (-1: awake)
+	double frame_time_total = 0; // (mining: the arm keeps swinging for others to see)
 	// Block shadows (the Godot version's default sun shadows), from where the sun is.
 	world->set_sun_angle(day.angle());
 	world->set_block_shadows(true);
@@ -897,6 +1040,9 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			save->set_field("time", day.time);
 			save->set_field("first_night", game.first_night());
 			save->set_field("plants", game.save_plants());
+			if (session.is_host()) {
+				save->set_field("players", session.saved_players()); // joined players' inventories
+			}
 			if (const auto &spawn = game.world_spawn()) {
 				save->set_field("spawn", {(*spawn)[0], (*spawn)[1], (*spawn)[2]});
 			}
@@ -919,6 +1065,12 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			end = End::QUIT;
 			break;
 		}
+		session.poll();
+		if (joining && !session.ended().empty()) {
+			problem = session.ended(); // (the host left, or we lost it)
+			end = End::FAILED;
+			break;
+		}
 		const auto now = clock::now();
 		const float dt = std::min(0.25f, std::chrono::duration<float>(now - last).count());
 		last = now;
@@ -934,12 +1086,9 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		const bool key_e = controls.pressed(window, 'E');
 		const bool key_esc = controls.pressed(window, VK_ESCAPE);
 		auto close_screen = [&] {
-			const gc::Stack left_over = game.inventory().close_cursor();
-			if (!left_over.empty()) {
-				float look[3];
-				player.look(look);
-				const float at[3] = {player.position[0] + look[0], player.position[1] + 1.2f, player.position[2] + look[2]};
-				game.drop_item(left_over.id, left_over.count, at);
+			game.inventory_action(gc::Json::array({"close"})); // (what the mouse held goes back in, or is dropped)
+			if (screen == Screen::CONTAINER && joining) {
+				session.close_container(container);
 			}
 			screen = Screen::NONE;
 			window.set_mouse_captured(true);
@@ -960,7 +1109,7 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		} else if (key_e || key_esc) {
 			close_screen();
 		}
-		const bool paused = screen == Screen::PAUSE; // (single player: the world waits)
+		const bool paused = screen == Screen::PAUSE && !online; // (single player: the world waits)
 		const bool captured = window.mouse_captured() && screen == Screen::NONE;
 		if (left && !window.mouse_captured() && screen == Screen::NONE && !ImGui::GetIO().WantCaptureMouse) {
 			window.set_mouse_captured(true); // (that click only captures)
@@ -989,6 +1138,18 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		}
 		controls.f3_was_down = f3;
 		const gc::PlayerInput input = read_input(window);
+		if (auto eye = session.take_correction()) { // the host put us back
+			player.position[0] = (*eye)[0];
+			player.position[1] = (*eye)[1] - gc::Player::EYE_HEIGHT;
+			player.position[2] = (*eye)[2];
+			std::fill(player.velocity, player.velocity + 3, 0.0f);
+			std::copy(player.position, player.position + 3, previous_position);
+		}
+		if (auto push = session.take_push()) { // a creature's knock back
+			for (int k = 0; k < 3; k++) {
+				player.velocity[k] += (*push)[k];
+			}
+		}
 		accumulator += paused ? 0.0f : dt;
 		while (accumulator >= gc::Player::STEP) {
 			std::copy(player.position, player.position + 3, previous_position);
@@ -1032,26 +1193,45 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 				game.show_notice("You can't sleep now: a ninja is nearby");
 			} else {
 				sleeping = 0;
+				session.set_sleeping(true); // (a client: the host skips the night once everyone sleeps)
 			}
 		}
 		if (sleeping >= 0) {
 			sleeping += dt;
-			if (sleeping >= 2.5f) {
+			// The night is skipped when everyone is in bed (the host decides;
+			// a client gets up when it says so).
+			if (sleeping >= 2.5f && !joining && session.peers_sleeping()) {
 				day.time = gc::DayCycle::MORNING;
 				sleeping = -1;
 				if (game.first_night() != "over") {
 					game.set_first_night("over"); // slept through it
 				}
+				session.night_skipped();
 			}
+			if (online && sleeping >= 2.5f && sleeping < 2.5f + dt) {
+				game.show_notice("Waiting for everyone to sleep...");
+			}
+		}
+		if (session.take_woken()) {
+			sleeping = -1;
+		}
+		if (online && sleeping >= 0 && (window.key_down('W') || window.key_down('S') || window.key_down(VK_SPACE))) {
+			sleeping = -1; // got up
+			session.set_sleeping(false);
 		}
 		if (auto opened = game.take_opened()) {
 			container = *opened;
 			screen = Screen::CONTAINER;
 			window.set_mouse_captured(false);
+			if (joining) {
+				session.open_container(container); // (its contents come from the host)
+			}
 		}
 		tick_accumulator += paused ? 0.0 : dt;
 		while (tick_accumulator >= TICK) {
-			mods.tick(TICK);
+			if (!joining) { // (a client: the host's mods run the world)
+				mods.tick(TICK);
+			}
 			tick_accumulator -= TICK;
 		}
 
@@ -1079,6 +1259,22 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 			}
 		}
 		const float eye[3] = {camera.position.x, camera.position.y, camera.position.z};
+		// How others see us, and theirs: their held lights light the world too.
+		gc::LocalPose pose;
+		player.eye(pose.eye);
+		pose.yaw = player.yaw;
+		pose.pitch = player.pitch;
+		pose.item = game.selected_item();
+		pose.selected = game.selected();
+		pose.flags = (window.key_down(VK_SHIFT) && !player.flying ? gc::Session::FLAG_SNEAK : 0) |
+				(sleeping >= 0 ? gc::Session::FLAG_SLEEP : 0) | (player.flying ? gc::Session::FLAG_FLY : 0);
+		pose.swings = game.swings() + (game.mining_progress() > 0 ? int(frame_time_total * 3.0) : 0);
+		pose.light = held_lights.empty() ? 0 : int(held_lights.front()[3]);
+		frame_time_total += dt;
+		session.update(dt, pose);
+		for (const auto &l : session.held_lights()) {
+			held_lights.push_back(l);
+		}
 		const bool hand_light_changed = hand_lights.update(*world, held_lights, eye);
 
 		// Sounds: heard from the camera; muffled with the head in a fluid, which
@@ -1105,6 +1301,15 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		for (const gc::ChunkMesh &m : world->take_meshes()) {
 			chunks.upload(renderer.device(), m);
 		}
+		std::string net_status;
+		if (session.is_host()) {
+			net_status = " \u00b7 open to others (port " + std::to_string(choice.host_port) + ") \u00b7 " +
+					std::to_string(session.player_count()) + " playing";
+		} else if (joining) {
+			net_status = " \u00b7 in " + choice.join + "'s world \u00b7 " + std::to_string(session.player_count()) + " playing";
+		} else if (!net_problem.empty()) {
+			net_status = " \u00b7 " + net_problem;
+		}
 		if (save && std::chrono::duration<float>(now - last_save).count() >= 60.0f) {
 			save_all(); // autosave
 			last_save = now;
@@ -1115,7 +1320,7 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		ImGui::NewFrame();
 		if (screen == Screen::NONE) {
 			draw_ui(renderer, player, *world, chunks, save ? &*save : nullptr, seed,
-					game, mods, window.mouse_captured(), day.time, controls.details);
+					game, mods, window.mouse_captured(), day.time, controls.details, net_status);
 		}
 		const gc::UiIcons icons{ImTextureID(chunks.ui_atlas()), &table, &content};
 		if (game.dead()) {
@@ -1147,6 +1352,26 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 		if (in_fluid) { // (under the HUD)
 			ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize,
 					in_lava ? IM_COL32(230, 89, 13, 191) : IM_COL32(26, 77, 140, 115));
+		}
+		{ // Name tags over other players' heads.
+			const float tag_aspect = float(renderer.width()) / float(std::max(1, renderer.height()));
+			const DirectX::XMMATRIX view_projection = camera.view() * camera.projection(tag_aspect);
+			const ImVec2 display = ImGui::GetIO().DisplaySize;
+			for (const gc::Avatar &a : session.avatars()) {
+				const DirectX::XMVECTOR clip = DirectX::XMVector4Transform(
+						DirectX::XMVectorSet(a.shown[0], a.shown[1] + 0.55f, a.shown[2], 1), view_projection);
+				const float w = DirectX::XMVectorGetW(clip);
+				const float dx = a.shown[0] - camera.position.x, dy = a.shown[1] - camera.position.y,
+							dz = a.shown[2] - camera.position.z;
+				if (w <= 0.1f || dx * dx + dy * dy + dz * dz > 64.0f * 64.0f) {
+					continue; // behind us, or far
+				}
+				const float sx = (DirectX::XMVectorGetX(clip) / w * 0.5f + 0.5f) * display.x;
+				const float sy = (0.5f - DirectX::XMVectorGetY(clip) / w * 0.5f) * display.y;
+				const ImVec2 size = ImGui::CalcTextSize(a.name.c_str());
+				outlined_text(ImGui::GetBackgroundDrawList(), ImVec2(sx - size.x * 0.5f, sy - size.y),
+						IM_COL32(255, 255, 255, 255), a.name.c_str());
+			}
 		}
 		draw_hud(game, table, chunks, rules, captured);
 		if (sleeping >= 0) {
@@ -1193,8 +1418,46 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 				gc::light_for(*world, hand_lights, sky_light, at, NIGHT_CREATURE_LIGHT, lit);
 				gc::build_creature(c, content, table, alpha, lit, creature_mesh);
 			}
+			// Other players: their figures, what they hold, their names.
+			std::vector<gc::WorldVertex> held_by_others;
+			for (const gc::Avatar &a : session.avatars()) {
+				const float at[3] = {a.shown[0], a.shown[1] - 0.6f, a.shown[2]};
+				float lit[3];
+				gc::light_for(*world, hand_lights, sky_light, at, NIGHT_CREATURE_LIGHT, lit);
+				float hand_m[16];
+				gc::build_player(a.figure, a.id, a.shown, a.shown_yaw, lit, creature_mesh, hand_m);
+				if (!a.item.empty()) {
+					// A block: a small cube in the fist; a flat item held by its
+					// lower corner, tip forward and up (the Godot version's Avatar).
+					const bool block = content.blocks.count(a.item) > 0 && rules.is_placeable(a.item) &&
+							rules.def(gocube::BlockId(std::max(0, content.block_index(a.item)))).value("shape", "") != "cross";
+					const DirectX::XMMATRIX local = block
+							? DirectX::XMMatrixScaling(0.9f, 0.9f, 0.9f) * DirectX::XMMatrixRotationY(0.6f) *
+									DirectX::XMMatrixTranslation(0, -0.08f, -0.06f)
+							: DirectX::XMMatrixScaling(0.85f, 0.85f, 0.85f) * DirectX::XMMatrixRotationY(1.5708f) *
+									DirectX::XMMatrixTranslation(0, 0.1f, -0.12f);
+					const DirectX::XMMATRIX m = local * DirectX::XMMATRIX(hand_m);
+					for (const gc::ModelVertex &mv : item_models.model(a.item)) {
+						gc::WorldVertex w;
+						DirectX::XMFLOAT3 p;
+						DirectX::XMStoreFloat3(&p, DirectX::XMVector3TransformCoord(DirectX::XMVectorSet(mv.pos[0], mv.pos[1], mv.pos[2], 1), m));
+						w.pos[0] = p.x;
+						w.pos[1] = p.y;
+						w.pos[2] = p.z;
+						std::copy(mv.normal, mv.normal + 3, w.normal); // (shaded by the model's own, as drops)
+						std::copy(mv.uv, mv.uv + 2, w.uv);
+						std::copy(lit, lit + 3, w.color);
+						w.color[3] = 1;
+						held_by_others.push_back(w);
+					}
+				}
+			}
 			chunks.draw_creatures(renderer.context(), creature_mesh, camera.view() * camera.projection(aspect),
 					camera.position, sky);
+			if (!held_by_others.empty()) {
+				chunks.draw_items(renderer.context(), held_by_others, camera.view() * camera.projection(aspect),
+						camera.position, sky, true);
+			}
 			// Puffs of smoke (a ninja caught by the sun): a burst of grey cubes
 			// rising for 0.9 s (the Godot version's CPUParticles3D).
 			for (const gc::Effect &e : game.take_effects()) {
@@ -1279,6 +1542,7 @@ End play(const Options &options, const WorldChoice &choice, bool from_menu, gc::
 	}
 
 	save_all();
+	session.leave();
 	mods.attach(nullptr, nullptr);
 	window.set_mouse_captured(false);
 	// (The world's workers stop when it goes, after the game, which uses it:
@@ -1315,7 +1579,7 @@ int main(int argc, char **argv) {
 	bool ok = true;
 	// Started for a world (or for testing): straight into it.
 	const bool direct = !options.menu && (!options.world_name.empty() || !options.world_dir.empty() || options.hidden ||
-			options.frames > 0 || options.has_pos);
+			options.frames > 0 || options.has_pos || options.host_port > 0 || !options.join.empty());
 	if (direct) {
 		WorldChoice choice;
 		choice.dir = options.world_dir;
@@ -1324,6 +1588,10 @@ int main(int argc, char **argv) {
 		}
 		choice.seed = options.seed;
 		choice.mode = options.mode;
+		choice.host_port = options.host_port;
+		choice.join = options.join;
+		choice.join_port = options.join_port;
+		choice.name = options.name;
 		std::string problem;
 		ok = play(options, choice, false, window, renderer, problem) != End::FAILED;
 	} else {

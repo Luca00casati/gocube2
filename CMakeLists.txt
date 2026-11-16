@@ -44,6 +44,13 @@ target_include_directories(miniaudio PUBLIC thirdparty/miniaudio)
 target_compile_definitions(miniaudio PUBLIC MA_NO_MP3 MA_NO_FLAC MA_NO_ENCODING MA_NO_GENERATION) # (WAV only)
 target_compile_options(miniaudio PRIVATE /W0)
 
+file(GLOB ENET_SOURCES thirdparty/enet/*.c)
+add_library(enet STATIC ${ENET_SOURCES})
+target_include_directories(enet PUBLIC thirdparty/enet/include)
+target_compile_definitions(enet PRIVATE _WINSOCK_DEPRECATED_NO_WARNINGS _CRT_SECURE_NO_WARNINGS)
+target_compile_options(enet PRIVATE /W0)
+target_link_libraries(enet PUBLIC ws2_32 winmm)
+
 add_library(nlohmann_json INTERFACE)
 target_include_directories(nlohmann_json INTERFACE thirdparty/nlohmann_json)
 add_library(doctest INTERFACE)
@@ -109,9 +116,14 @@ target_sources(gocube_core PRIVATE
 	src/world/save.h
 	src/world/world.cpp
 	src/world/world.h
+	src/game/vitals.cpp
+	src/game/vitals.h
+	src/net/session.cpp
+	src/net/session.h
+	src/net/wire.h
 )
 target_include_directories(gocube_core PUBLIC src)
-target_link_libraries(gocube_core PUBLIC nlohmann_json PRIVATE lua png bcrypt)
+target_link_libraries(gocube_core PUBLIC nlohmann_json PRIVATE lua png bcrypt enet)
 target_compile_definitions(gocube_core PUBLIC ${GOCUBE_DEFINES})
 target_compile_options(gocube_core PRIVATE ${GOCUBE_OPTIONS})
 # The voxel engine is the Godot version's, unchanged: quiet its warnings here
@@ -186,7 +198,10 @@ target_link_options(gocube PRIVATE $<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartu
 add_executable(gocube_tests
 	tests/helpers.h
 	tests/main.cpp
+	tests/net_play.h
+	tests/play.h
 	tests/test_mods.cpp
+	tests/test_multiplayer.cpp
 	tests/test_player.cpp
 	tests/test_rendering.cpp
 	tests/test_save.cpp
@@ -197,8 +212,15 @@ target_link_libraries(gocube_tests PRIVATE gocube_core doctest bcrypt)
 target_compile_definitions(gocube_tests PRIVATE GOCUBE_SOURCE_DIR="${CMAKE_SOURCE_DIR}" _CRT_SECURE_NO_WARNINGS)
 target_compile_options(gocube_tests PRIVATE ${GOCUBE_OPTIONS})
 
+# Multiplayer across two real processes (host and client over localhost).
+add_executable(gocube_mp_smoke tests/mp_smoke.cpp tests/net_play.h tests/play.h)
+target_link_libraries(gocube_mp_smoke PRIVATE gocube_core)
+target_compile_definitions(gocube_mp_smoke PRIVATE GOCUBE_SOURCE_DIR="${CMAKE_SOURCE_DIR}" _CRT_SECURE_NO_WARNINGS)
+target_compile_options(gocube_mp_smoke PRIVATE ${GOCUBE_OPTIONS})
+
 enable_testing()
 add_test(NAME unit COMMAND gocube_tests)
+add_test(NAME multiplayer_processes COMMAND gocube_mp_smoke)
 # Opens a hidden window, renders 60 frames on WARP (the software adapter, so it
 # runs without a GPU) and fails if Direct3D 11's debug layer reported anything.
 add_test(NAME smoke COMMAND gocube --warp --hidden --frames=60)

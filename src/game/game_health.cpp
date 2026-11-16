@@ -84,7 +84,7 @@ void Game::after_move(float dt) {
 	std::copy(player_.position, player_.position + 3, last_feet_);
 	feet_known_ = true;
 
-	if (creative_ || dead_) {
+	if (creative_ || dead_ || remote_) { // (a client: the host keeps our health)
 		return;
 	}
 	auto block_def = [&](float bx, float by, float bz) -> const Json & {
@@ -161,6 +161,9 @@ void Game::respawn() {
 	fall_peak_ = at[1];
 	if (world_.is_loaded(floor_i(at[0]), floor_i(at[1]), floor_i(at[2]))) {
 		unstuck();
+	}
+	if (remote_) {
+		remote_->respawned(); // (the host gives us our health back)
 	}
 }
 

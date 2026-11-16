@@ -12,7 +12,11 @@ Game::Game(Content &content, const BlockTable &table, const BlockRules &rules, W
 	// Containers come and go with their blocks; what was in one spills out.
 	world_.on_block_changed = [this](const BlockPos &p, gocube::BlockId id) {
 		const float at[3] = {p.x + 0.5f, p.y + 0.3f, p.z + 0.5f};
-		for (const Stack &s : entities_.block_changed(p, rules_.id_of(id))) {
+		const std::vector<Stack> spilled = entities_.block_changed(p, rules_.id_of(id));
+		if (remote_) {
+			return; // (a client: the host spills them, and its mods hear of it)
+		}
+		for (const Stack &s : spilled) {
 			drops_.spawn(s.id, s.count, at);
 		}
 		changed_.push_back({p, id});
@@ -46,13 +50,24 @@ Game::Game(Content &content, const BlockTable &table, const BlockRules &rules, W
 		return c != nullptr;
 	};
 	hooks.players = [this] {
-		return Json::array({Json{{"peer", 0}, {"x", player_.position[0]}, {"y", player_.position[1]},
+		Json list = Json::array({Json{{"peer", 0}, {"x", player_.position[0]}, {"y", player_.position[1]},
 				{"z", player_.position[2]}, {"survival", !creative_}, {"alive", !dead_}}});
+		for (const OtherPlayer &o : others_) {
+			list.push_back({{"peer", o.peer}, {"x", o.feet[0]}, {"y", o.feet[1]}, {"z", o.feet[2]},
+					{"survival", !creative_}, {"alive", o.alive}});
+		}
+		return list;
 	};
 	hooks.day = [this] { return day_; };
 	hooks.first_night = [this] { return first_night_; };
 	hooks.damage_player = [this](int peer, int amount, const std::string &source, const float push[3]) {
-		if (peer != 0 || creative_ || dead_) {
+		if (peer != 0) {
+			if (on_damage_peer && !creative_) {
+				on_damage_peer(peer, amount, source, push);
+			}
+			return;
+		}
+		if (creative_ || dead_) {
 			return;
 		}
 		damage(amount, source);
@@ -62,11 +77,17 @@ Game::Game(Content &content, const BlockTable &table, const BlockRules &rules, W
 	};
 	hooks.play_sound = [this](const std::string &set, const std::string &kind, const float at[3], float db) {
 		play_sound(set, kind, at, db);
+		if (on_shared_sound) {
+			on_shared_sound(sounds_.back());
+		}
 	};
 	hooks.effect = [this](const std::string &name, const float at[3]) {
 		Effect e;
 		e.name = name;
 		std::copy(at, at + 3, e.at);
+		if (on_effect) {
+			on_effect(e);
+		}
 		effects_.push_back(std::move(e));
 	};
 	mods_.set_world_hooks(std::move(hooks));
@@ -140,12 +161,16 @@ void Game::start_new_player() {
 		fill_creative();
 		return;
 	}
+	give_starting_items(inventory_);
+}
+
+void Game::give_starting_items(Inventory &inv) {
 	const std::optional<Json> items = mods_.rule("starting_items", Json::array());
 	if (items && items->is_array()) {
 		int slot = 0;
 		for (const Json &s : *items) {
 			if (slot < Inventory::SIZE && s.is_object() && s.value("id", "") != "") {
-				inventory_.slots[slot++] = {s["id"].get<std::string>(), std::max(1, int(s.value("count", 1.0)))};
+				inv.slots[slot++] = {s["id"].get<std::string>(), std::max(1, int(s.value("count", 1.0)))};
 			}
 		}
 	}
@@ -210,35 +235,192 @@ const std::vector<Recipe> &Game::hand_recipes() {
 	return *recipes_;
 }
 
-bool Game::can_craft(const Recipe &r) const {
+bool Game::can_craft(const Inventory &inv, const Recipe &r) const {
 	if (creative_) {
 		return true;
 	}
 	for (const auto &[item, n] : r.ingredients) {
-		if (inventory_.count_of(item) < n) {
+		if (inv.count_of(item) < n) {
 			return false;
 		}
 	}
 	return true;
 }
 
-bool Game::craft(const Recipe &r) {
+bool Game::craft(Inventory &inv, const Recipe &r) {
 	if (creative_) {
-		inventory_.add(r.output, r.count);
+		inv.add(r.output, r.count);
 		return true;
 	}
-	if (!can_craft(r)) {
+	if (!can_craft(inv, r)) {
 		return false;
 	}
-	const Inventory before = inventory_;
+	const Inventory before = inv;
 	for (const auto &[item, n] : r.ingredients) {
-		inventory_.remove(item, n);
+		inv.remove(item, n);
 	}
-	if (inventory_.add(r.output, r.count) > 0) {
-		inventory_ = before; // no room: undo
+	if (inv.add(r.output, r.count) > 0) {
+		inv = before; // no room: undo
 		return false;
 	}
 	return true;
+}
+
+void Game::inventory_action(const Json &action) {
+	const float at[3] = {player_.position[0], player_.position[1], player_.position[2]};
+	if (apply_inventory_action(inventory_, action, at) && remote_ && !creative_) {
+		remote_->inventory_action(action); // (the host keeps a survival player's inventory)
+	}
+}
+
+bool Game::apply_inventory_action(Inventory &inv, const Json &a, const float feet[3]) {
+	if (!a.is_array() || a.empty() || !a[0].is_string()) {
+		return false;
+	}
+	const std::string kind = a[0].get<std::string>();
+	auto integer = [&](size_t i, int lo, int hi, int &out) {
+		if (a.size() <= i || !a[i].is_number_integer()) {
+			return false;
+		}
+		const long long v = a[i].get<long long>();
+		if (v < lo || v > hi) {
+			return false;
+		}
+		out = int(v);
+		return true;
+	};
+	int slot = 0;
+	if (kind == "click" && integer(1, 0, Inventory::SIZE - 1, slot)) {
+		if (creative_ && inv.cursor.empty() && !inv.slots[slot].empty()) {
+			inv.cursor = inv.slots[slot]; // creative: rearrange freely, items never run out
+			inv.slots[slot] = {};
+		} else {
+			inv.click(slot);
+		}
+		return true;
+	}
+	if (kind == "armor" && integer(1, 0, 3, slot)) {
+		inv.cursor = inv.put_armor(slot, inv.cursor);
+		return true;
+	}
+	if (kind == "craft" && a.size() == 2 && a[1].is_string()) {
+		for (const Recipe &r : hand_recipes()) {
+			if (r.id == a[1].get<std::string>()) {
+				return craft(inv, r);
+			}
+		}
+		return false;
+	}
+	if (kind == "pick" && creative_ && a.size() == 2 && a[1].is_string()) {
+		const std::string item = a[1].get<std::string>();
+		if (!content_.items.count(item) && !rules_.is_placeable(item)) {
+			return false;
+		}
+		inv.cursor = {item, 1};
+		return true;
+	}
+	int x, y, z;
+	if (kind == "container" && integer(1, INT32_MIN, INT32_MAX, x) && integer(2, INT32_MIN, INT32_MAX, y) &&
+			integer(3, INT32_MIN, INT32_MAX, z) && integer(4, 0, 255, slot)) {
+		BlockEntity *e = entities_.at({x, y, z});
+		if (!e || slot >= int(e->slots.size())) {
+			return false;
+		}
+		constexpr float CONTAINER_REACH = 8.0f;
+		const float dx = x + 0.5f - feet[0], dy = y + 0.5f - (feet[1] + Player::EYE_HEIGHT), dz = z + 0.5f - feet[2];
+		if (dx * dx + dy * dy + dz * dz > CONTAINER_REACH * CONTAINER_REACH) {
+			return false;
+		}
+		inv.cursor = entities_.click({x, y, z}, slot, inv.cursor);
+		return true;
+	}
+	if (kind == "close" && a.size() == 1) {
+		const Stack left_over = inv.close_cursor();
+		if (!left_over.empty() && !remote_) { // (a client's host drops it)
+			const float at[3] = {feet[0], feet[1] + 1.2f, feet[2]};
+			drops_.spawn(left_over.id, left_over.count, at);
+		}
+		return true;
+	}
+	return false;
+}
+
+void Game::set_health_from_host(int health) {
+	health = std::clamp(health, 0, MAX_HEALTH);
+	if (health < health_) {
+		since_hurt_ = 0;
+		float eye[3];
+		player_.eye(eye);
+		play_sound("core:effects", "hurt", eye);
+	}
+	health_ = health;
+	if (health_ == 0 && !dead_) {
+		dead_ = true;
+		std::fill(player_.velocity, player_.velocity + 3, 0.0f);
+	} else if (health_ > 0) {
+		dead_ = false;
+	}
+}
+
+bool Game::use(const Actor &who, bool sneak) {
+	const RayHit hit = who.body->target(world_);
+	if (!hit.hit) {
+		return false;
+	}
+	// Hoes, seeds: the use_item rule.
+	if (!who.item.empty()) {
+		const std::optional<Json> r = mods_.rule("use_item", Json::array({who.item, hit.position.x, hit.position.y,
+				hit.position.z, hit.normal.x, hit.normal.y, hit.normal.z}));
+		if (r && r->is_object()) {
+			const int take = int(r->value("take", 0.0));
+			for (int i = 0; i < take && !creative_ && who.inventory; i++) {
+				who.inventory->take_one(who.selected);
+			}
+			const Json placed = r->value("placed", Json());
+			if (placed.is_array() && placed.size() == 3 && placed[0].is_number() && placed[1].is_number() &&
+					placed[2].is_number()) {
+				const BlockPos p{int(placed[0].get<double>()), int(placed[1].get<double>()), int(placed[2].get<double>())};
+				const std::string id = rules_.id_of(world_.block_at(p.x, p.y, p.z));
+				mods_.block_placed(p, id);
+				const float center[3] = {p.x + 0.5f, p.y + 0.5f, p.z + 0.5f};
+				play_block_sound(id, "place", center);
+			}
+			return true;
+		}
+		if (r && !r->is_null()) {
+			return true;
+		}
+	}
+	// Placing (or using a door); survival uses the item up. Nobody may be
+	// built into a block.
+	auto occupied = [&](const BlockPos &cell) {
+		if (who.peer != 0 && Player::overlaps_block(player_.position, cell)) {
+			return true; // the local player
+		}
+		for (const OtherPlayer &o : others_) {
+			if (o.peer != who.peer && Player::overlaps_block(o.feet, cell)) {
+				return true;
+			}
+		}
+		return false;
+	};
+	std::vector<BlockChange> changes;
+	const bool done = who.body->use_or_place(world_, rules_, who.item, sneak, &changes, occupied);
+	if (done) {
+		// A door opened or closed sounds like the door; a placed block like itself.
+		const std::string id = changes.empty() ? rules_.id_of(hit.block) : changes.front().id;
+		const BlockPos at = changes.empty() ? hit.position : changes.front().pos;
+		const float center[3] = {at.x + 0.5f, at.y + 0.5f, at.z + 0.5f};
+		play_block_sound(id, "place", center);
+	}
+	const bool placed = std::any_of(changes.begin(), changes.end(), [](const BlockChange &c) { return c.placed; });
+	if (placed && !creative_ && who.inventory) {
+		who.inventory->take_one(who.selected);
+	}
+	for (const BlockChange &c : changes) {
+		mods_.block_placed(c.pos, c.id);
+	}
+	return done;
 }
 
 float Game::mine_seconds(const std::string &block, const std::string &tool) {
@@ -315,34 +497,6 @@ void Game::break_block(const BlockPos &p, const std::string &tool) {
 	swings_++;
 }
 
-bool Game::use_item(const RayHit &hit) {
-	const std::string item = selected_item();
-	if (item.empty()) {
-		return false;
-	}
-	const std::optional<Json> r = mods_.rule("use_item", Json::array({item, hit.position.x, hit.position.y,
-			hit.position.z, hit.normal.x, hit.normal.y, hit.normal.z}));
-	if (!r || r->is_null()) {
-		return false;
-	}
-	if (r->is_object()) {
-		const int take = int(r->value("take", 0.0));
-		for (int i = 0; i < take && !creative_; i++) {
-			inventory_.take_one(selected_);
-		}
-		const Json placed = r->value("placed", Json());
-		if (placed.is_array() && placed.size() == 3 && placed[0].is_number() && placed[1].is_number()
-				&& placed[2].is_number()) {
-			const BlockPos p{int(placed[0].get<double>()), int(placed[1].get<double>()), int(placed[2].get<double>())};
-			const std::string id = rules_.id_of(world_.block_at(p.x, p.y, p.z));
-			mods_.block_placed(p, id);
-			const float center[3] = {p.x + 0.5f, p.y + 0.5f, p.z + 0.5f};
-			play_block_sound(id, "place", center);
-		}
-	}
-	return true;
-}
-
 void Game::update(float dt, const GameInput &in) {
 	if (!in.captured) {
 		mining_progress_ = 0;
@@ -364,11 +518,15 @@ void Game::update(float dt, const GameInput &in) {
 	// the way of mining.
 	attack_cooldown_ = std::max(0.0f, attack_cooldown_ - dt);
 	if (const int creature = aimed_creature()) {
-		if (in.break_pressed && attack_cooldown_ <= 0) {
+		if (in.break_pressed && attack_cooldown_ <= 0 && !dead_) {
 			attack_cooldown_ = ATTACK_COOLDOWN;
-			const Json &item = content_.items.count(tool) ? content_.items.at(tool) : Json::object();
-			const int damage = int(item.value("damage", 2.0)); // bare hand: 2
-			mods_.creature_hit(creature, damage, player_.position, 0);
+			if (remote_) {
+				remote_->hit_creature(creature);
+			} else {
+				const Json &item = content_.items.count(tool) ? content_.items.at(tool) : Json::object();
+				const int damage = int(item.value("damage", 2.0)); // bare hand: 2
+				mods_.creature_hit(creature, damage, player_.position, 0);
+			}
 			swings_++;
 		}
 		mine.hit = false;
@@ -376,21 +534,32 @@ void Game::update(float dt, const GameInput &in) {
 		swings_++; // at nothing
 	}
 	// Breaking: at once in creative, by holding the button in survival.
+	auto break_it = [&](const BlockPos &p) {
+		if (remote_) {
+			remote_->request_break(p, selected_);
+			swings_++;
+		} else {
+			break_block(p, tool);
+		}
+	};
 	if (creative_) {
 		if (in.break_pressed && mine.hit) {
-			break_block(mine.position, tool);
+			break_it(mine.position);
 		}
 	} else if (in.break_held && mine.hit) {
 		if (!(mine.position == mining_target_)) {
 			mining_target_ = mine.position;
 			mining_progress_ = 0;
 			mining_seconds_ = mine_seconds(rules_.id_of(mine.block), tool);
+			if (remote_) {
+				remote_->start_mining(mine.position); // (the host times it too)
+			}
 		}
 		mining_progress_ += dt / mining_seconds_;
 		if (mining_progress_ >= 1.0f) {
 			mining_progress_ = 0;
 			mining_target_ = {1 << 30, 0, 0}; // (mining the next block starts over)
-			break_block(mine.position, tool);
+			break_it(mine.position);
 		}
 	} else {
 		mining_progress_ = 0;
@@ -404,6 +573,12 @@ void Game::update(float dt, const GameInput &in) {
 	if (in.use_pressed && !selected_item().empty()) {
 		const std::optional<Json> r = mods_.rule("food", Json::array({selected_item()}));
 		food = r && r->is_number() ? int(r->get<double>()) : 0;
+	}
+	if (in.use_pressed && hit.hit && !in.sneak && remote_ && !entities_.at(hit.position) &&
+			target_def.contains("block_entity")) {
+		// A client: a container that came with the host's chunks. An empty copy
+		// for now; the host sends what's in it.
+		entities_.block_changed(hit.position, rules_.id_of(hit.block));
 	}
 	if (in.use_pressed && hit.hit && !in.sneak && entities_.at(hit.position)) {
 		opened_ = hit.position;
@@ -420,36 +595,39 @@ void Game::update(float dt, const GameInput &in) {
 			bed_ = head;
 			show_notice("Respawn point set");
 		}
+		if (remote_) {
+			remote_->set_bed(head);
+		}
 		bed_used_ = true;
 	} else if (in.use_pressed && food > 0) {
-		if (!creative_ && health_ < MAX_HEALTH) {
-			health_ = std::min(MAX_HEALTH, health_ + food);
+		if (!creative_ && health_ < MAX_HEALTH && !dead_) {
+			if (remote_) {
+				remote_->request_eat(selected_); // (the host heals us, and takes it from its copy)
+			} else {
+				health_ = std::min(MAX_HEALTH, health_ + food);
+			}
 			inventory_.take_one(selected_);
 			swings_++;
 			float eye[3];
 			player_.eye(eye);
 			play_sound("core:effects", "pickup", eye, -4.0f); // (eating)
 		}
-	} else if (in.use_pressed && hit.hit && use_item(hit)) {
-		swings_++; // (a hoe tilled, seeds were planted: the use_item rule did it)
-	} else if (in.use_pressed) {
-		// Placing (or using a door) with the selected item; survival uses it up.
-		std::vector<BlockChange> changes;
-		const std::string item = selected_item();
-		if (player_.use_or_place(world_, rules_, item, in.sneak, &changes)) {
+	} else if (in.use_pressed && remote_) {
+		if (hit.hit && !dead_) { // the host does it as us
+			float eye[3], dir[3];
+			player_.eye(eye);
+			player_.look(dir);
+			remote_->request_use(eye, dir, selected_, selected_item(), in.sneak);
 			swings_++;
-			// A door opened or closed sounds like the door; a placed block like itself.
-			const std::string id = changes.empty() ? rules_.id_of(hit.block) : changes.front().id;
-			const BlockPos at = changes.empty() ? hit.position : changes.front().pos;
-			const float center[3] = {at.x + 0.5f, at.y + 0.5f, at.z + 0.5f};
-			play_block_sound(id, "place", center);
 		}
-		const bool placed = std::any_of(changes.begin(), changes.end(), [](const BlockChange &c) { return c.placed; });
-		if (placed && !creative_) {
-			inventory_.take_one(selected_);
-		}
-		for (const BlockChange &c : changes) {
-			mods_.block_placed(c.pos, c.id);
+	} else if (in.use_pressed) {
+		Actor me;
+		me.body = &player_;
+		me.inventory = &inventory_;
+		me.selected = selected_;
+		me.item = selected_item();
+		if (use(me, in.sneak)) {
+			swings_++;
 		}
 	}
 
@@ -464,12 +642,16 @@ void Game::update(float dt, const GameInput &in) {
 
 void Game::tick(double dt) {
 	creatures_.animate(float(dt));
-	entities_.update(dt);
-	// Mods hear about block changes a tick later (their own changes too,
-	// without re-entering them).
-	const auto changes = std::exchange(changed_, {});
-	for (const auto &[p, id] : changes) {
-		mods_.block_changed(p, rules_.id_of(id));
+	if (!remote_) { // (a client: the host's furnaces burn, its mods hear of changes)
+		entities_.update(dt);
+		// Mods hear about block changes a tick later (their own changes too,
+		// without re-entering them).
+		const auto changes = std::exchange(changed_, {});
+		for (const auto &[p, id] : changes) {
+			mods_.block_changed(p, rules_.id_of(id));
+		}
+	} else {
+		drops_.age(float(dt));
 	}
 	notice_time_ = std::max(0.0f, notice_time_ - float(dt));
 	since_hurt_ += float(dt);
@@ -513,7 +695,30 @@ int Game::aimed_creature() const {
 
 void Game::physics_step(float dt) {
 	creatures_.step(dt, world_);
-	if (!drops_.step(dt, world_, player_.position, true, inventory_).empty()) {
+	if (remote_) {
+		return; // (a client: the host's drops, shown as it sends them)
+	}
+	std::vector<ItemDrops::Taker> takers(1);
+	std::copy(player_.position, player_.position + 3, takers[0].feet);
+	takers[0].alive = !dead_;
+	takers[0].inventory = &inventory_;
+	for (const OtherPlayer &o : others_) {
+		ItemDrops::Taker t;
+		t.peer = o.peer;
+		std::copy(o.feet, o.feet + 3, t.feet);
+		t.alive = o.alive;
+		t.inventory = o.inventory;
+		takers.push_back(t);
+	}
+	bool picked = false;
+	for (const ItemDrops::Picked &p : drops_.step(dt, world_, takers)) {
+		if (p.peer == 0) {
+			picked = true;
+		} else if (on_pickup) {
+			on_pickup(p.peer, p.stack);
+		}
+	}
+	if (picked) {
 		float eye[3];
 		player_.eye(eye);
 		play_sound("core:effects", "pickup", eye, -8.0f);

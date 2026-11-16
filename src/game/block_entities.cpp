@@ -170,6 +170,39 @@ Json BlockEntities::serialize() const {
 	return out;
 }
 
+Json BlockEntities::entity_data(const BlockPos &p) const {
+	auto it = entities_.find({p.x, p.y, p.z});
+	if (it == entities_.end()) {
+		return Json();
+	}
+	Json slots = Json::array();
+	for (const Stack &s : it->second.slots) {
+		slots.push_back(s.empty() ? Json(false) : Json::array({s.id, s.count}));
+	}
+	return {{"type", it->second.type}, {"slots", slots}, {"burn", it->second.burn},
+			{"burn_total", it->second.burn_total}, {"progress", it->second.progress}};
+}
+
+void BlockEntities::set_entity_data(const BlockPos &p, const Json &d) {
+	if (!d.is_object()) {
+		entities_.erase({p.x, p.y, p.z});
+		return;
+	}
+	Json one = Json::object();
+	one["0,0,0"] = d;
+	const auto saved = std::move(entities_);
+	deserialize(one);
+	auto it = entities_.find({0, 0, 0});
+	std::optional<BlockEntity> e;
+	if (it != entities_.end()) {
+		e = std::move(it->second);
+	}
+	entities_ = std::move(saved);
+	if (e) {
+		entities_[{p.x, p.y, p.z}] = std::move(*e);
+	}
+}
+
 void BlockEntities::deserialize(const Json &data) {
 	entities_.clear();
 	if (!data.is_object()) {
@@ -180,7 +213,11 @@ void BlockEntities::deserialize(const Json &data) {
 		if (sscanf_s(key.c_str(), "%d,%d,%d", &x, &y, &z) != 3 || !d.is_object()) {
 			continue;
 		}
-		BlockEntity e = make(d.value("type", "chest"));
+		const std::string type = d.value("type", "chest");
+		if (type != "chest" && type != "furnace") {
+			continue;
+		}
+		BlockEntity e = make(type);
 		const Json saved = d.value("slots", Json::array());
 		for (size_t i = 0; i < saved.size() && i < e.slots.size(); i++) {
 			const Json &s = saved[i];

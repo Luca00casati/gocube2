@@ -7,6 +7,7 @@
 #include "game/inventory.h"
 #include "mods/mods.h"
 #include "world/world.h"
+#include "play.h"
 
 #include <doctest/doctest.h>
 
@@ -21,43 +22,6 @@ using gc::Json;
 using gc::Stack;
 
 namespace {
-
-// The base game loaded (its mods kept running: the rules are Lua functions)
-// and a world (seed 4242) around the origin.
-struct Play {
-	gc::Content content;
-	gc::Mods mods{content};
-	gc::BlockTable table;
-	std::unique_ptr<gc::BlockRules> rules;
-	gocube::Generator generator;
-	std::unique_ptr<gc::World> world;
-	gc::Player player;
-	std::unique_ptr<gc::Game> game;
-
-	explicit Play(bool creative = false) {
-		mods.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"});
-		REQUIRE(mods.problems().empty());
-		content.freeze();
-		table = gc::build_block_table(content);
-		rules = std::make_unique<gc::BlockRules>(content);
-		gc::configure_generator(generator, content, 4242, gc::GENERATOR_VERSION);
-		world = std::make_unique<gc::World>(table.blocks, table.atlas.layout, generator);
-		world->set_view_distance(32);
-		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
-		while (!(world->is_loaded(0, 0, 0) && world->stats().queued == 0)) {
-			world->update(0.5f, 10.0f, 0.5f);
-			REQUIRE(std::chrono::steady_clock::now() < deadline);
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-		}
-		mods.attach(world.get(), rules.get());
-		game = std::make_unique<gc::Game>(content, table, *rules, *world, mods, player, creative);
-		game->set_generator(&generator);
-		game->start_new_player();
-	}
-	~Play() { mods.attach(nullptr, nullptr); }
-	gocube::BlockId id(const char *name) const { return gocube::BlockId(content.block_index(name)); }
-	std::string block(int x, int y, int z) const { return content.block_ids()[world->block_at(x, y, z)]; }
-};
 
 } // namespace
 
@@ -977,7 +941,7 @@ TEST_CASE("Block Eaters (the core mod's Lua): they come by day on grass, flee wh
 		CHECK(c.kind == "core:block_eater");
 		CHECK(c.pos[1] == doctest::Approx(71.0f).epsilon(0.01)); // on the grass
 		const float d = std::hypot(c.pos[0] - 0.5f, c.pos[2] - 0.5f);
-		CHECK(d < 60.0f);
+		CHECK(d < 80.0f); // (spawned up to 48 away, they wander; gone past DESPAWN_DISTANCE)
 	}
 	// One made of stone, hit four times (2 each: bare hands, 8 health): it
 	// runs off, then is gone and drops a stone.

@@ -24,6 +24,13 @@ struct CreatureVertex {
 // colour on every side (raw, not lit).
 void build_cube(const float at[3], float size, const float rgb[3], std::vector<CreatureVertex> &out);
 
+// Another player (the Godot version's Avatar): a figure whose looks come
+// from its id, posed by `f`, with its eyes at `eye`, facing `yaw`, lit by
+// `light`. `hand`: where its right hand is (row-major, row vectors: a held
+// item's model goes there).
+void build_player(const Figure &f, int id, const float eye[3], float yaw, const float light[3],
+		std::vector<CreatureVertex> &out, float hand[16]);
+
 // Appends the creature's boxes, posed for this moment (`alpha`: between its
 // last two physics steps), lit by `light` (World.light_for at it; raw).
 void build_creature(const Creature &c, const Content &content, const BlockTable &table, float alpha,

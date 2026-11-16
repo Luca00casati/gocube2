@@ -173,7 +173,7 @@ bool Player::overlaps_block(const float feet[3], const BlockPos &cell) {
 }
 
 bool Player::use_or_place(World &world, const BlockRules &rules, const std::string &block, bool sneak,
-		std::vector<BlockChange> *changes) const {
+		std::vector<BlockChange> *changes, const std::function<bool(const BlockPos &)> &occupied) const {
 	RayHit hit = target(world);
 	if (!hit.hit) {
 		return false;
@@ -220,8 +220,8 @@ bool Player::use_or_place(World &world, const BlockRules &rules, const std::stri
 		}
 		const Json &def = rules.def(id);
 		const bool solid = !def.contains("solid") || !def["solid"].is_boolean() || def["solid"].get<bool>();
-		if (solid && overlaps_block(position, cell)) {
-			return false; // it would be inside you
+		if (solid && (overlaps_block(position, cell) || (occupied && occupied(cell)))) {
+			return false; // it would be inside you, or someone else
 		}
 	}
 	for (const auto &[cell, id] : places) {

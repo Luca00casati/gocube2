@@ -73,14 +73,8 @@ bool inventory_screen(Game &game, const UiIcons &icons) {
 	// Left: the backpack (rows of 9), armour, the hotbar row.
 	ImGui::BeginGroup();
 	ImGui::TextUnformatted("Inventory");
-	auto click = [&](int i) {
-		if (creative && inv.cursor.empty() && !inv.slots[i].empty()) {
-			inv.cursor = inv.slots[i]; // creative: rearrange freely, items never run out
-			inv.slots[i] = {};
-		} else {
-			inv.click(i);
-		}
-	};
+	// (Through the game: a client's host does each click to its copy too.)
+	auto click = [&](int i) { game.inventory_action(Json::array({"click", i})); };
 	for (int i = Inventory::HOTBAR; i < Inventory::SIZE; i++) {
 		if ((i - Inventory::HOTBAR) % Inventory::HOTBAR != 0) {
 			ImGui::SameLine();
@@ -98,7 +92,7 @@ bool inventory_screen(Game &game, const UiIcons &icons) {
 			}
 			const std::string id = std::string("armor_") + Inventory::ARMOR_SLOTS[k];
 			if (slot_button(id.c_str(), inv.armor[k], icons, false, false)) {
-				inv.cursor = inv.put_armor(k, inv.cursor);
+				game.inventory_action(Json::array({"armor", k}));
 			}
 			if (ImGui::IsItemHovered() && inv.armor[k].empty()) {
 				ImGui::SetTooltip("%s", display_name(*icons.content, Inventory::ARMOR_SLOTS[k]).c_str());
@@ -139,7 +133,7 @@ bool inventory_screen(Game &game, const UiIcons &icons) {
 				ImGui::SameLine();
 			}
 			if (slot_button(ids[k].c_str(), {ids[k], 1}, icons, false, false, 40)) {
-				inv.cursor = {ids[k], 1};
+				game.inventory_action(Json::array({"pick", ids[k]}));
 			}
 		}
 		ImGui::EndChild();
@@ -165,7 +159,7 @@ bool inventory_screen(Game &game, const UiIcons &icons) {
 			const bool can = game.can_craft(r);
 			ImGui::BeginDisabled(!can);
 			if (ImGui::Button("Craft")) {
-				game.craft(r);
+				game.inventory_action(Json::array({"craft", r.id}));
 			}
 			ImGui::EndDisabled();
 			ImGui::PopID();
@@ -190,7 +184,7 @@ void inventory_rows(Game &game, const UiIcons &icons) {
 			ImGui::SameLine();
 		}
 		if (slot_button(("inv" + std::to_string(i)).c_str(), inv.slots[i], icons, false, true)) {
-			inv.click(i);
+			game.inventory_action(Json::array({"click", i}));
 		}
 	}
 	ImGui::Dummy(ImVec2(0, 4));
@@ -199,7 +193,7 @@ void inventory_rows(Game &game, const UiIcons &icons) {
 			ImGui::SameLine();
 		}
 		if (slot_button(("inv" + std::to_string(i)).c_str(), inv.slots[i], icons, i == game.selected(), true)) {
-			inv.click(i);
+			game.inventory_action(Json::array({"click", i}));
 		}
 	}
 }
@@ -220,14 +214,13 @@ bool container_screen(Game &game, const BlockPos &pos, const UiIcons &icons) {
 		return false; // it went away
 	}
 	dim_background();
-	Inventory &inv = game.inventory();
 	const ImGuiIO &io = ImGui::GetIO();
 	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 	ImGui::SetNextWindowBgAlpha(0.92f);
 	ImGui::Begin("Container", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 4));
-	auto click = [&](int slot) { inv.cursor = game.block_entities().click(pos, slot, inv.cursor); };
+	auto click = [&](int slot) { game.inventory_action(Json::array({"container", pos.x, pos.y, pos.z, slot})); };
 	if (e->type == "furnace") {
 		ImGui::TextUnformatted("Furnace");
 		float burn, progress;

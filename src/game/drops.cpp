@@ -30,7 +30,19 @@ void ItemDrops::spawn(const std::string &item, int count, const float at[3]) {
 
 std::vector<Stack> ItemDrops::step(float dt, const World &world, const float player[3], bool player_alive,
 		Inventory &inventory) {
-	std::vector<Stack> picked;
+	Taker t;
+	std::copy(player, player + 3, t.feet);
+	t.alive = player_alive;
+	t.inventory = &inventory;
+	std::vector<Stack> out;
+	for (Picked &p : step(dt, world, {t})) {
+		out.push_back(std::move(p.stack));
+	}
+	return out;
+}
+
+std::vector<ItemDrops::Picked> ItemDrops::step(float dt, const World &world, const std::vector<Taker> &takers) {
+	std::vector<Picked> picked;
 	const float size[3] = {BOX, BOX, BOX};
 	for (size_t i = 0; i < drops_.size();) {
 		Drop &d = drops_[i];
@@ -41,24 +53,33 @@ std::vector<Stack> ItemDrops::step(float dt, const World &world, const float pla
 		}
 		float to[3] = {0, 0, 0};
 		float dist = 1e9f;
-		if (player_alive && d.age > PICKUP_DELAY) {
-			to[0] = player[0] - d.pos[0];
-			to[1] = player[1] + 0.9f - d.pos[1];
-			to[2] = player[2] - d.pos[2];
-			dist = std::sqrt(to[0] * to[0] + to[1] * to[1] + to[2] * to[2]);
-			if (dist < PICKUP_RADIUS) {
-				const int left = inventory.add(d.item, d.count);
-				if (left < d.count) {
-					picked.push_back({d.item, d.count - left});
-				}
-				d.count = left;
-				if (d.count == 0) {
-					drops_.erase(drops_.begin() + std::ptrdiff_t(i));
+		const Taker *taker = nullptr; // the nearest one with room for it
+		if (d.age > PICKUP_DELAY) {
+			for (const Taker &t : takers) {
+				if (!t.alive || !t.inventory || !t.inventory->can_fit(d.item)) {
 					continue;
+				}
+				const float v[3] = {t.feet[0] - d.pos[0], t.feet[1] + 0.9f - d.pos[1], t.feet[2] - d.pos[2]};
+				const float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+				if (l < dist) {
+					dist = l;
+					std::copy(v, v + 3, to);
+					taker = &t;
 				}
 			}
 		}
-		if (dist < MAGNET_RADIUS && dist > 1e-4f && inventory.can_fit(d.item)) {
+		if (taker && dist < PICKUP_RADIUS) {
+			const int left = taker->inventory->add(d.item, d.count);
+			if (left < d.count) {
+				picked.push_back({taker->peer, {d.item, d.count - left}});
+			}
+			d.count = left;
+			if (d.count == 0) {
+				drops_.erase(drops_.begin() + std::ptrdiff_t(i));
+				continue;
+			}
+		}
+		if (taker && dist < MAGNET_RADIUS && dist > 1e-4f) {
 			for (int k = 0; k < 3; k++) { // drift towards the player
 				d.vel[k] = to[k] / dist * 6.0f;
 				d.pos[k] += d.vel[k] * dt;

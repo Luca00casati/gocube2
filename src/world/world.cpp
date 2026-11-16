@@ -99,9 +99,14 @@ void World::run(Job &job, Result &r) const {
 	r.version = job.version;
 	if (job.kind == JOB_GENERATE) {
 		auto data = std::make_shared<ChunkData>();
-		// An edited chunk comes from its file; the rest is generated again.
-		const bool loaded = !save_dir_.empty() &&
-				load_chunk_file(chunk_file_path(save_dir_, job.pos.x, job.pos.y, job.pos.z), *data);
+		// An edited chunk comes from its file (or memory); the rest is generated again.
+		bool loaded = false;
+		if (job.kept) {
+			*data = *job.kept;
+			loaded = true;
+		} else if (!save_dir_.empty()) {
+			loaded = load_chunk_file(chunk_file_path(save_dir_, job.pos.x, job.pos.y, job.pos.z), *data);
+		}
 		if (!loaded) {
 			generator_.generate(*data, job.pos.x * CHUNK, job.pos.y * CHUNK, job.pos.z * CHUNK);
 		}
@@ -205,19 +210,15 @@ void World::update(float viewer_x, float /*viewer_y*/, float viewer_z) {
 			if (nx * nx + nz * nz > r * r) {
 				continue;
 			}
-			for (int cy = CHUNK_Y_MIN; cy <= CHUNK_Y_MAX; cy++) {
-				const ChunkPos p{center.x + dx, cy, center.z + dz};
-				auto [it, added] = chunks_.try_emplace(key(p));
-				if (!added) {
-					continue;
-				}
-				it->second.serial = next_serial_++;
-				Job job;
-				job.kind = JOB_GENERATE;
-				job.pos = p;
-				job.serial = it->second.serial;
-				job.priority = float(dx * dx + dz * dz) + std::abs(cy) * 0.5f;
-				push_job(std::move(job));
+			load_column_chunks(center, dx, dz, 0.0f);
+		}
+	}
+	// Around other players (the host): block data only, after our own view.
+	for (const auto &feet : extra_viewers_) {
+		const ChunkPos c{floor_div(int(std::floor(feet[0])), CHUNK), 0, floor_div(int(std::floor(feet[2])), CHUNK)};
+		for (int dz = -EXTRA_RADIUS; dz <= EXTRA_RADIUS; dz++) {
+			for (int dx = -EXTRA_RADIUS; dx <= EXTRA_RADIUS; dx++) {
+				load_column_chunks(c, dx, dz, 1000.0f);
 			}
 		}
 	}
@@ -228,8 +229,16 @@ void World::update(float viewer_x, float /*viewer_y*/, float viewer_z) {
 	for (auto it = chunks_.begin(); it != chunks_.end();) {
 		const ChunkPos p = pos_of(it->first);
 		const int dx = p.x - center.x, dz = p.z - center.z;
-		if (dx * dx + dz * dz > keep * keep) {
+		bool near_other = false;
+		for (const auto &feet : extra_viewers_) {
+			const int ex = floor_div(int(std::floor(feet[0])), CHUNK) - p.x, ez = floor_div(int(std::floor(feet[2])), CHUNK) - p.z;
+			near_other = near_other || (std::abs(ex) <= EXTRA_RADIUS + 1 && std::abs(ez) <= EXTRA_RADIUS + 1);
+		}
+		if (dx * dx + dz * dz > keep * keep && !near_other) {
 			save_chunk(p, it->second);
+			if (save_dir_.empty() && it->second.dirty && it->second.data) {
+				kept_[it->first] = it->second.data; // (no file to keep it in)
+			}
 			if (it->second.meshed_version || it->second.mesh_queued) {
 				unloaded_.push_back(p);
 				revision_++;
@@ -252,6 +261,111 @@ void World::update(float viewer_x, float /*viewer_y*/, float viewer_z) {
 	}
 
 	schedule_meshing(center, r);
+}
+
+void World::load_column_chunks(const ChunkPos &center, int dx, int dz, float priority_bias) {
+	for (int cy = CHUNK_Y_MIN; cy <= CHUNK_Y_MAX; cy++) {
+		const ChunkPos p{center.x + dx, cy, center.z + dz};
+		auto [it, added] = chunks_.try_emplace(key(p));
+		if (!added) {
+			continue;
+		}
+		it->second.serial = next_serial_++;
+		Job job;
+		job.kind = JOB_GENERATE;
+		job.pos = p;
+		job.serial = it->second.serial;
+		job.priority = float(dx * dx + dz * dz) + std::abs(cy) * 0.5f + priority_bias;
+		if (auto k = kept_.find(key(p)); k != kept_.end()) {
+			job.kept = k->second;
+			it->second.dirty = true; // (still differs from the generator's)
+		}
+		push_job(std::move(job));
+	}
+}
+
+std::vector<uint8_t> World::chunk_bytes(const ChunkPos &p) const {
+	if (auto it = chunks_.find(key(p)); it != chunks_.end() && it->second.data) {
+		return encode_chunk(*it->second.data);
+	}
+	if (auto k = kept_.find(key(p)); k != kept_.end()) {
+		return encode_chunk(*k->second);
+	}
+	ChunkData data;
+	if (!save_dir_.empty() && load_chunk_file(chunk_file_path(save_dir_, p.x, p.y, p.z), data)) {
+		return encode_chunk(data);
+	}
+	return {};
+}
+
+bool World::set_chunk(const ChunkPos &p, const uint8_t *bytes, size_t size) {
+	if (p.y < CHUNK_Y_MIN || p.y > CHUNK_Y_MAX) {
+		return false;
+	}
+	auto data = std::make_shared<ChunkData>();
+	if (!decode_chunk(bytes, size, *data)) {
+		return false;
+	}
+	if (data->uniform ? data->uniform_value >= blocks_.size()
+					  : std::any_of(data->blocks.begin(), data->blocks.end(), [&](BlockId b) { return b >= blocks_.size(); })) {
+		return false; // a block we don't know
+	}
+	const int64_t k = key(p);
+	if (save_dir_.empty()) {
+		kept_[k] = data;
+	}
+	auto it = chunks_.find(k);
+	if (it == chunks_.end() || !it->second.data) {
+		if (it != chunks_.end()) {
+			// Being generated: forget that job's result, load it from here instead.
+			chunks_.erase(it);
+		}
+		if (!save_dir_.empty()) {
+			save_chunk_file(chunk_file_path(save_dir_, p.x, p.y, p.z), *data);
+		}
+		return true; // (loaded from kept_ or its file when it's needed)
+	}
+	Chunk &c = it->second;
+	c.data = data;
+	c.dirty = true;
+	revision_++;
+	chunk_local_tops(*data, blocks_, c.local_tops);
+	update_column_tops(p.x, p.z);
+	for (int cy = CHUNK_Y_MIN; cy <= CHUNK_Y_MAX; cy++) { // its light may reach the neighbours, and down the column
+		for (int dz = -1; dz <= 1; dz++) {
+			for (int dx = -1; dx <= 1; dx++) {
+				request_remesh(p.x + dx, cy, p.z + dz);
+			}
+		}
+	}
+	return true;
+}
+
+std::vector<std::pair<ChunkPos, std::vector<uint8_t>>> World::edited_chunks() const {
+	std::vector<std::pair<ChunkPos, std::vector<uint8_t>>> out;
+	std::unordered_set<int64_t> seen;
+	for (const auto &[k, c] : chunks_) {
+		if (c.data && c.dirty) {
+			out.push_back({pos_of(k), encode_chunk(*c.data)});
+			seen.insert(k);
+		}
+	}
+	for (const auto &[k, data] : kept_) {
+		if (seen.insert(k).second) {
+			out.push_back({pos_of(k), encode_chunk(*data)});
+		}
+	}
+	if (!save_dir_.empty()) {
+		for (const auto &f : list_chunk_files(save_dir_)) {
+			const ChunkPos p{f[0], f[1], f[2]};
+			if (seen.insert(key(p)).second) {
+				if (std::vector<uint8_t> bytes = chunk_bytes(p); !bytes.empty()) {
+					out.push_back({p, std::move(bytes)});
+				}
+			}
+		}
+	}
+	return out;
 }
 
 void World::update_column_tops(int cx, int cz) {
@@ -546,7 +660,10 @@ void World::request_remesh(int cx, int cy, int cz) {
 	it->second.mesh_version++;
 	it->second.mesh_queued = false; // a running job's result is now stale
 	mesh_candidates_.insert(k);
-	urgent_.insert(k);
+	const int dx = cx - center_.x, dz = cz - center_.z;
+	if (dx * dx + dz * dz <= (radius_ + 1) * (radius_ + 1)) {
+		urgent_.insert(k); // (not chunks only loaded around other players)
+	}
 }
 
 bool World::save_chunk(const ChunkPos &p, Chunk &c) {

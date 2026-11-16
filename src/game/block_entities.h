@@ -50,6 +50,10 @@ public:
 
 	Json serialize() const;
 	void deserialize(const Json &data);
+	// One entity in the same form (null: none there); setting null removes it.
+	// (A client's copies of the host's.)
+	Json entity_data(const BlockPos &p) const;
+	void set_entity_data(const BlockPos &p, const Json &data);
 	size_t size() const { return entities_.size(); }
 
 	double fuel_seconds(const std::string &item);

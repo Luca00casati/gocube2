@@ -8,6 +8,7 @@
 #include "game/blocks.h"
 #include "world/world.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -52,9 +53,11 @@ public:
 	bool break_target(World &world, const BlockRules &rules, std::vector<BlockChange> *changes = nullptr) const;
 	// Right click: opens or closes a door aimed at (unless sneaking), else
 	// places `block` against the face aimed at. False if nothing happened.
-	// What was placed is added to `changes` if given.
+	// What was placed is added to `changes` if given. `occupied`: whether
+	// someone else stands in a cell (no solid block goes there).
 	bool use_or_place(World &world, const BlockRules &rules, const std::string &block, bool sneak,
-			std::vector<BlockChange> *changes = nullptr) const;
+			std::vector<BlockChange> *changes = nullptr,
+			const std::function<bool(const BlockPos &)> &occupied = {}) const;
 	// Whether a player standing with feet at `feet` overlaps the block `cell`.
 	static bool overlaps_block(const float feet[3], const BlockPos &cell);
 

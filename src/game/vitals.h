@@ -1,0 +1,41 @@
+#pragma once
+// The host: a joined survival player's health, worked out from where its
+// client says it is, by the same rules as the local player's (Game): falls
+// (the mods' fall_damage rule), fluids that hurt (lava), drowning, creatures
+// (less its armour), healing after a while without damage, and food. The
+// client only shows it. As the Godot version's Vitals.
+
+#include "game/blocks.h"
+#include "mods/mods.h"
+#include "world/world.h"
+
+#include <optional>
+
+namespace gc {
+
+class Vitals {
+public:
+	static constexpr int MAX_HEALTH = 20;
+	static constexpr float MAX_BREATH = 10.0f;
+
+	int health = MAX_HEALTH;
+	float breath = MAX_BREATH;
+	bool dead = false;
+	bool changed = true; // to send to the client
+
+	void hurt(int amount);
+	void heal(int amount);
+	void respawn();
+	// A new position the host accepted (feet). `held_up`: flying or in bed
+	// (no fall). A fall ends on the ground, in a fluid or on a ladder.
+	void moved(const World &world, const BlockRules &rules, Mods &mods, const float feet[3], bool held_up);
+	// Time passing: fluids that hurt burn, breath runs out with the head in a
+	// fluid, health comes back. `in_bed`: lying down (nothing burns or drowns).
+	void tick(const World &world, const BlockRules &rules, const float feet[3], bool in_bed, float dt);
+
+private:
+	std::optional<float> fall_peak_;
+	float since_damage_ = 0, regen_timer_ = 0, drown_timer_ = 0, burn_timer_ = 0.5f;
+};
+
+} // namespace gc

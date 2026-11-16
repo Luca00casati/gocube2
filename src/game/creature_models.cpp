@@ -156,9 +156,10 @@ struct FigureLooks {
 	Look skin, shirt, sleeve, hands, trousers, shoes;
 };
 
-// Builds the figure; returns its head and torso joints (to dress it up).
+// Builds the figure; returns its head and torso joints (to dress it up), and
+// where its right hand is (`hand_out`, if given: what it holds goes there).
 void figure(const Figure &f, const FigureLooks &l, const XMMATRIX &root, Builder &b, XMMATRIX &head_out,
-		XMMATRIX &torso_out) {
+		XMMATRIX &torso_out, XMMATRIX *hand_out = nullptr) {
 	auto joint = [&](Figure::Joint j, XMFLOAT3 at, const XMMATRIX &parent) {
 		return node(at, {f.rot[j][0], f.rot[j][1], f.rot[j][2]}) * parent;
 	};
@@ -175,6 +176,9 @@ void figure(const Figure &f, const FigureLooks &l, const XMMATRIX &root, Builder
 		const XMMATRIX elbow = joint(i == 0 ? Figure::ELBOW_L : Figure::ELBOW_R, {0, -Figure::UPPER_ARM, 0}, arm);
 		b.box(elbow, {0.155f, Figure::FOREARM - 0.08f, 0.155f}, {0, -(Figure::FOREARM - 0.08f) / 2, 0}, l.sleeve);
 		b.box(elbow, {0.15f, 0.1f, 0.15f}, {0, -Figure::FOREARM + 0.05f, 0}, l.hands);
+		if (i == 1 && hand_out) {
+			*hand_out = node({0, -Figure::FOREARM + 0.05f, 0}) * elbow;
+		}
 		const XMMATRIX leg = joint(i == 0 ? Figure::LEG_L : Figure::LEG_R, {0.125f * side, 0, 0}, hips);
 		b.box(leg, {0.22f, Figure::THIGH + 0.02f, 0.22f}, {0, -Figure::THIGH / 2, 0}, l.trousers);
 		const XMMATRIX knee = joint(i == 0 ? Figure::KNEE_L : Figure::KNEE_R, {0, -Figure::THIGH, 0}, leg);
@@ -207,7 +211,55 @@ void ninja(const Creature &c, const XMMATRIX &root, Builder &b) {
 	b.box(torso, {0.06f, 0.62f, 0.06f}, {-0.12f, 0.34f, 0.17f}, steel, {0, 0, 0.7f}); // sword on the back
 }
 
+Look hsv(float h, float s, float v) {
+	h = std::fmod(h, 1.0f) * 6.0f;
+	const int i = int(h) % 6;
+	const float f = h - std::floor(h), p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+	const float rgb[6][3] = {{v, t, p}, {q, v, p}, {p, v, t}, {p, q, v}, {t, p, v}, {v, p, q}};
+	return colour(rgb[i][0], rgb[i][1], rgb[i][2]);
+}
+
 } // namespace
+
+void build_player(const Figure &f, int id, const float eye[3], float yaw, const float light[3],
+		std::vector<CreatureVertex> &out, float hand[16]) {
+	// Looks from its id (everyone sees the same person): the Godot version's Avatar.looks.
+	uint32_t h = uint32_t(id) * 2654435761u;
+	h ^= h >> 15;
+	const Look skins[4] = {colour(0.96f, 0.80f, 0.66f), colour(0.87f, 0.67f, 0.5f), colour(0.72f, 0.52f, 0.36f),
+			colour(0.5f, 0.34f, 0.24f)};
+	const Look hairs[4] = {colour(0.25f, 0.16f, 0.1f), colour(0.1f, 0.08f, 0.07f), colour(0.75f, 0.55f, 0.25f),
+			colour(0.55f, 0.24f, 0.12f)};
+	const Look shirt = hsv(std::fmod(float(id) * 0.618034f, 1.0f), 0.6f, 0.85f);
+	Look sleeve = shirt;
+	for (float &c : sleeve.rgb) {
+		c *= 0.88f;
+	}
+	const Look skin = skins[h % 4], hair = hairs[(h / 7) % 4];
+	const Look trousers = hsv(0.6f + 0.08f * float((h / 13) % 3), 0.35f, 0.3f + 0.1f * float((h / 29) % 2));
+	const FigureLooks looks{skin, shirt, sleeve, skin, trousers, colour(0.2f, 0.15f, 0.12f)};
+	Builder b{out, light, 0};
+	// The origin is the eye; asleep the head goes on the pillow, the body along the bed.
+	const float lie = f.lie;
+	const XMMATRIX root = node({0, -1.62f + (1.62f - 0.3f) * lie, -1.35f * lie}) * node({eye[0], eye[1], eye[2]}, {0, yaw, 0});
+	XMMATRIX head, torso, hand_m = XMMatrixIdentity();
+	figure(f, looks, root, b, head, torso, &hand_m);
+	// Face and hair on the head (it faces -z; its box spans y 0..0.44).
+	const Look white = colour(0.95f, 0.95f, 0.95f), dark = colour(0.12f, 0.1f, 0.12f), mouth = colour(0.55f, 0.28f, 0.25f);
+	b.box(head, {0.46f, 0.12f, 0.46f}, {0, 0.41f, 0}, hair);    // top
+	b.box(head, {0.46f, 0.3f, 0.06f}, {0, 0.29f, 0.205f}, hair); // back
+	for (const float side : {-1.0f, 1.0f}) {
+		b.box(head, {0.05f, 0.18f, 0.4f}, {0.205f * side, 0.33f, 0.02f}, hair); // sides
+		b.box(head, {0.1f, 0.06f, 0.02f}, {0.1f * side, 0.21f, -0.225f}, white);
+		b.box(head, {0.05f, 0.06f, 0.02f}, {0.085f * side, 0.21f, -0.23f}, dark);
+		b.box(head, {0.11f, 0.03f, 0.02f}, {0.1f * side, 0.27f, -0.225f}, hair); // brows
+	}
+	b.box(head, {0.14f, 0.03f, 0.02f}, {0, 0.09f, -0.225f}, mouth);
+	b.box(torso, {0.52f, 0.06f, 0.29f}, {0, 0.03f, 0}, colour(0.22f, 0.16f, 0.1f)); // belt
+	XMFLOAT4X4 m;
+	XMStoreFloat4x4(&m, hand_m);
+	std::copy(&m._11, &m._11 + 16, hand);
+}
 
 void build_cube(const float at[3], float size, const float rgb[3], std::vector<CreatureVertex> &out) {
 	const float white[3] = {1, 1, 1};

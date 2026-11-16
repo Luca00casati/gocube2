@@ -15,6 +15,7 @@
 #include "world/world.h"
 
 #include <array>
+#include <functional>
 #include <optional>
 #include <string>
 #include <utility>
@@ -41,6 +42,43 @@ struct SoundEvent {
 struct Effect {
 	std::string name;
 	float at[3] = {0, 0, 0};
+};
+
+// Someone acting in the world: the local player, or (the host) a joined
+// player doing what its client asked.
+struct Actor {
+	int peer = 0;                    // 0: the local player
+	const Player *body = nullptr;    // where it stands and looks
+	Inventory *inventory = nullptr;  // survival: what is used up comes from here
+	int selected = 0;                // the hotbar slot in hand
+	std::string item;                // what it holds
+};
+
+// The host: another player in the game (for creatures, dropped items and
+// placing). `inventory`: the host's copy of a survival player's, else nullptr.
+struct OtherPlayer {
+	int peer = 0;
+	float feet[3] = {0, 0, 0};
+	bool alive = true;
+	Inventory *inventory = nullptr;
+};
+
+// A client: what the player does to the world goes to the host, which does
+// it and sends back what changed (blocks, the inventory, health).
+class Remote {
+public:
+	virtual ~Remote() = default;
+	virtual void start_mining(const BlockPos &p) = 0;
+	virtual void request_break(const BlockPos &p, int slot) = 0;
+	// A right click that isn't opening a container, a bed or eating: placing,
+	// a door, using an item (a hoe, seeds).
+	virtual void request_use(const float eye[3], const float dir[3], int slot, const std::string &item, bool sneak) = 0;
+	virtual void request_eat(int slot) = 0;
+	virtual void hit_creature(int id) = 0;
+	// Survival: a click in a screen (Game::inventory_action), done here too.
+	virtual void inventory_action(const Json &action) = 0;
+	virtual void set_bed(const BlockPos &head) = 0;
+	virtual void respawned() = 0;
 };
 
 struct GameInput {
@@ -103,6 +141,7 @@ public:
 	// A brand-new player: survival gets the starting items, creative the
 	// placeable blocks.
 	void start_new_player();
+	void give_starting_items(Inventory &inv); // (the starting_items rule)
 	void load_player(const Json &saved); // world.lua's player
 	Json save_player() const;            // the fields this adds to it
 
@@ -155,19 +194,52 @@ public:
 
 	// Hand crafting (the hand_recipes rule, asked once).
 	const std::vector<Recipe> &hand_recipes();
-	bool can_craft(const Recipe &r) const;
+	bool can_craft(const Recipe &r) const { return can_craft(inventory_, r); }
+	bool can_craft(const Inventory &inv, const Recipe &r) const;
 	// Takes the ingredients and adds the output; false (nothing changed) if
 	// there aren't enough or the output doesn't fit. Creative: just the output.
-	bool craft(const Recipe &r);
+	bool craft(const Recipe &r) { return craft(inventory_, r); }
+	bool craft(Inventory &inv, const Recipe &r);
+
+	// A click in a screen (what the screens do, so a client's host can do it
+	// too): ["click", slot], ["armor", k], ["craft", recipe id], ["pick", item]
+	// (creative: take one from the palette), ["container", x, y, z, slot],
+	// ["close"] (what the mouse holds goes back, the rest is dropped).
+	void inventory_action(const Json &action);
+	// The same on any inventory (the host: a joined player's copy, standing
+	// at `feet`); false if the action isn't a valid one.
+	bool apply_inventory_action(Inventory &inv, const Json &action, const float feet[3]);
+
+	// --- Multiplayer ---
+	// A client: the world's changes go through the host.
+	void set_remote(Remote *remote) { remote_ = remote; }
+	bool remote() const { return remote_ != nullptr; }
+	// A client in survival: health as the host has it (hurt shows as a flash).
+	void set_health_from_host(int health);
+	// A right click doing something to the world (use_item rule, a door,
+	// placing) by `who`; false if nothing happened. Survival takes what was
+	// used from its inventory.
+	bool use(const Actor &who, bool sneak);
+	// The host: the other players (set every frame), and what happens to them
+	// here (a creature hits one, it picks something up), and the sounds and
+	// sights mods make (for everyone to hear and see).
+	void set_others(std::vector<OtherPlayer> others) { others_ = std::move(others); }
+	std::function<void(int peer, int amount, const std::string &source, const float push[3])> on_damage_peer;
+	std::function<void(int peer, const Stack &stack)> on_pickup;
+	std::function<void(const SoundEvent &)> on_shared_sound;
+	std::function<void(const Effect &)> on_effect;
+	const std::optional<BlockPos> &bed() const { return bed_; }
+	// A client: the host's dropped items, and a sight it shows.
+	void set_drops(std::vector<ItemDrops::Drop> drops) { drops_.set_all(std::move(drops)); }
+	void add_effect(Effect e) { effects_.push_back(std::move(e)); }
 
 	float mine_seconds(const std::string &block, const std::string &tool);
 	std::vector<std::string> drops_of(const std::string &block, const std::string &tool);
-	// Right click with the selected item through the use_item rule (hoes,
-	// seeds); false if the rule did nothing.
-	bool use_item(const RayHit &hit);
 
 private:
 	void fill_creative();
+	Remote *remote_ = nullptr;
+	std::vector<OtherPlayer> others_;
 
 	Content &content_;
 	const BlockTable &table_;

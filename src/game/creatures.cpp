@@ -74,10 +74,70 @@ const Creature *Creatures::find(int id) const {
 	return it == list_.end() ? nullptr : &*it;
 }
 
+std::vector<CreatureState> Creatures::states() const {
+	std::vector<CreatureState> out;
+	for (const Creature &c : list_) {
+		CreatureState s;
+		s.id = c.id;
+		s.kind = c.kind;
+		s.variant = c.variant;
+		std::copy(c.pos, c.pos + 3, s.pos);
+		s.yaw = c.yaw;
+		s.walking = c.walking;
+		s.on_floor = c.on_floor;
+		s.blocked = c.blocked;
+		s.flash = c.flash;
+		s.hurt_time = c.hurt_time;
+		s.strikes = c.strikes;
+		out.push_back(std::move(s));
+	}
+	return out;
+}
+
+void Creatures::apply_states(const Content &content, const std::vector<CreatureState> &states) {
+	std::erase_if(list_, [&](const Creature &c) {
+		return std::none_of(states.begin(), states.end(), [&](const CreatureState &s) { return s.id == c.id; });
+	});
+	for (const CreatureState &s : states) {
+		Creature *c = find(s.id);
+		if (!c || c->kind != s.kind) {
+			if (c) {
+				remove(s.id);
+			}
+			const int made = spawn(content, s.kind, s.pos, s.variant);
+			c = made ? find(made) : nullptr;
+			if (!c) {
+				continue; // a kind we don't have
+			}
+			c->id = s.id; // (the host's id: hits name it)
+			c->remote = true;
+			c->yaw = c->prev_yaw = s.yaw;
+		}
+		std::copy(s.pos, s.pos + 3, c->target);
+		c->target_yaw = s.yaw;
+		c->variant = s.variant;
+		c->walking = s.walking;
+		c->on_floor = s.on_floor;
+		c->blocked = s.blocked;
+		c->flash = std::max(c->flash, s.flash);
+		c->hurt_time = std::max(c->hurt_time, s.hurt_time);
+		c->strikes = s.strikes;
+	}
+}
+
 void Creatures::step(float dt, const World &world) {
 	for (Creature &c : list_) {
 		std::copy(c.pos, c.pos + 3, c.prev);
 		c.prev_yaw = c.yaw;
+		if (c.remote) { // glide to where the host says it is
+			const float t = 1.0f - std::exp(-12.0f * dt);
+			for (int k = 0; k < 3; k++) {
+				c.pos[k] += (c.target[k] - c.pos[k]) * t;
+				c.vel[k] = dt > 0 ? (c.pos[k] - c.prev[k]) / dt : 0.0f;
+			}
+			c.yaw = lerp_angle(c.yaw, c.target_yaw, t);
+			continue;
+		}
 		const float dx = -std::sin(c.heading), dz = -std::cos(c.heading);
 		c.vel[0] = dx * c.speed;
 		c.vel[2] = dz * c.speed;

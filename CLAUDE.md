@@ -68,6 +68,33 @@ changed is spread over ticks (`MAX_CHECKS`, `CELLS_PER_CALL`), and per-cell
 bookkeeping uses integer keys, not strings or tables (garbage collection lands
 inside a call). `tests/test_survival.cpp`'s flood test checks it.
 
+## Multiplayer: check the client path before calling a feature done
+Single player is the host path; most multiplayer bugs come from the client path
+never being run. The host does what a client asks as that player
+(`Game::break_block`, `Game::use` with an `Actor`, `Game::apply_inventory_action`);
+a client's `Game` is remote (`Game::set_remote`): it sends instead of changing
+the world, runs no mods' ticks, and shows the host's drops, creatures and
+containers. A feature that changes blocks, items, the player or anything the
+host owns (drops, containers, creatures, beds, time) is only done when:
+
+1. A client doing it works: add a step to `tests/test_multiplayer.cpp` (host and
+   client in one process, `tests/net_play.h`), driving the client like a person
+   (aim, `input.use_pressed`/`break_held`, `walk`), not by calling Session
+   methods, and wait for the result on both sides. In survival the host keeps
+   the client's inventory (`Session::set_saved_players` before it joins) and
+   health, and times mining (hold `break_held`).
+2. The host refusing it works: out of reach, rate-limited, someone standing
+   there, an item it doesn't have. Nothing is left half done.
+3. Anything only the host knows (spawn, beds, first night, mode, time) reaches
+   the client, or the client asks for it.
+4. `gocube_mp_smoke` (CTest's `multiplayer_processes`) still passes: a host and
+   a client as two real processes.
+
+The client's world comes from the seed plus the host's edited chunks; a
+block change in a chunk it hasn't loaded asks for the whole chunk (kept in
+memory: a client has no world folder). Moving a test player far away unloads
+the play area on its side: wait for it to load again before aiming.
+
 ## Seeing the result
 `build\Release\gocube.exe --hidden --frames=10 --screenshot=<file>.png` (add
 `--pos=X,Y,Z --look=YAW,PITCH`) renders once the world around has loaded; read the

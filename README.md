@@ -4,10 +4,11 @@ Voxel sandbox for Windows, in C++20 with Direct3D 11, gameplay and mods in Lua.
 A rewrite of the Godot version of GoCube; the plan is in the
 [GoCube Native Rewrite Plan](https://claude.ai/artifact/CMdng1jnMGWsAb7X84FHoy).
 
-Status: milestone 7. Survival: mining, drops, crafting, chests and furnaces,
+Status: milestone 8. Survival: mining, drops, crafting, chests and furnaces,
 health, the day and night, growing plants, farming, flowing water and lava;
 creatures (Block Eaters by day, ninjas at night after a safe first night);
-sound; creative; a title menu and pause menu.
+sound; creative; multiplayer (one player hosts, others join); a title menu
+and pause menu.
 It looks like the Godot version: its sky, fog, block and cloud shadows, light
 from torches (placed and held), dropped items and the first-person arm.
 Worlds are generated exactly as the Godot version does. The rules of the game
@@ -71,6 +72,13 @@ lasts a real day by default and a bed to sleep through the night, falling sand,
 growing crops and saplings, decaying leaves. The world is saved every minute and
 when you quit.
 
+Playing together: in the title menu, tick "Open the world I play to others" and
+play a world (others join it on port 24680), or type the host's address and
+"Join their world". The host's world is the world: it checks and does what
+joined players do, keeps their inventories and health (saved in its world, by
+name), and runs the creatures, items, chests, furnaces and time; the night is
+skipped once everyone is in bed. Everyone needs the same mods.
+
 | Option | What it does |
 | --- | --- |
 | `--mode=survival\|creative` | Mode for a new world (default survival) |
@@ -90,6 +98,9 @@ when you quit.
 | `--frames=N` | Quit after N frames; exit code 1 if the debug layer reported errors or warnings |
 | `--screenshot=FILE` | Save the last frame as a PNG (frames are counted once the world around has loaded) |
 | `--render-scale=F` | Draw the world at this part of the window's resolution (0.25 to 1; stretched over it) |
+| `--host[=PORT]` | Open the world to others (default port 24680) |
+| `--join=ADDRESS[:PORT]` | Play in the world of the host at this address |
+| `--name=NAME` | The name others see (default "Player"; the host keeps a survival player's things by it) |
 | `--no-sound` | Play without sound (`--hidden` never plays any) |
 | `--no-vsync` | Present as fast as possible |
 | `--debug`, `--no-debug` | Force the Direct3D 11 debug layer on or off (default: on in debug builds) |
@@ -131,6 +142,8 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
   (shaped blocks' variants, doors, beds, support).
 - `src/mods/`: finding, ordering and loading mods; the Lua sandbox and API;
   fingerprints.
+- `src/net/`: multiplayer over ENet (the Godot version's Session): the host's
+  checks, what travels between host and clients, and the message format.
 - `src/render/`, `shaders/`: Direct3D 11, the terrain, sky and item shaders (HLSL,
   compiled by FXC at build time), drawn as the Godot version shows them.
 - `mods/core/`: the base game: content, assets and `main.lua` (the Godot version's
@@ -139,7 +152,9 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 - `tests/`: doctest unit tests: the generation fingerprints, player movement and
   editing, saving, mods (the sandbox, undoing, events, fingerprints), survival,
   and what rendering works out on the CPU (item models, held light, block
-  shadows). `tests/data/godot_screenshot.gd` takes the Godot version's side of a
+  shadows), multiplayer (host and client in one process). `tests/mp_smoke.cpp`
+  plays a round between a host and a client in two processes (CTest runs it).
+  `tests/data/godot_screenshot.gd` takes the Godot version's side of a
   screenshot comparison.
 
 ## Dependencies
@@ -151,4 +166,5 @@ statically (versions and licences: `thirdparty/README.md`):
 [zlib](https://github.com/madler/zlib) 1.3.2 (zlib licence),
 [nlohmann/json](https://github.com/nlohmann/json) 3.12.0 (MIT; in-memory values only),
 [miniaudio](https://github.com/mackron/miniaudio) 0.11.26 (MIT-0 or public domain),
+[ENet](https://github.com/lsalzman/enet) 1.3.18 (MIT),
 [doctest](https://github.com/doctest/doctest) 2.5.3 (MIT, tests only).

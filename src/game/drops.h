@@ -35,10 +35,31 @@ public:
 	};
 
 	void spawn(const std::string &item, int count, const float at[3]);
-	// One physics step: falling, drifting to the player (feet at `player`),
-	// picking up into `inventory`. Returns what was picked up.
+	// Someone who picks items up: feet, and the inventory they go into.
+	struct Taker {
+		int peer = 0; // 0: the local player
+		float feet[3] = {0, 0, 0};
+		bool alive = true;
+		Inventory *inventory = nullptr;
+	};
+	struct Picked {
+		int peer = 0;
+		Stack stack;
+	};
+	// One physics step: falling, drifting to the nearest taker, picking up
+	// into their inventory. Returns what was picked up, by whom.
+	std::vector<Picked> step(float dt, const World &world, const std::vector<Taker> &takers);
+	// (One taker: the local player.)
 	std::vector<Stack> step(float dt, const World &world, const float player[3], bool player_alive, Inventory &inventory);
 	const std::vector<Drop> &drops() const { return drops_; }
+	// A client: the host's drops, as they are now (shown, not simulated).
+	void set_all(std::vector<Drop> drops) { drops_ = std::move(drops); }
+	// Spins and bobs (a client's: no physics runs).
+	void age(float dt) {
+		for (Drop &d : drops_) {
+			d.age += dt;
+		}
+	}
 
 	// Their models (world coordinates; ItemModels), bobbing and slowly
 	// spinning, each coloured by `light` at it (linear rgb: the light where it

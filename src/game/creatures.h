@@ -51,6 +51,22 @@ struct Creature {
 	float box[3] = {0.6f, 1.8f, 0.6f};
 	float gravity = 24, step_height = 1, turn_rate = 8, jump = 0, light_height = 0.5f;
 	bool jump_when_blocked = false;
+	// A client's copy of the host's creature: it glides to where the host
+	// last said it was (no physics here).
+	bool remote = false;
+	float target[3] = {0, 0, 0};
+	float target_yaw = 0;
+};
+
+// A creature as the host sends it to clients.
+struct CreatureState {
+	int id = 0;
+	std::string kind, variant;
+	float pos[3] = {0, 0, 0};
+	float yaw = 0;
+	bool walking = false, on_floor = true, blocked = false;
+	float flash = 0, hurt_time = 0;
+	int strikes = 0;
 };
 
 class Creatures {
@@ -72,6 +88,11 @@ public:
 
 	// The creature a ray meets first within max_distance (its box), or 0.
 	int pick(const float origin[3], const float dir[3], float max_distance, float &distance) const;
+
+	// The host: every creature's state. A client: the host's (creatures come,
+	// go and glide to where it says).
+	std::vector<CreatureState> states() const;
+	void apply_states(const Content &content, const std::vector<CreatureState> &states);
 
 	// For the mods: a creature as data ({id, kind, variant, x, y, z, yaw,
 	// heading, speed, on_floor, hit_wall, walking}); reading it clears hit_wall.
