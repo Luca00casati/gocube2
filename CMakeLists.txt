@@ -118,6 +118,8 @@ target_sources(gocube_core PRIVATE
 	src/world/save.h
 	src/world/world.cpp
 	src/world/world.h
+	src/game/settings.cpp
+	src/game/settings.h
 	src/game/vitals.cpp
 	src/game/vitals.h
 	src/net/session.cpp
@@ -173,6 +175,8 @@ add_executable(gocube
 	src/render/chunk_renderer.h
 	src/render/renderer.cpp
 	src/render/renderer.h
+	src/ui/settings_screen.cpp
+	src/ui/settings_screen.h
 	src/ui/screens.cpp
 	src/ui/screens.h
 	shaders/chunk.hlsl

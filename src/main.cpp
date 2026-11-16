@@ -33,7 +33,10 @@
 //   --screenshot=F   save the last frame as a PNG
 //   --render-scale=F draw the world at this part of the window's resolution
 //                    (0.25..1, stretched over it; the Godot version offers
-//                    1, 0.85, 0.75 and 0.5)
+//                    1, 0.85, 0.75 and 0.5). --view and --render-scale win
+//                    over the settings (%APPDATA%\GoCube\settings.lua, which
+//                    --hidden doesn't read: tests play with the defaults)
+//   --screen=inventory|settings  a screen open at the start (screenshots)
 //   --host[=PORT]    open the world to other players (default port 24680)
 //   --join=ADDRESS[:PORT]  play in someone else's world
 //   --name=NAME      the name others see (default "Player")
@@ -53,6 +56,7 @@
 #include "game/game.h"
 #include "game/hand.h"
 #include "game/player.h"
+#include "game/settings.h"
 #include "log.h"
 #include "mods/mods.h"
 #include "net/session.h"
@@ -60,6 +64,7 @@
 #include "render/chunk_renderer.h"
 #include "render/renderer.h"
 #include "ui/screens.h"
+#include "ui/settings_screen.h"
 #include "world/save.h"
 #include "world/world.h"
 
@@ -82,6 +87,7 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -97,8 +103,9 @@ struct Options {
 	std::filesystem::path world_dir;
 	uint32_t seed = 777;
 	int generator = gc::GENERATOR_VERSION;
-	int view = 128;
-	float render_scale = 1.0f;
+	int view = 0;              // --view (0: the settings')
+	float render_scale = 0.0f; // --render-scale (0: the settings')
+	bool no_vsync = false;
 	bool has_pos = false;
 	float pos[3] = {0, 0, 0};
 	bool has_look = false;
@@ -207,6 +214,7 @@ Options parse(int argc, char **argv) {
 			o.sound = true;
 		} else if (!strcmp(a, "--no-vsync")) {
 			o.renderer.vsync = false;
+			o.no_vsync = true;
 		} else if (!strcmp(a, "--debug")) {
 			o.renderer.debug = true;
 		} else if (!strcmp(a, "--no-debug")) {
@@ -244,6 +252,21 @@ std::filesystem::path user_dir() {
 	return out;
 }
 
+// The player's settings (%APPDATA%\GoCube\settings.lua; tests run with the
+// defaults: --hidden doesn't read them).
+gc::Settings settings;
+std::filesystem::path settings_file() {
+	return user_dir() / "settings.lua";
+}
+
+// What the game draws and plays with: the settings, unless an option says otherwise.
+int view_distance(const Options &o) {
+	return o.view > 0 ? o.view : settings.view_distance;
+}
+float render_scale(const Options &o) {
+	return o.render_scale > 0 ? o.render_scale : settings.render_scale;
+}
+
 struct Controls {
 	bool fly_key_was_down = false;
 	bool f3_was_down = false;
@@ -260,7 +283,7 @@ struct Controls {
 	}
 };
 
-enum class Screen { NONE, INVENTORY, CONTAINER, PAUSE };
+enum class Screen { NONE, INVENTORY, CONTAINER, PAUSE, SETTINGS };
 
 // Number keys 1..9 pressed this frame (0: none).
 int number_pressed(const gc::Window &window, Controls &controls) {
@@ -403,11 +426,12 @@ gc::PlayerInput read_input(const gc::Window &window) {
 	if (!window.mouse_captured()) {
 		return in;
 	}
-	in.forward = float(window.key_down('W')) - float(window.key_down('S'));
-	in.right = float(window.key_down('D')) - float(window.key_down('A'));
-	in.jump = window.key_down(VK_SPACE);
-	in.sneak = window.key_down(VK_SHIFT);
-	in.sprint = window.key_down(VK_CONTROL);
+	auto down = [&](const char *action) { return window.key_down(settings.key(action)); };
+	in.forward = float(down("move_forward")) - float(down("move_back"));
+	in.right = float(down("move_right")) - float(down("move_left"));
+	in.jump = down("jump");
+	in.sneak = down("sneak");
+	in.sprint = down("sprint");
 	return in;
 }
 
@@ -420,7 +444,7 @@ void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::W
 	const ImGuiIO &io = ImGui::GetIO();
 	{
 		char clock[16], line[320];
-		gc::DayCycle::clock_text(day_time, false, clock, sizeof(clock));
+		gc::DayCycle::clock_text(day_time, settings.clock_24h, clock, sizeof(clock));
 		std::snprintf(line, sizeof(line), "%.0f FPS \u00b7 %s \u00b7 %s \u00b7 %s \u00b7 E inventory%s", io.Framerate, clock,
 				game.creative() ? "creative" : "survival", player.flying ? "flying (F)" : "walking (F to fly)",
 				net_status.c_str());
@@ -452,7 +476,7 @@ void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::W
 		ImGui::Text("GoCube %s  -  %s", GOCUBE_VERSION, renderer.adapter_name().c_str());
 		ImGui::Text("%.0f fps (%.2f ms)", io.Framerate, 1000.0f / io.Framerate);
 		char clock[16];
-		gc::DayCycle::clock_text(day_time, false, clock, sizeof(clock));
+		gc::DayCycle::clock_text(day_time, settings.clock_24h, clock, sizeof(clock));
 		ImGui::SameLine();
 		ImGui::Text("  -  %s", clock);
 		ImGui::Text("Position %.1f, %.1f, %.1f%s  -  seed %u", player.position[0], player.position[1],
@@ -544,7 +568,7 @@ struct WorldChoice {
 	std::string name = "Player";
 };
 
-enum class PauseChoice { NONE, RESUME, QUIT };
+enum class PauseChoice { NONE, RESUME, SETTINGS, QUIT };
 
 // The pause menu (single player: the world waits behind it).
 PauseChoice pause_menu(bool saved, bool from_menu) {
@@ -556,6 +580,9 @@ PauseChoice pause_menu(bool saved, bool from_menu) {
 	PauseChoice choice = PauseChoice::NONE;
 	if (ImGui::Button("Resume", ImVec2(260, 36))) {
 		choice = PauseChoice::RESUME;
+	}
+	if (ImGui::Button("Settings", ImVec2(260, 36))) {
+		choice = PauseChoice::SETTINGS;
 	}
 	const char *quit = from_menu ? (saved ? "Save and quit to title" : "Quit to title") : (saved ? "Save and quit" : "Quit");
 	if (ImGui::Button(quit, ImVec2(260, 36))) {
@@ -583,7 +610,16 @@ struct TitleMenu {
 	char player_name[32] = "Player";
 	bool open_to_others = false;
 	char join_address[64] = "127.0.0.1";
+	bool loaded_names = false;
+	bool in_settings = false; // the settings screen, over the menu
+	gc::SettingsScreen settings_screen;
+	bool esc_was_down = false;
 };
+
+// Where the settings screen finds mods.
+gc::SettingsScreen::ModFolders mod_folders() {
+	return {find_mods(), user_dir() / "mods", user_dir() / "server_mods"};
+}
 
 std::vector<WorldEntry> find_worlds() {
 	std::vector<WorldEntry> out;
@@ -662,9 +698,27 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 			menu.selected = menu.worlds.empty() ? -1 : 0;
 			menu.refresh = false;
 		}
+		if (!menu.loaded_names) { // (the last ones used)
+			menu.loaded_names = true;
+			strncpy_s(menu.player_name, settings.player_name.c_str(), _TRUNCATE);
+			strncpy_s(menu.join_address, settings.last_address.c_str(), _TRUNCATE);
+		}
 		ImGui_ImplDX11_NewFrame();
 		ImGui_ImplWin32_NewFrame();
 		ImGui::NewFrame();
+		const bool esc_down = window.key_down(VK_ESCAPE);
+		const bool esc = esc_down && !menu.esc_was_down;
+		menu.esc_was_down = esc_down;
+		if (menu.in_settings) {
+			menu.in_settings = menu.settings_screen.draw(settings, window, esc, settings_file());
+			renderer.set_vsync(!options.no_vsync && settings.vsync);
+			renderer.set_render_scale(render_scale(options));
+			ImGui::Render();
+			const float clear[4] = {0.18f, 0.32f, 0.62f, 1.0f};
+			renderer.begin_frame(clear);
+			renderer.end_frame(nullptr);
+			continue;
+		}
 		const ImGuiIO &io = ImGui::GetIO();
 		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 		ImGui::SetNextWindowSize(ImVec2(std::min(760.0f, io.DisplaySize.x - 40), std::min(680.0f, io.DisplaySize.y - 40)));
@@ -674,6 +728,16 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 		ImGui::TextUnformatted("GoCube");
 		ImGui::SetWindowFontScale(1.0f);
 		ImGui::TextDisabled("%s", GOCUBE_VERSION);
+		ImGui::SameLine(ImGui::GetWindowWidth() - 130);
+		if (ImGui::Button("Settings", ImVec2(110, 0))) {
+			// (The mods as they'd load now, for its list of them.)
+			gc::Content content;
+			gc::Mods mods(content);
+			mods.set_disabled(settings.disabled_mods);
+			mods.load_all({find_mods(), user_dir() / "mods"});
+			menu.settings_screen.open(mod_folders(), mods, false);
+			menu.in_settings = true;
+		}
 		ImGui::Separator();
 
 		ImGui::TextUnformatted("Worlds");
@@ -779,6 +843,13 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 		renderer.end_frame(last_frame && !options.screenshot.empty() ? options.screenshot.c_str() : nullptr);
 		if (choice) {
 			choice->name = menu.player_name;
+			settings.player_name = menu.player_name; // (kept for next time)
+			if (!choice->join.empty()) {
+				settings.last_address = menu.join_address;
+			}
+			if (!options.hidden) {
+				settings.save(settings_file());
+			}
 			if (choice->join.empty() && menu.open_to_others) {
 				choice->host_port = gc::Session::DEFAULT_PORT;
 			}
@@ -803,6 +874,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	gc::Content content;
 	gc::Mods mods(content);
 	// (Joining with the host's mods: exactly those, downloaded ones included.)
+	mods.set_disabled(settings.disabled_mods); // (not the host's, when it gives them)
 	if (choice.only_mods.empty()) {
 		mods.load_all({builtin_mods, user_dir() / "mods"});
 	} else {
@@ -931,8 +1003,8 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	}
 
 	auto world = std::make_unique<gc::World>(table.blocks, table.atlas.layout, generator,
-			save ? utf8_string(save->chunks_dir()) : std::string());
-	world->set_view_distance(options.view);
+			save ? utf8_string(save->chunks_dir()) : std::string(), settings.worker_threads);
+	world->set_view_distance(view_distance(options));
 	mods.attach(world.get(), &rules);
 
 	gc::Player player;
@@ -1014,7 +1086,13 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	}
 
 	gc::Camera camera;
-	camera.far_z = float(options.view) * 2.0f;
+	camera.far_z = float(view_distance(options)) * 2.0f;
+	gc::SettingsScreen settings_screen;
+	if (screen == Screen::NONE && options.screen == "settings") { // (screenshots)
+		settings_screen.open(mod_folders(), mods, !choice.only_mods.empty());
+		screen = Screen::SETTINGS;
+		window.set_mouse_captured(false);
+	}
 	gc::ItemModels item_models(content, table);
 	gc::Audio audio; // (silent in tests: --hidden)
 	if (!options.no_sound && (!options.hidden || options.sound)) {
@@ -1128,7 +1206,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		const float wheel = window.take_wheel();
 		// Screens: E opens the inventory; E or Esc closes it (what the mouse
 		// held goes back in, or is dropped). While one is open the mouse is free.
-		const bool key_e = controls.pressed(window, 'E');
+		const bool key_e = controls.pressed(window, settings.key("inventory"));
 		const bool key_esc = controls.pressed(window, VK_ESCAPE);
 		auto close_screen = [&] {
 			game.inventory_action(gc::Json::array({"close"})); // (what the mouse held goes back in, or is dropped)
@@ -1151,10 +1229,12 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 				screen = Screen::NONE;
 				window.set_mouse_captured(true);
 			}
+		} else if (screen == Screen::SETTINGS) {
+			// (Esc closes it, back to the pause menu: the screen sees it.)
 		} else if (key_e || key_esc) {
 			close_screen();
 		}
-		const bool paused = screen == Screen::PAUSE && !online; // (single player: the world waits)
+		const bool paused = (screen == Screen::PAUSE || screen == Screen::SETTINGS) && !online; // (single player: the world waits)
 		const bool captured = window.mouse_captured() && screen == Screen::NONE;
 		if (left && !window.mouse_captured() && screen == Screen::NONE && !ImGui::GetIO().WantCaptureMouse) {
 			window.set_mouse_captured(true); // (that click only captures)
@@ -1168,10 +1248,10 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		// the last two steps, so movement is smooth at any frame rate.
 		float mx, my;
 		window.take_mouse_delta(mx, my);
-		const float sensitivity = 0.003f; // radians per mouse count (the Godot version's default)
+		const float sensitivity = settings.mouse_sensitivity; // radians per mouse count
 		player.yaw -= mx * sensitivity;
 		player.pitch = std::clamp(player.pitch - my * sensitivity, -1.55f, 1.55f);
-		const bool fly_key = captured && window.key_down('F');
+		const bool fly_key = captured && window.key_down(settings.key("toggle_fly"));
 		if (fly_key && !controls.fly_key_was_down) {
 			player.flying = !player.flying;
 			player.velocity[1] = 0;
@@ -1334,10 +1414,19 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		for (const gc::SoundEvent &e : game.take_sounds()) {
 			audio.play(e.set, e.kind, e.at, e.volume_db);
 		}
+		audio.set_volumes(options.hidden ? 0.0f : settings.master_volume, settings.effects_volume,
+				settings.ambience_volume);
 		audio.update_ambience(day.day_amount());
 		audio.set_underwater(in_fluid);
 		audio.update();
 
+		// The settings, as they are now (the settings screen changes them live).
+		world->set_view_distance(view_distance(options));
+		camera.far_z = float(view_distance(options)) * 2.0f;
+		world->set_smooth_lighting(settings.smooth_lighting);
+		world->set_block_shadows(settings.shadow_mode == "blocks");
+		renderer.set_render_scale(render_scale(options));
+		renderer.set_vsync(!options.no_vsync && settings.vsync);
 		world->set_sun_angle(day.angle()); // (shadows follow it in steps)
 		world->update(player.position[0], player.position[1], player.position[2]);
 		for (const gc::ChunkPos &p : world->take_unloaded()) {
@@ -1386,6 +1475,10 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 					screen = Screen::NONE;
 					window.set_mouse_captured(true);
 					break;
+				case PauseChoice::SETTINGS:
+					settings_screen.open(mod_folders(), mods, !choice.only_mods.empty());
+					screen = Screen::SETTINGS;
+					break;
 				case PauseChoice::QUIT:
 					end = from_menu ? End::MENU : End::QUIT;
 					quit_requested = true;
@@ -1393,6 +1486,8 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 				default:
 					break;
 			}
+		} else if (screen == Screen::SETTINGS && !settings_screen.draw(settings, window, key_esc, settings_file())) {
+			screen = Screen::PAUSE; // (saved; back to the pause menu)
 		}
 		if (in_fluid) { // (under the HUD)
 			ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize,
@@ -1418,7 +1513,9 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 						IM_COL32(255, 255, 255, 255), a.name.c_str());
 			}
 		}
-		draw_hud(game, table, chunks, rules, captured);
+		if (screen != Screen::SETTINGS) { // (it covers the screen)
+			draw_hud(game, table, chunks, rules, captured);
+		}
 		if (sleeping >= 0) {
 			ImGui::GetForegroundDrawList()->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize,
 					IM_COL32(0, 0, 0, int(230 * std::min(1.0f, sleeping / 1.5f))));
@@ -1434,7 +1531,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			day.cloud_offset[0] = 0.35f * 3.0f;
 			day.cloud_offset[1] = 0.12f * 3.0f;
 		}
-		apply_day(day, float(options.view), sky);
+		apply_day(day, float(view_distance(options)), sky);
 		const float clear[4] = {sky.fog_color.x, sky.fog_color.y, sky.fog_color.z, 1.0f};
 		renderer.begin_frame(clear);
 		const float aspect = float(renderer.width()) / float(std::max(1, renderer.height()));
@@ -1584,6 +1681,9 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		if (last_frame || quit_requested) {
 			break;
 		}
+		if (settings.max_fps > 0) { // the frame rate limit
+			std::this_thread::sleep_until(now + std::chrono::microseconds(1000000 / settings.max_fps));
+		}
 	}
 
 	save_all();
@@ -1598,6 +1698,12 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 int main(int argc, char **argv) {
 	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 	const Options options = parse(argc, argv);
+	if (!options.hidden) { // (tests play with the defaults)
+		std::string why;
+		if (!settings.load(settings_file(), &why)) {
+			gc::log("Can't read the settings (%s); using the defaults", why.c_str());
+		}
+	}
 
 	gc::Window window;
 	if (!window.create(L"GoCube", 1280, 720, !options.hidden)) {
@@ -1605,11 +1711,13 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 	gc::Renderer renderer;
-	if (!renderer.init(window.hwnd(), window.width(), window.height(), options.renderer)) {
+	gc::RendererOptions renderer_options = options.renderer;
+	renderer_options.vsync = !options.no_vsync && settings.vsync;
+	if (!renderer.init(window.hwnd(), window.width(), window.height(), renderer_options)) {
 		gc::log("Couldn't start Direct3D 11");
 		return 1;
 	}
-	renderer.set_render_scale(options.render_scale);
+	renderer.set_render_scale(render_scale(options));
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGui::GetIO().IniFilename = nullptr; // no imgui.ini next to the game

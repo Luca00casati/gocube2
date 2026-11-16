@@ -26,6 +26,7 @@ struct Audio::Impl {
 	ma_sound day{}, night{};
 	bool day_ok = false, night_ok = false;
 	float listener[3] = {0, 0, 0};
+	float effects = 1, ambience = 1;
 };
 
 Audio::Audio() : impl_(std::make_unique<Impl>()) {}
@@ -159,7 +160,7 @@ void Audio::play(const std::string &set, const std::string &kind, const float at
 	ma_sound_set_max_distance(s.get(), MAX_DISTANCE);
 	ma_sound_set_rolloff(s.get(), 1.0f);
 	ma_sound_set_pitch(s.get(), std::uniform_real_distribution<float>(0.9f, 1.1f)(random_));
-	ma_sound_set_volume(s.get(), ma_volume_db_to_linear(volume_db));
+	ma_sound_set_volume(s.get(), ma_volume_db_to_linear(volume_db) * a.effects);
 	ma_sound_start(s.get());
 	a.voices.push_back(std::move(s));
 }
@@ -176,13 +177,22 @@ void Audio::set_listener(const float position[3], const float forward[3]) {
 
 void Audio::update_ambience(float day) {
 	Impl &a = *impl_;
-	const float base = ma_volume_db_to_linear(AMBIENCE_DB);
+	const float base = ma_volume_db_to_linear(AMBIENCE_DB) * a.ambience;
 	day = std::clamp(day, 0.0f, 1.0f);
 	if (a.day_ok) {
 		ma_sound_set_volume(&a.day, base * day);
 	}
 	if (a.night_ok) {
 		ma_sound_set_volume(&a.night, base * (1.0f - day));
+	}
+}
+
+void Audio::set_volumes(float master, float effects, float ambience) {
+	Impl &a = *impl_;
+	a.effects = std::clamp(effects, 0.0f, 1.0f);
+	a.ambience = std::clamp(ambience, 0.0f, 1.0f);
+	if (a.ok) {
+		ma_engine_set_volume(&a.engine, std::clamp(master, 0.0f, 1.0f));
 	}
 }
 

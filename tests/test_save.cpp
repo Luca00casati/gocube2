@@ -9,6 +9,8 @@
 #include "world/save.h"
 #include "world/world.h"
 
+#include "game/settings.h"
+
 #include <doctest/doctest.h>
 
 #include <windows.h>
@@ -202,4 +204,69 @@ TEST_CASE("Lua data files: written and read back the same; only data") {
 	CHECK(why.find("too long") != std::string::npos);
 	CHECK_FALSE(gc::parse_lua_data("return 5", "t", back, why));
 	CHECK_FALSE(gc::parse_lua_data("\x1bLua", "t", back, why)); // bytecode
+}
+
+TEST_CASE("settings: saved and read back; what's missing or wrong is the default") {
+	const std::filesystem::path file =
+			std::filesystem::temp_directory_path() / ("gocube_settings_" + std::to_string(GetCurrentProcessId()) + ".lua");
+	gc::Settings s;
+	CHECK(s.view_distance == 128);
+	CHECK(s.key("move_forward") == 'W');
+	CHECK(s.load(file)); // (no file: the defaults)
+	s.view_distance = 192;
+	s.mouse_sensitivity = 0.0052f;
+	s.max_fps = 60;
+	s.vsync = false;
+	s.smooth_lighting = false;
+	s.shadow_mode = "off";
+	s.render_scale = 0.75f;
+	s.clock_24h = true;
+	s.master_volume = 0.5f;
+	s.ambience_volume = 0.25f;
+	s.keys["jump"] = 'J';
+	s.disabled_mods = {"lights", "boats"};
+	s.player_name = "Ëlla";
+	s.last_address = "192.168.1.20:24680";
+	REQUIRE(s.save(file));
+	gc::Settings back;
+	REQUIRE(back.load(file));
+	CHECK(back.view_distance == 192);
+	CHECK(back.mouse_sensitivity == doctest::Approx(0.0052f));
+	CHECK(back.max_fps == 60);
+	CHECK_FALSE(back.vsync);
+	CHECK_FALSE(back.smooth_lighting);
+	CHECK(back.shadow_mode == "off");
+	CHECK(back.render_scale == doctest::Approx(0.75f));
+	CHECK(back.clock_24h);
+	CHECK(back.master_volume == doctest::Approx(0.5f));
+	CHECK(back.effects_volume == doctest::Approx(1.0f));
+	CHECK(back.ambience_volume == doctest::Approx(0.25f));
+	CHECK(back.key("jump") == 'J');
+	CHECK(back.key("sneak") == VK_SHIFT);
+	CHECK(back.disabled_mods == std::vector<std::string>{"lights", "boats"});
+	CHECK(back.player_name == "Ëlla");
+	CHECK(back.last_address == "192.168.1.20:24680");
+	CHECK(back.actions_using('J') == std::vector<std::string>{"jump"});
+
+	// Out of range, the wrong type, an unknown shadow mode (the Godot version's
+	// "smooth"), a key that isn't one: those settings are the defaults.
+	std::ofstream(file) << "return {view_distance = 100000, mouse_sensitivity = \"fast\", shadow_mode = \"smooth\", "
+						   "render_scale = 0.01, keys = {jump = -3, sprint = 82}, master_volume = 7}\n";
+	gc::Settings odd;
+	REQUIRE(odd.load(file));
+	CHECK(odd.view_distance == 512);
+	CHECK(odd.mouse_sensitivity == doctest::Approx(0.003f));
+	CHECK(odd.shadow_mode == "blocks");
+	CHECK(odd.render_scale == doctest::Approx(0.25f));
+	CHECK(odd.key("jump") == VK_SPACE);
+	CHECK(odd.key("sprint") == 'R');
+	CHECK(odd.master_volume == doctest::Approx(1.0f));
+	// Not a settings file at all: the defaults, and it says so.
+	std::ofstream(file) << "this isn't Lua";
+	gc::Settings bad;
+	std::string why;
+	CHECK_FALSE(bad.load(file, &why));
+	CHECK_FALSE(why.empty());
+	CHECK(bad.view_distance == 128);
+	std::filesystem::remove(file);
 }

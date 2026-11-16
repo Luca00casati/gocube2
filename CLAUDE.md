@@ -98,7 +98,9 @@ the play area on its side: wait for it to load again before aiming.
 ## Seeing the result
 `build\Release\gocube.exe --hidden --frames=10 --screenshot=<file>.png` (add
 `--pos=X,Y,Z --look=YAW,PITCH`) renders once the world around has loaded; read the
-PNG to check what a rendering change looks like.
+PNG to check what a rendering change looks like. `--hidden` never reads the
+player's settings (`%APPDATA%\GoCube\settings.lua`, `game/settings.h`): tests and
+screenshots run with the defaults. `--screen=settings` shows the settings screen.
 
 ## Looking like the Godot version
 The target is what the Godot version shows on the development PC: Godot's

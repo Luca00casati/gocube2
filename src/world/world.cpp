@@ -128,7 +128,7 @@ void World::run(Job &job, Result &r) const {
 			hood[neighbourhood_index(0, 1, 0)], hood[neighbourhood_index(0, -1, 0)],
 			hood[neighbourhood_index(0, 0, 1)], hood[neighbourhood_index(0, 0, -1)]};
 	MeshOptions options;
-	options.smooth_lighting = true;
+	options.smooth_lighting = smooth_lighting_.load();
 	options.sun_shadows = block_shadows_.load();
 	const float sun = float(sun_step_.load() * SUN_STEP_DEGREES) * 3.14159265f / 180.0f;
 	options.sun_x = std::cos(sun);
@@ -623,6 +623,12 @@ void World::relight_around(const BlockPos &p, int y_low, int y_high) {
 
 void World::set_block_shadows(bool enabled) {
 	if (block_shadows_.exchange(enabled) != enabled) {
+		remesh_all();
+	}
+}
+
+void World::set_smooth_lighting(bool enabled) {
+	if (smooth_lighting_.exchange(enabled) != enabled) {
 		remesh_all();
 	}
 }

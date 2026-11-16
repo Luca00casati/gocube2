@@ -43,6 +43,8 @@ public:
 	// day: 0 at night .. 1 in full day.
 	void update_ambience(float day);
 	void set_underwater(bool underwater);
+	// Volumes, 0..1: everything, the game's sounds, the ambience.
+	void set_volumes(float master, float effects, float ambience);
 	// Frees sounds that have finished (call once a frame).
 	void update();
 

@@ -111,6 +111,9 @@ public:
 	// freeze it next. `only` (multiplayer: the host's mods): load exactly these
 	// entries (mod_entry), skipping every other copy found.
 	void load_all(const std::vector<std::filesystem::path> &dirs, const std::vector<std::string> *only = nullptr);
+	// Mods the player turned off (not the base game): skipped by load_all
+	// unless they're the host's (`only`).
+	void set_disabled(std::vector<std::string> ids) { disabled_ = std::move(ids); }
 	const std::vector<ModInfo> &loaded() const { return loaded_; }
 	// Why mods didn't load, or were turned off: mod id (or folder) -> reason.
 	const std::map<std::string, std::string> &problems() const { return problems_; }
@@ -170,6 +173,7 @@ private:
 	std::unique_ptr<Lua> lua_;
 	std::vector<ModInfo> loaded_;
 	std::map<std::string, std::string> problems_;
+	std::vector<std::string> disabled_;
 };
 
 // A short hash of every file in a mod folder (names and contents, dot-names

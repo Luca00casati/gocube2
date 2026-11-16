@@ -46,6 +46,7 @@ public:
 	// The world's resolution as a part of the window's (0.25..1; the Godot
 	// version offers 1, 0.85, 0.75 and 0.5).
 	void set_render_scale(float scale);
+	void set_vsync(bool on) { options_.vsync = on; } // (from the next frame)
 	float render_scale() const { return render_scale_; }
 
 	// Clears the world's target (to a linear colour) and the depth buffer, and

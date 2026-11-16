@@ -62,7 +62,7 @@ survival or creative). Or straight into a world:
 | 1-9, wheel | Choose a hotbar slot |
 | Middle button | Creative: take the block aimed at |
 | E | Inventory and crafting (creative: every block and item) |
-| Esc | Pause menu (save and quit) |
+| Esc | Pause menu (settings; save and quit) |
 
 Survival as in the Godot version: mining takes time (faster with the right tool,
 some blocks need one), broken blocks drop items, crafting from the inventory,
@@ -71,6 +71,12 @@ with time and food), death and respawn at your bed or the world spawn, a day tha
 lasts a real day by default and a bed to sleep through the night, falling sand,
 growing crops and saplings, decaying leaves. The world is saved every minute and
 when you quit.
+
+Settings (the title menu's Settings button, or the pause menu's): view distance,
+mouse sensitivity, frame rate limit, vsync, smooth lighting, sun shadows,
+render scale, volumes, the clock, the keys, and which mods load (and the mods
+downloaded from servers). Changes show at once; they're kept in
+`%APPDATA%\GoCube\settings.lua`, with your name and the last address you joined.
 
 Playing together: in the title menu, tick "Open the world I play to others" and
 play a world (others join it on port 24680), or type the host's address and
@@ -90,18 +96,18 @@ host's mods.
 | `--world-dir=DIR` | Play the world in this folder |
 | `--seed=N` | Seed for a new world (default 777) |
 | `--generator=N` | World generator version for an unsaved world: 1 (before biomes), 2, 3 (default, the newest) |
-| `--view=N` | View distance in blocks (default 128) |
+| `--view=N` | View distance in blocks (default: the settings', 128) |
 | `--pos=X,Y,Z`, `--look=YAW,PITCH` | Start flying at this position (feet), and view direction in degrees |
 | `--time=0..1` | Start at this time of day (0.5: noon) |
 | `--drop=ID,...` | Drop these items in front of the player (trying things out) |
 | `--spawn=KIND[=BLOCK],...` | Put creatures in front of the player (`block_eater=core:stone`) |
-| `--screen=inventory` | Open the inventory at the start (screenshots) |
+| `--screen=inventory\|settings` | Open the inventory or the settings at the start (screenshots) |
 | `--menu` | The title menu even with testing options (`--frames`, `--screenshot` apply to it) |
 | `--warp` | Render on WARP, Windows' software adapter (no GPU needed) |
-| `--hidden` | Don't show the window (tests) |
+| `--hidden` | Don't show the window (tests; the settings file isn't read: the defaults) |
 | `--frames=N` | Quit after N frames; exit code 1 if the debug layer reported errors or warnings |
 | `--screenshot=FILE` | Save the last frame as a PNG (frames are counted once the world around has loaded) |
-| `--render-scale=F` | Draw the world at this part of the window's resolution (0.25 to 1; stretched over it) |
+| `--render-scale=F` | Draw the world at this part of the window's resolution (0.25 to 1; stretched over it; default: the settings') |
 | `--host[=PORT]` | Open the world to others (default port 24680) |
 | `--join=ADDRESS[:PORT]` | Play in the world of the host at this address |
 | `--name=NAME` | The name others see (default "Player"; the host keeps a survival player's things by it) |

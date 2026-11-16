@@ -101,6 +101,9 @@ public:
 	void set_block_shadows(bool enabled);
 	bool block_shadows() const { return block_shadows_.load(); }
 	void set_sun_angle(float radians);
+	// Smooth lighting (corner shading and soft light, the default); turning
+	// it on or off remeshes every chunk.
+	void set_smooth_lighting(bool enabled);
 
 	// Main thread, once per frame: takes finished work, asks for chunks around
 	// the viewer, saves and forgets far ones, schedules meshing.
@@ -241,6 +244,7 @@ private:
 	std::vector<Job> jobs_;
 	int running_ = 0; // jobs being worked on
 	std::atomic<bool> block_shadows_{false};
+	std::atomic<bool> smooth_lighting_{true};
 	std::atomic<int> sun_step_{45}; // SUN_STEP_DEGREES steps above the eastern horizon
 	bool stop_ = false;
 	std::mutex result_mutex_;

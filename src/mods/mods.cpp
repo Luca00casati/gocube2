@@ -994,6 +994,10 @@ void Mods::load_all(const std::vector<fs::path> &dirs, const std::vector<std::st
 				continue;
 			}
 			const std::string id = m["id"].get<std::string>();
+			if (!only && id != "core" && std::find(disabled_.begin(), disabled_.end(), id) != disabled_.end()) {
+				log("Mod '%s' is turned off", id.c_str());
+				continue;
+			}
 			if (only) {
 				ModInfo info;
 				info.id = id;
