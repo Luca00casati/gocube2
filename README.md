@@ -6,7 +6,7 @@ A rewrite of the Godot version of GoCube; the plan is in the
 
 Status: milestone 8. Survival: mining by hand, drops, chests, health, the day
 and night, growing plants, farming, flowing water and lava;
-creatures (Block Eaters by day, ninjas at night after a safe first night);
+creatures (harmless Block Eaters by day; no enemies);
 sound; creative; multiplayer (one player hosts, others join); a title menu
 and pause menu.
 It looks like the Godot version: its sky, fog, block and cloud shadows, light
@@ -67,7 +67,7 @@ survival or creative). Or straight into a world:
 Survival as in the Godot version, without its tools, weapons, armour, crafting
 and smelting: everything is mined by hand (hardness x 0.375 s) and drops itself
 (or what it gives: stone gives cobblestone, coal ore coal), chests, health
-(falls, lava, drowning, creatures; no bar: the screen reddens the lower it is,
+(falls, lava, drowning; no bar: the screen reddens the lower it is,
 and healing with time and food fades it), death and respawn at your bed or the world spawn, a day that
 lasts a real day by default and a bed to sleep through the night, falling sand,
 growing crops and saplings, decaying leaves. The world is saved every minute and

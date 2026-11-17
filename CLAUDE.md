@@ -62,8 +62,8 @@ the same way: their bodies, physics and models are C++ (`game/creatures.h`,
 Godot version's GDScript keep its numbers and behaviour; tests in
 `tests/test_survival.cpp` pin them down. Deliberate departures: the base game
 has no tools, weapons, armour, crafting or smelting (everything is mined by
-hand, hardness x 0.375 s, and drops), and no health bar (the screen reddens
-the lower health is). Saved data keeps the Godot `world.json`
+hand, hardness x 0.375 s, and drops), no enemies (no ninjas: only harmless
+Block Eaters), and no health bar (the screen reddens the lower health is). Saved data keeps the Godot `world.json`
 fields (`player.inventory`, `health`, `bed`, `block_entities`, `plants`, `spawn`,
 `time`).
 Every Lua call has the mods' time limit (20 ms, debug builds included; three

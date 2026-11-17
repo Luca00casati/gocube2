@@ -1336,16 +1336,8 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		}
 		// A bed used at night: sleep (the screen fades out), then it's morning.
 		if (game.take_bed_used()) {
-			bool ninja_near = false; // (survival: can't sleep with one close by)
-			for (const gc::Creature &c : game.creatures().all()) {
-				ninja_near = ninja_near || (!game.creative() && c.kind == "core:ninja" &&
-						std::hypot(c.pos[0] - player.position[0], c.pos[1] - player.position[1],
-								c.pos[2] - player.position[2]) < 10.0f);
-			}
 			if (day.day_amount() > 0.3f) {
 				game.show_notice("You can only sleep at night (respawn point set)");
-			} else if (ninja_near) {
-				game.show_notice("You can't sleep now: a ninja is nearby");
 			} else {
 				sleeping = 0;
 				session.set_sleeping(true); // (a client: the host skips the night once everyone sleeps)

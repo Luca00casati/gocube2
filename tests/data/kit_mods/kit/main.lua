@@ -86,3 +86,53 @@ game.set_rule("fuel_seconds", function(id)
 	return FUEL[id] or 0
 end)
 
+-- A hostile creature (the base game has none): at night it runs at the
+-- nearest survival player and strikes; in daylight under open sky it's gone
+-- in a puff of smoke. (Much as the base game's ninjas were.)
+registry.register_creature("stalker", {
+	model = "ninja",
+	box = {0.6, 1.8, 0.6},
+	gravity = 24.0,
+	step_height = 1.0,
+	turn_rate = 12.0,
+	jump = 8.0,
+	jump_when_blocked = true,
+	light_height = 1.0,
+})
+
+local cooldown = {}
+
+events.on("tick", function(dt)
+	local players = game.players()
+	local day = game.day()
+	for _, id in ipairs(creatures.all()) do
+		local c = creatures.get(id)
+		if c.kind == "kit:stalker" then
+			cooldown[id] = math.max(0, (cooldown[id] or 0) - dt)
+			local target, best = nil, 24.0
+			for _, p in ipairs(players) do
+				if p.survival and p.alive then
+					local dx, dz = p.x - c.x, p.z - c.z
+					local d = math.sqrt(dx * dx + dz * dz)
+					if d < best then target, best = p, d end
+				end
+			end
+			if target then
+				local tx, tz = target.x - c.x, target.z - c.z
+				creatures.set(id, {heading = math.atan(-tx, -tz), speed = best > 1.2 and 3.6 or 0})
+				if best < 1.5 and math.abs(target.y - c.y) < 1.6 and cooldown[id] <= 0 then
+					cooldown[id] = 1.0
+					creatures.set(id, {attack = true})
+					local nx, nz = 0, 0
+					if best > 1e-4 then nx, nz = tx / best, tz / best end
+					game.damage_player(target.peer, 3, "mob", nx * 6.0, 4.0, nz * 6.0)
+				end
+			end
+			if day >= 0.35 and not world.raycast(c.x, c.y + 1.9, c.z, 0, 1, 0, 96) then
+				game.effect("smoke", c.x, c.y + 0.9, c.z)
+				creatures.remove(id)
+				cooldown[id] = nil
+			end
+		end
+	end
+end)

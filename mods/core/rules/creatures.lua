@@ -1,4 +1,5 @@
--- Creatures' behaviour (the Godot version's MobManager and BlockEater).
+-- Creatures' behaviour (the Godot version's MobManager and BlockEater; its
+-- ninjas, which came at night to attack, are gone: nothing here is hostile).
 -- The game moves their bodies (gravity, steps, turning towards `heading` at
 -- `speed`); this decides where they go, spawns and despawns them, and handles
 -- hits.
@@ -9,12 +10,6 @@
 -- drops, and run off when hit. The regular one (mossy) now and then eats the
 -- block in front of it and takes its form; one made of a block drops it when
 -- defeated.
---
--- Ninjas come out at night (after a new world's first night, in survival)
--- on solid ground 20-40 blocks from a player (at most MAX_NINJAS), run at the
--- nearest survival player within SIGHT, leap over what's in the way and
--- strike when close; caught by the sun (by day, nothing above them) they
--- vanish in a puff of smoke.
 
 local MAX_EATERS = 12
 local SPAWN_EVERY = 2.0
@@ -27,14 +22,6 @@ local EATER = "core:block_eater"
 local EATER_HEALTH = 8
 local WALK_SPEED, FLEE_SPEED = 1.2, 3.4
 local EAT_CHANCE = 0.02 -- each time a regular one starts grazing
-
-local NINJA = "core:ninja"
-local MAX_NINJAS = 6
-local NINJA_NIGHT = 0.15 -- daylight below which ninjas come out
-local NINJA_HEALTH = 12
-local RUN_SPEED, WANDER_SPEED = 3.6, 1.4
-local SIGHT, REACH = 24.0, 1.5
-local NINJA_DAMAGE, ATTACK_EVERY = 3, 1.0
 
 local state = {} -- id -> {state, time, health, flee_x, flee_z}
 local spawn_timer = 0
@@ -152,74 +139,6 @@ local function eater(id, c, dt)
 	creatures.set(id, {heading = s.heading, speed = speed})
 end
 
--- A ninja: runs at the nearest survival player in sight and strikes when
--- close; else wanders. Returns false when the sun caught it (it's gone).
-local function ninja(id, c, dt, players, day)
-	local s = state[id]
-	s.cooldown = math.max(0, s.cooldown - dt)
-	local target, best = nil, SIGHT
-	for _, p in ipairs(players) do
-		if p.survival and p.alive then
-			local dx, dy, dz = p.x - c.x, p.y - c.y, p.z - c.z
-			local d = math.sqrt(dx * dx + dy * dy + dz * dz)
-			if d < best then target, best = p, d end
-		end
-	end
-	local speed = 0
-	if target then
-		local tx, ty, tz = target.x - c.x, target.y - c.y, target.z - c.z
-		s.heading = math.atan(-tx, -tz)
-		local flat = math.sqrt(tx * tx + tz * tz)
-		if flat > REACH * 0.8 then
-			speed = RUN_SPEED
-		end
-		if flat < REACH and math.abs(ty) < 1.6 and s.cooldown <= 0 then
-			s.cooldown = ATTACK_EVERY
-			creatures.set(id, {attack = true})
-			local nx, nz = 0, 0
-			if flat > 1e-4 then nx, nz = tx / flat, tz / flat end
-			game.damage_player(target.peer, NINJA_DAMAGE, "mob", nx * 6.0, 4.0, nz * 6.0)
-		end
-	else
-		s.wander = s.wander - dt
-		if s.wander <= 0 then
-			s.wander = rand_range(2.0, 5.0)
-			s.heading = s.heading + rand_range(-2.0, 2.0)
-		end
-		speed = math.fmod(s.wander, 2.0) > 0.8 and WANDER_SPEED or 0
-	end
-	creatures.set(id, {heading = s.heading, speed = speed})
-	-- In daylight under open sky (nothing above its head): gone in a puff of smoke.
-	if day >= 0.35 and not world.raycast(c.x, c.y + 1.9, c.z, 0, 1, 0, 96) then
-		game.effect("smoke", c.x, c.y + 0.9, c.z)
-		game.play_sound("core:effects", "splash", c.x, c.y + 0.9, c.z, -12.0)
-		creatures.remove(id)
-		state[id] = nil
-		return false
-	end
-	return true
-end
-
--- A ninja on solid ground (not leaves) 20-40 blocks from a player, with room to stand.
-local function spawn_ninja(players)
-	local p = players[math.floor(game.random() * #players) + 1]
-	local angle = game.random() * 2 * math.pi
-	local dist = rand_range(20.0, 40.0)
-	local x = math.floor(p.x + math.cos(angle) * dist)
-	local z = math.floor(p.z + math.sin(angle) * dist)
-	local hit = world.raycast(x + 0.5, TOP_Y, z + 0.5, 0, -1, 0, 400)
-	if not hit or (registry.get_block(hit.id) or {}).leaves then
-		return
-	end
-	local fy = hit.y + 1
-	if world.box_free(x + 0.5, fy, z + 0.5, 0.6, 1.8, 0.6) and not is_fluid(world.get_block(x, fy, z)) then
-		local id = creatures.spawn(NINJA, x + 0.5, fy, z + 0.5)
-		if id then
-			state[id] = {health = NINJA_HEALTH, heading = game.random() * 2 * math.pi, cooldown = 0, wander = 0}
-		end
-	end
-end
-
 local function spawn_eater(players)
 	local p = players[math.floor(game.random() * #players) + 1]
 	local angle = game.random() * 2 * math.pi
@@ -275,9 +194,6 @@ events.on("tick", function(dt)
 		if c.kind == EATER then
 			state[id] = state[id] or {state = "idle", time = 0, health = EATER_HEALTH, heading = c.heading}
 			eater(id, c, dt)
-		elseif c.kind == NINJA then
-			state[id] = state[id] or {health = NINJA_HEALTH, heading = c.heading, cooldown = 0, wander = 0}
-			ninja(id, c, dt, players, day)
 		end
 	end
 	spawn_timer = spawn_timer + dt
@@ -289,39 +205,14 @@ events.on("tick", function(dt)
 	if #players == 0 then
 		return
 	end
-	-- Ninjas only once a new world's first night is over, and only for survival players.
-	local survival = false
-	for _, p in ipairs(players) do survival = survival or p.survival end
 	if day > 0.3 and count(EATER) < MAX_EATERS then
 		spawn_eater(players)
-	elseif survival and game.first_night() == "over" and day < NINJA_NIGHT and count(NINJA) < MAX_NINJAS then
-		spawn_ninja(players)
 	end
 end)
-
--- A ninja hit: it flashes red and is knocked back; defeated, it's gone.
-local function ninja_hit(id, c, damage, fx, fz)
-	local s = state[id] or {health = NINJA_HEALTH, heading = c.heading, cooldown = 0, wander = 0}
-	state[id] = s
-	game.play_sound("core:effects", "hurt", c.x, c.y, c.z, -4.0)
-	s.health = s.health - damage
-	local px, pz = c.x - fx, c.z - fz
-	local len = math.sqrt(px * px + pz * pz)
-	if len > 1e-4 then px, pz = px / len, pz / len else px, pz = 0, 0 end
-	creatures.set(id, {flash = true, push = {px * 5.0, 4.5, pz * 5.0}})
-	if s.health <= 0 then
-		creatures.remove(id)
-		state[id] = nil
-	end
-end
 
 -- Hit by a player: hurt, knocked back, runs off; defeated, it drops what it's made of.
 events.on("creature_hit", function(id, damage, fx, fy, fz)
 	local c = creatures.get(id)
-	if c and c.kind == NINJA then
-		ninja_hit(id, c, damage, fx, fz)
-		return
-	end
 	if not c or c.kind ~= EATER then
 		return
 	end

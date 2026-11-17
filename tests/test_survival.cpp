@@ -1014,13 +1014,12 @@ void live_for(Play &p, float seconds) {
 
 } // namespace
 
-TEST_CASE("ninjas (the core mod's Lua): run at the player and strike; the sun makes them vanish in smoke") {
-	Play p;
+TEST_CASE("a hostile creature (a mod's: the base game has none) runs at the player and strikes; the sun makes it vanish in smoke") {
+	Play p(with_kit());
 	open_field(p);
-	p.game->set_first_night("now"); // (no others turn up meanwhile)
 	p.game->set_day(0.0f);
 	const float at[3] = {8.5f, 71.0f, 0.5f};
-	const int id = p.game->creatures().spawn(p.content, "core:ninja", at);
+	const int id = p.game->creatures().spawn(p.content, "kit:stalker", at);
 	REQUIRE(id > 0);
 	live_for(p, 6.0f);
 	const gc::Creature *c = p.game->creatures().find(id);
@@ -1038,26 +1037,18 @@ TEST_CASE("ninjas (the core mod's Lua): run at the player and strike; the sun ma
 	CHECK(effects[0].name == "smoke");
 }
 
-TEST_CASE("the first night is safe: ninjas only come once a night has passed") {
+TEST_CASE("no enemies: nights stay empty and nothing hurts the player") {
 	Play p;
 	open_field(p);
-	p.game->set_first_night("ahead");
+	p.game->set_first_night("over"); // (long past a new world's first night)
 	p.game->set_day(0.0f);
-	p.game->update_first_night();
-	CHECK(p.game->first_night() == "now");
 	live_for(p, 30.0f);
-	CHECK(p.game->creatures().all().empty()); // none on the first night
+	CHECK(p.game->creatures().all().empty());
+	CHECK(p.game->health() == gc::Game::MAX_HEALTH);
+	CHECK_FALSE(p.content.creatures.count("core:ninja"));
+	// By day the Block Eaters (harmless) still come.
 	p.game->set_day(1.0f);
-	p.game->update_first_night();
-	CHECK(p.game->first_night() == "over");
-	p.game->set_day(0.0f);
-	p.game->update_first_night();
-	CHECK(p.game->first_night() == "over");
 	live_for(p, 30.0f);
-	int ninjas = 0;
-	for (const gc::Creature &c : p.game->creatures().all()) {
-		ninjas += c.kind == "core:ninja";
-	}
-	CHECK(ninjas >= 1);
-	CHECK(ninjas <= 6);
+	CHECK_FALSE(p.game->creatures().all().empty());
+	CHECK(p.game->health() == gc::Game::MAX_HEALTH);
 }

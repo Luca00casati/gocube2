@@ -11,14 +11,3 @@ registry.register_creature("block_eater", {
 	light_height = 0.5,
 })
 
--- Comes out at night, runs at the nearest player and strikes (the Godot version's Ninja).
-registry.register_creature("ninja", {
-	model = "ninja",
-	box = {0.6, 1.8, 0.6},
-	gravity = 24.0,
-	step_height = 1.0,
-	turn_rate = 12.0,
-	jump = 8.0,
-	jump_when_blocked = true, -- leaps over whatever is in the way
-	light_height = 1.0,
-})
