@@ -61,6 +61,10 @@ bool inventory_screen(Game &game, const UiIcons &icons) {
 	dim_background();
 	Inventory &inv = game.inventory();
 	const bool creative = game.creative();
+	// Armour slots and crafting only if the mods have any (the base game has neither).
+	const bool armour = std::any_of(icons.content->items.begin(), icons.content->items.end(),
+			[](const auto &e) { return e.second.contains("armor"); });
+	const bool crafting = !creative && !game.hand_recipes().empty();
 	const ImGuiIO &io = ImGui::GetIO();
 	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 	ImGui::SetNextWindowBgAlpha(0.92f);
@@ -83,7 +87,7 @@ bool inventory_screen(Game &game, const UiIcons &icons) {
 			click(i);
 		}
 	}
-	if (!creative) {
+	if (!creative && armour) {
 		ImGui::Dummy(ImVec2(0, 6));
 		ImGui::TextUnformatted("Armour");
 		for (int k = 0; k < 4; k++) {
@@ -109,11 +113,16 @@ bool inventory_screen(Game &game, const UiIcons &icons) {
 			click(i);
 		}
 	}
+	if (!creative && !crafting) {
+		ImGui::TextDisabled("E or Esc to close");
+	}
 	ImGui::EndGroup();
-	ImGui::SameLine(0, 24);
 
-	// Right: crafting (survival) or every block and item (creative).
-	ImGui::BeginGroup();
+	// Right: crafting (survival, if there is any) or every block and item (creative).
+	if (creative || crafting) {
+		ImGui::SameLine(0, 24);
+		ImGui::BeginGroup();
+	}
 	if (creative) {
 		ImGui::TextUnformatted("All blocks and items");
 		ImGui::BeginChild("palette", ImVec2(9 * 44 + 24, 380), ImGuiChildFlags_None);
@@ -138,7 +147,7 @@ bool inventory_screen(Game &game, const UiIcons &icons) {
 		}
 		ImGui::EndChild();
 		ImGui::TextDisabled("Click one, then a slot. E or Esc to close");
-	} else {
+	} else if (crafting) {
 		ImGui::TextUnformatted("Crafting");
 		ImGui::BeginChild("recipes", ImVec2(340, 380), ImGuiChildFlags_None);
 		for (const Recipe &r : game.hand_recipes()) {
@@ -167,7 +176,9 @@ bool inventory_screen(Game &game, const UiIcons &icons) {
 		ImGui::EndChild();
 		ImGui::TextDisabled("E or Esc to close");
 	}
-	ImGui::EndGroup();
+	if (creative || crafting) {
+		ImGui::EndGroup();
+	}
 	ImGui::PopStyleVar();
 	ImGui::End();
 	return keep_open;

@@ -336,14 +336,46 @@ void status_bar(ImDrawList *dl, ImVec2 a, ImVec2 size, float fraction, ImU32 fil
 	outlined_text(dl, ImVec2(a.x + (size.x - ts.x) / 2, a.y + (size.y - ts.y) / 2), IM_COL32(255, 255, 255, 255), text);
 }
 
+// Health as the HUD shows it: down at once when hurt, up no faster than the
+// game heals (a point every 2.5 s), so the red fades evenly rather than in
+// steps; a jump of more than a point (respawning, food) comes at once.
+float shown_health(int health, float dt) {
+	static float shown = float(gc::Game::MAX_HEALTH);
+	const float target = float(health);
+	if (target <= shown) {
+		shown = target;
+	} else {
+		shown = std::min(target, std::max(shown, target - 1.0f) + dt / 2.5f);
+	}
+	return shown;
+}
+
+// Hurt: the screen reddens the lower health is, mostly at the edges.
+void draw_wounds(ImDrawList *dl, ImVec2 size, float health) {
+	const float missing = std::clamp(1.0f - health / float(gc::Game::MAX_HEALTH), 0.0f, 1.0f);
+	if (missing <= 0.0f) {
+		return;
+	}
+	const int tint = int(110.0f * missing * missing), edge = int(220.0f * missing);
+	dl->AddRectFilled(ImVec2(0, 0), size, IM_COL32(150, 0, 0, tint));
+	const ImU32 red = IM_COL32(170, 0, 0, edge), clear = IM_COL32(170, 0, 0, 0);
+	const float band = 0.35f * std::min(size.x, size.y) * (0.5f + missing);
+	dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(size.x, band), red, red, clear, clear);
+	dl->AddRectFilledMultiColor(ImVec2(0, size.y - band), size, clear, clear, red, red);
+	dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(band, size.y), red, clear, clear, red);
+	dl->AddRectFilledMultiColor(ImVec2(size.x - band, 0), size, clear, red, red, clear);
+}
+
 // The HUD, as the Godot version's: the crosshair, the mining progress under
-// it, the 9 hotbar slots, health (and breath, and armour) bars above them in
-// survival, the held item's name, a red flash when hurt, notices.
+// it, the 9 hotbar slots, breath (and armour) bars above them in survival, the
+// held item's name, notices. Health has no bar: the screen reddens instead.
 void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::ChunkRenderer &chunks,
 		const gc::BlockRules &rules, bool captured) {
 	const ImGuiIO &io = ImGui::GetIO();
 	ImDrawList *dl = ImGui::GetForegroundDrawList();
 	const ImVec2 c(std::floor(io.DisplaySize.x * 0.5f), std::floor(io.DisplaySize.y * 0.5f));
+	// Hurt: red, the more the lower health is (under the rest of the HUD, which stays readable).
+	draw_wounds(dl, io.DisplaySize, shown_health(game.health(), io.DeltaTime));
 	if (captured) { // two bars, 16 x 2
 		const ImU32 col = IM_COL32(255, 255, 255, 191);
 		dl->AddRectFilled(ImVec2(c.x - 8, c.y - 1), ImVec2(c.x + 8, c.y + 1), col);
@@ -381,26 +413,23 @@ void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::Chunk
 			dl->AddRect(a, b, IM_COL32(255, 255, 255, 64));
 		}
 	}
-	// Survival: health on the left above the hotbar, breath on the right
-	// (while it's being used), armour above health.
+	// Survival: breath on the right above the hotbar (while it's being used),
+	// armour (if a mod adds some) on the left.
 	const int armor = game.inventory().armor_points();
 	if (!game.creative()) {
 		const float width = (total - 12.0f) / 2.0f, y = y0 - 20;
 		char text[32];
-		std::snprintf(text, sizeof(text), "%d / %d", game.health(), gc::Game::MAX_HEALTH);
-		status_bar(dl, ImVec2(x0, y), ImVec2(width, 14), float(game.health()) / gc::Game::MAX_HEALTH,
-				IM_COL32(209, 41, 46, 255), IM_COL32(222, 117, 120, 255), text);
 		if (game.breath() < gc::Game::MAX_BREATH) {
 			status_bar(dl, ImVec2(x0 + total - width, y), ImVec2(width, 14), game.breath() / gc::Game::MAX_BREATH,
 					IM_COL32(89, 166, 242, 255), IM_COL32(150, 199, 246, 255), "Air");
 		}
 		if (armor > 0) { // full iron armour is 15 points
 			std::snprintf(text, sizeof(text), "Armour %d", armor);
-			status_bar(dl, ImVec2(x0, y - 18), ImVec2(width, 12), armor / 15.0f, IM_COL32(158, 163, 179, 255),
+			status_bar(dl, ImVec2(x0, y), ImVec2(width, 12), armor / 15.0f, IM_COL32(158, 163, 179, 255),
 					IM_COL32(193, 196, 206, 255), text);
 		}
 	}
-	// Hurt: a red flash. A notice at the top.
+	// Hurt: a flash at the blow. A notice at the top.
 	if (game.since_hurt() < 0.4f) {
 		dl->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(200, 0, 0, int(90 * (1.0f - game.since_hurt() / 0.4f))));
 	}
@@ -415,8 +444,8 @@ void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::Chunk
 		const std::string name = gc::display_name(rules.content(), held.id);
 		const ImVec2 size = ImGui::CalcTextSize(name.c_str());
 		float bottom = y0 - 10;
-		if (!game.creative()) {
-			bottom -= armor > 0 ? 46.0f : 18.0f;
+		if (!game.creative() && (armor > 0 || game.breath() < gc::Game::MAX_BREATH)) {
+			bottom -= 18.0f; // (above the bars)
 		}
 		outlined_text(dl, ImVec2(c.x - size.x / 2, bottom - size.y), IM_COL32(255, 255, 255, 255), name.c_str());
 	}

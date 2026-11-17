@@ -92,7 +92,7 @@ TEST_CASE("a world is made, edited and saved, and opens again with its edits and
 	// list can't hold nil) and an empty table.
 	const Data inventory = Data::array({Data::array({"core:torch", 1}), false, Data::array({"core:dirt", 64}),
 			Data::object({{"armor", Data::array({"", "", "", ""})}})});
-	const Data chests = {{"1,2,3", {{"type", "chest"}, {"slots", Data::array({false, Data::array({"core:stick", 4})})}}}};
+	const Data chests = {{"1,2,3", {{"type", "chest"}, {"slots", Data::array({false, Data::array({"core:coal", 4})})}}}};
 	std::vector<std::string> ids;
 	{
 		OpenWorld w(dir);

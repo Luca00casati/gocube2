@@ -1,5 +1,5 @@
 -- The base game's content (it was the Godot version's content/base.json).
--- Blocks: their look, hardness, the tool they want, what they drop,
+-- Blocks: their look, hardness, what they drop,
 -- light, and how plants and fluids behave (the rules in rules/ read these).
 
 registry.register_block("air", {solid = false, transparent = true})
@@ -10,8 +10,6 @@ registry.register_block("stone", {
 	color = "#7f7f7f",
 	textures = {all = "textures/stone.png"},
 	sound = "core:stone",
-	tool = "pickaxe",
-	requires_tool = true,
 	random_rotation = true,
 })
 
@@ -20,8 +18,6 @@ registry.register_block("cobblestone", {
 	color = "#6a6a6a",
 	textures = {all = "textures/cobblestone.png"},
 	sound = "core:stone",
-	tool = "pickaxe",
-	requires_tool = true,
 	random_rotation = true,
 })
 
@@ -37,7 +33,6 @@ registry.register_block("grass", {
 	hardness = 0.6,
 	tint = true,
 	drops = "core:dirt",
-	till_drops = {{"core:seeds", 1, 0.1}},
 	color = "#5fa83a",
 	textures = {
 		top = "textures/grass_top.png",
@@ -76,8 +71,6 @@ registry.register_block("log", {
 		side = "textures/log_side.png",
 	},
 	sound = "core:wood",
-	tool = "axe",
-	fuel = 15,
 })
 
 registry.register_block("leaves", {
@@ -97,8 +90,6 @@ registry.register_block("coal_ore", {
 	color = "#3a3a40",
 	textures = {all = "textures/coal_ore.png"},
 	sound = "core:stone",
-	tool = "pickaxe",
-	requires_tool = true,
 	drops = "core:coal",
 	eater_weight = 0.4,
 	random_rotation = true,
@@ -109,11 +100,8 @@ registry.register_block("iron_ore", {
 	color = "#9a8070",
 	textures = {all = "textures/iron_ore.png"},
 	sound = "core:stone",
-	tool = "pickaxe",
-	requires_tool = true,
 	eater_weight = 0.25,
 	random_rotation = true,
-	min_tier = 2,
 })
 
 registry.register_block("gold_ore", {
@@ -121,11 +109,8 @@ registry.register_block("gold_ore", {
 	color = "#b8a050",
 	textures = {all = "textures/gold_ore.png"},
 	sound = "core:stone",
-	tool = "pickaxe",
-	requires_tool = true,
 	eater_weight = 0.12,
 	random_rotation = true,
-	min_tier = 3,
 })
 
 registry.register_block("crystal_ore", {
@@ -133,11 +118,8 @@ registry.register_block("crystal_ore", {
 	color = "#5aa8b0",
 	textures = {all = "textures/crystal_ore.png"},
 	sound = "core:stone",
-	tool = "pickaxe",
-	requires_tool = true,
 	eater_weight = 0.06,
 	random_rotation = true,
-	min_tier = 3,
 })
 
 registry.register_block("water", {solid = false, fluid = "water", color = "#3f76d6b3", level = 8})
@@ -167,11 +149,8 @@ registry.register_block("water_7", {solid = false, fluid = "water", level = 7, f
 
 registry.register_block("furnace", {
 	hardness = 3.5,
-	tool = "pickaxe",
-	requires_tool = true,
 	sound = "core:stone",
 	color = "#6a6a6a",
-	block_entity = "furnace",
 	textures = {
 		side = "textures/furnace_side.png",
 		top = "textures/furnace_top.png",
@@ -182,10 +161,8 @@ registry.register_block("furnace", {
 
 registry.register_block("chest", {
 	hardness = 2.5,
-	tool = "axe",
 	sound = "core:wood",
 	color = "#9a7448",
-	fuel = 15,
 	block_entity = "chest",
 	textures = {
 		side = "textures/chest_side.png",
@@ -202,7 +179,6 @@ registry.register_block("torch", {
 	sound = "core:wood",
 	color = "#e0a040",
 	textures = {all = "textures/torch.png"},
-	fuel = 5,
 	needs_support = true,
 })
 
@@ -210,11 +186,9 @@ registry.register_block("ladder", {
 	shape = "ladder",
 	climbable = true,
 	hardness = 0.6,
-	tool = "axe",
 	sound = "core:wood",
 	color = "#93683d",
 	textures = {all = "textures/ladder.png"},
-	fuel = 5,
 	needs_support = true,
 })
 
@@ -230,24 +204,20 @@ registry.register_block("glass", {
 registry.register_block("wood_door", {
 	shape = "door",
 	hardness = 1.5,
-	tool = "axe",
 	sound = "core:wood",
 	color = "#93683d",
 	textures = {all = "textures/door_lower.png"},
 	textures_upper = {all = "textures/door_upper.png"},
 	icon = "textures/door_upper.png",
-	fuel = 10,
 	needs_support = true,
 })
 
 registry.register_block("planks_fence", {
 	shape = "fence",
 	hardness = 1.5,
-	tool = "axe",
 	sound = "core:wood",
 	color = "#a67748",
 	textures = {all = "textures/planks.png"},
-	fuel = 7.5,
 })
 
 registry.register_block("stone_slab", {
@@ -255,8 +225,6 @@ registry.register_block("stone_slab", {
 	color = "#7a7d83",
 	hardness = 1.5,
 	sound = "core:stone",
-	tool = "pickaxe",
-	requires_tool = true,
 	shape = "slab",
 })
 
@@ -265,8 +233,6 @@ registry.register_block("stone_stairs", {
 	color = "#7a7d83",
 	hardness = 1.5,
 	sound = "core:stone",
-	tool = "pickaxe",
-	requires_tool = true,
 	shape = "stairs",
 })
 
@@ -275,8 +241,6 @@ registry.register_block("cobblestone_slab", {
 	color = "#6a6a6a",
 	hardness = 1.5,
 	sound = "core:stone",
-	tool = "pickaxe",
-	requires_tool = true,
 	shape = "slab",
 })
 
@@ -285,8 +249,6 @@ registry.register_block("cobblestone_stairs", {
 	color = "#6a6a6a",
 	hardness = 1.5,
 	sound = "core:stone",
-	tool = "pickaxe",
-	requires_tool = true,
 	shape = "stairs",
 })
 
@@ -295,8 +257,6 @@ registry.register_block("planks_slab", {
 	color = "#a67748",
 	hardness = 1.0,
 	sound = "core:wood",
-	tool = "axe",
-	fuel = 4,
 	shape = "slab",
 })
 
@@ -305,8 +265,6 @@ registry.register_block("planks_stairs", {
 	color = "#a67748",
 	hardness = 1.0,
 	sound = "core:wood",
-	tool = "axe",
-	fuel = 4,
 	shape = "stairs",
 })
 
@@ -459,8 +417,6 @@ registry.register_block("sunpetal", {
 
 registry.register_block("sandstone", {
 	hardness = 1.0,
-	tool = "pickaxe",
-	requires_tool = true,
 	sound = "core:stone",
 	color = "#cdb57a",
 	textures = {all = "textures/sandstone.png"},
@@ -481,7 +437,6 @@ registry.register_block("snow_grass", {
 
 registry.register_block("ice", {
 	hardness = 0.5,
-	tool = "pickaxe",
 	sound = "core:stone",
 	color = "#a9caeb",
 	drops = "",
@@ -491,10 +446,8 @@ registry.register_block("ice", {
 
 registry.register_block("birch_log", {
 	hardness = 2.0,
-	tool = "axe",
 	sound = "core:wood",
 	color = "#ddd8cf",
-	fuel = 15,
 	flammable = true,
 	textures = {
 		side = "textures/birch_log_side.png",
@@ -517,10 +470,8 @@ registry.register_block("birch_leaves", {
 
 registry.register_block("spruce_log", {
 	hardness = 2.0,
-	tool = "axe",
 	sound = "core:wood",
 	color = "#432f20",
-	fuel = 15,
 	flammable = true,
 	textures = {
 		side = "textures/spruce_log_side.png",
@@ -560,7 +511,7 @@ registry.register_block("dead_bush", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#6e5030",
-	drops = "core:stick",
+	drops = "",
 	textures = {all = "textures/dead_bush.png"},
 	replaceable = true,
 	plant_on = {"core:sand"},
@@ -670,7 +621,6 @@ registry.register_block("oak_sapling", {
 	plant_on = {"core:grass", "core:dirt", "core:snow_grass"},
 	grows_tree = {["core:oak"] = 9, ["core:big_oak"] = 1},
 	grow_seconds = 240,
-	fuel = 2,
 })
 
 registry.register_block("birch_sapling", {
@@ -682,7 +632,6 @@ registry.register_block("birch_sapling", {
 	plant_on = {"core:grass", "core:dirt", "core:snow_grass"},
 	grows_tree = "core:birch",
 	grow_seconds = 240,
-	fuel = 2,
 })
 
 registry.register_block("spruce_sapling", {
@@ -694,13 +643,11 @@ registry.register_block("spruce_sapling", {
 	plant_on = {"core:grass", "core:dirt", "core:snow_grass"},
 	grows_tree = "core:spruce",
 	grow_seconds = 240,
-	fuel = 2,
 })
 
 registry.register_block("bed", {
 	shape = "bed",
 	hardness = 0.3,
-	tool = "axe",
 	sound = "core:wood",
 	color = "#b43a36",
 	textures = {

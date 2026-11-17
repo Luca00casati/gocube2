@@ -4,8 +4,8 @@ Voxel sandbox for Windows, in C++20 with Direct3D 11, gameplay and mods in Lua.
 A rewrite of the Godot version of GoCube; the plan is in the
 [GoCube Native Rewrite Plan](https://claude.ai/artifact/CMdng1jnMGWsAb7X84FHoy).
 
-Status: milestone 8. Survival: mining, drops, crafting, chests and furnaces,
-health, the day and night, growing plants, farming, flowing water and lava;
+Status: milestone 8. Survival: mining by hand, drops, chests, health, the day
+and night, growing plants, farming, flowing water and lava;
 creatures (Block Eaters by day, ninjas at night after a safe first night);
 sound; creative; multiplayer (one player hosts, others join); a title menu
 and pause menu.
@@ -58,16 +58,17 @@ survival or creative). Or straight into a world:
 | Ctrl | Sprint |
 | F | Fly |
 | Left button | Break the block aimed at (hold it in survival; doors and beds go whole) |
-| Right button | Place the held block; open a chest or furnace, use a door or bed, eat (sneak to place against them) |
+| Right button | Place the held block; open a chest, use a door or bed, eat (sneak to place against them) |
 | 1-9, wheel | Choose a hotbar slot |
 | Middle button | Creative: take the block aimed at |
-| E | Inventory and crafting (creative: every block and item) |
+| E | Inventory (creative: every block and item) |
 | Esc | Pause menu (settings; save and quit) |
 
-Survival as in the Godot version: mining takes time (faster with the right tool,
-some blocks need one), broken blocks drop items, crafting from the inventory,
-chests and furnaces (smelting with fuel), health (falls, lava, drowning; healing
-with time and food), death and respawn at your bed or the world spawn, a day that
+Survival as in the Godot version, without its tools, weapons, armour, crafting
+and smelting: everything is mined by hand (hardness x 0.375 s) and drops itself
+(or what it gives: stone gives cobblestone, coal ore coal), chests, health
+(falls, lava, drowning, creatures; no bar: the screen reddens the lower it is,
+and healing with time and food fades it), death and respawn at your bed or the world spawn, a day that
 lasts a real day by default and a bed to sleep through the night, falling sand,
 growing crops and saplings, decaying leaves. The world is saved every minute and
 when you quit.
@@ -83,7 +84,7 @@ play a world (others join it on port 24680: TCP, and UDP too if it gets through,
 for smoother movement), or type the host's address and
 "Join their world". The host's world is the world: it checks and does what
 joined players do, keeps their inventories and health (saved in its world, by
-name), and runs the creatures, items, chests, furnaces and time; the night is
+name), and runs the creatures, items, chests and time; the night is
 skipped once everyone is in bed. Everyone plays with the host's mods: joining
 a host with other mods (the same base game), you're asked whether to download
 the ones you lack (each checked against its fingerprint, kept in
@@ -126,10 +127,14 @@ JSON files. A manifest is a data table:
     return {id = "mymod", name = "My Mod", version = "1.0", entry = "main.lua"}
  `src/mods/mods.h` describes the format and the Lua API
 (`registry`, `events`, `world`, `game`). The base game is the example: its
-`content/` registers its blocks, items, recipes, ores, trees, biome and sounds,
-and its `main.lua` and `rules/` set the game's rules (mining time, drops, crafting,
-smelting, fuel, fall damage, food, plants, farming, fluids) with `game.set_rule`; a mod can replace
-one, or wrap it (`game.rule(name)` gives the one before).
+`content/` registers its blocks, items, ores, trees, biome and sounds,
+and its `main.lua` and `rules/` set the game's rules (mining time, drops, fall
+damage, food, plants, farming, fluids) with `game.set_rule`; a mod can replace
+one, or wrap it (`game.rule(name)` gives the one before). The game still
+supports what the base game left out: recipes and the `hand_recipes` rule
+(crafting in the inventory), furnaces (`block_entity = "furnace"`, the `smelting`
+and `fuel_seconds` rules), tools and weapons (`damage` on an item) and armour;
+`tests/data/kit_mods/kit` is a small mod that adds them back.
 
 Mods are sandboxed: no files, OS, network or debug access, no bytecode, no
 `load`; a mod's code is stopped when it runs too long or asks for too much
@@ -160,7 +165,7 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 - `src/render/`, `shaders/`: Direct3D 11, the terrain, sky and item shaders (HLSL,
   compiled by FXC at build time), drawn as the Godot version shows them.
 - `mods/core/`: the base game: content, assets and `main.lua` (the Godot version's
-  `main.gd`, which registered one block and one recipe from code).
+  `main.gd`, which registered a block from code).
 - `thirdparty/lua/`: Lua 5.4.8's sources, built with a fixed string-hash seed.
 - `tests/`: doctest unit tests: the generation fingerprints, player movement and
   editing, saving, mods (the sandbox, undoing, events, fingerprints), survival,

@@ -6,8 +6,8 @@
 -- "needs_support" need a solid block below or behind them (torches, ladders,
 -- doors); unsupported blocks pop off and drop their item.
 -- Leaf decay: leaves more than LEAF_REACH steps (through leaves) from a log
--- fall after a short random delay, now and then dropping a sapling or a
--- stick; placed leaves are a "_placed" variant that never decays.
+-- fall after a short random delay, now and then dropping a sapling; placed
+-- leaves are a "_placed" variant that never decays.
 -- Growth: a block with "grows_into" turns into that block after about
 -- "grow_seconds"; a sapling ("grows_tree": a tree id, or {[tree id] = weight})
 -- grows into that tree, trying again later when there's no room. What's
@@ -179,8 +179,6 @@ events.on("tick", function(dt)
 				world.set_block(x, y, z, "core:air")
 				if sapling ~= "" and game.random() < SAPLING_CHANCE then
 					world.drop_item(x, y, z, sapling, 1)
-				elseif game.random() < 0.06 then
-					world.drop_item(x, y, z, "core:stick", 1)
 				end
 			end
 		end

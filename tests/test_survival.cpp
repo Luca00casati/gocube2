@@ -23,6 +23,16 @@ using gc::Stack;
 
 namespace {
 
+// The kit test mod (tests/data/kit_mods): crafting, smelting, a tool and
+// armour, which the base game no longer has, after the base game.
+const std::filesystem::path KIT_MODS = std::filesystem::path(GOCUBE_SOURCE_DIR) / "tests" / "data" / "kit_mods";
+
+Play::Setup with_kit() {
+	Play::Setup s;
+	s.more_mods = {KIT_MODS};
+	return s;
+}
+
 } // namespace
 
 TEST_CASE("inventory: stacks, limits, removing, mouse moves") {
@@ -33,9 +43,9 @@ TEST_CASE("inventory: stacks, limits, removing, mouse moves") {
 	CHECK(inv.add("core:dirt", 100) == 0); // 64 + 36
 	CHECK(inv.slots[0] == Stack{"core:dirt", 64});
 	CHECK(inv.slots[1] == Stack{"core:dirt", 36});
-	CHECK(inv.add("core:wood_pickaxe", 2) == 0); // max_stack 1: two slots
-	CHECK(inv.slots[2] == Stack{"core:wood_pickaxe", 1});
-	CHECK(inv.slots[3] == Stack{"core:wood_pickaxe", 1});
+	CHECK(inv.add("core:snowball", 20) == 0); // max_stack 16: two slots
+	CHECK(inv.slots[2] == Stack{"core:snowball", 16});
+	CHECK(inv.slots[3] == Stack{"core:snowball", 4});
 	CHECK(inv.count_of("core:dirt") == 100);
 	CHECK_FALSE(inv.remove("core:dirt", 101));
 	CHECK(inv.remove("core:dirt", 40)); // from the back first
@@ -52,7 +62,7 @@ TEST_CASE("inventory: stacks, limits, removing, mouse moves") {
 TEST_CASE("inventory: its save format, both ways (false for an empty slot)") {
 	gc::Content content;
 	gc::Mods mods(content);
-	mods.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"});
+	mods.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods", KIT_MODS}); // (armour: the kit's)
 	// As Inventory.serialize writes it (the Godot version's layout, with false
 	// for an empty slot: a Lua list can't hold nil).
 	Data saved = Data::array();
@@ -62,26 +72,30 @@ TEST_CASE("inventory: its save format, both ways (false for an empty slot)") {
 	for (int i = 3; i < 36; i++) {
 		saved.push_back(false);
 	}
-	saved.push_back({{"armor", {"core:iron_helmet", "", "", ""}}});
+	saved.push_back({{"armor", {"kit:iron_helmet", "", "", ""}}});
 	gc::Inventory inv(content);
 	inv.deserialize(saved);
 	CHECK(inv.slots[0] == Stack{"core:torch", 5});
 	CHECK(inv.slots[2].empty());
-	CHECK(inv.armor[0] == Stack{"core:iron_helmet", 1});
+	CHECK(inv.armor[0] == Stack{"kit:iron_helmet", 1});
 	const Data again = inv.serialize();
 	CHECK(again.size() == 37);
 	CHECK(again[0] == Data::array({"core:torch", 5}));
 	CHECK(again[2] == false);
-	CHECK(again[36]["armor"][0] == "core:iron_helmet");
+	CHECK(again[36]["armor"][0] == "kit:iron_helmet");
 }
 
-TEST_CASE("the core mod's rules: mining time and drops") {
+TEST_CASE("the core mod's rules: mining time and drops (by hand: there are no tools)") {
 	Play p;
-	CHECK(p.game->mine_seconds("core:stone", "") == doctest::Approx(1.5 * 0.75 * 3)); // needs a pickaxe
-	CHECK(p.game->mine_seconds("core:stone", "core:wood_pickaxe") == doctest::Approx(1.5 * 0.75 / 2));
-	CHECK(p.game->mine_seconds("core:dirt", "") == doctest::Approx(0.5 * 0.75));
-	CHECK(p.game->drops_of("core:stone", "").empty());
-	CHECK(p.game->drops_of("core:stone", "core:wood_pickaxe") == std::vector<std::string>{"core:cobblestone"});
+	CHECK(p.game->mine_seconds("core:stone", "") == doctest::Approx(1.5 * 0.375)); // hardness x 0.375 s
+	CHECK(p.game->mine_seconds("core:dirt", "") == doctest::Approx(0.5 * 0.375));
+	CHECK(p.game->mine_seconds("core:stone", "core:torch") == doctest::Approx(1.5 * 0.375)); // whatever is held
+	CHECK(p.game->mine_seconds("core:tall_grass", "") == doctest::Approx(0.1)); // the least
+	CHECK(p.game->drops_of("core:stone", "") == std::vector<std::string>{"core:cobblestone"});
+	CHECK(p.game->drops_of("core:iron_ore", "") == std::vector<std::string>{"core:iron_ore"});
+	CHECK(p.game->drops_of("core:coal_ore", "") == std::vector<std::string>{"core:coal"});
+	CHECK(p.game->drops_of("core:furnace", "") == std::vector<std::string>{"core:furnace"});
+	CHECK(p.game->drops_of("core:dead_bush", "").empty());
 	CHECK(p.game->drops_of("core:grass", "") == std::vector<std::string>{"core:dirt"});
 	CHECK(p.game->drops_of("core:log", "") == std::vector<std::string>{"core:log"});
 	CHECK(p.game->drops_of("core:wood_door_n_upper", "") == std::vector<std::string>{"core:wood_door"}); // a variant
@@ -189,14 +203,34 @@ const gc::Recipe *find_recipe(gc::Game &game, const std::string &id) {
 
 } // namespace
 
-TEST_CASE("hand crafting: from logs to a pickaxe and a chest, as the core mod's recipes say") {
+TEST_CASE("the base game has no crafting, smelting, tools, weapons or armour") {
 	Play p;
+	CHECK(p.game->hand_recipes().empty());
+	CHECK(p.content.recipes.empty());
+	CHECK_FALSE(p.game->block_entities().smelting("core:iron_ore"));
+	CHECK(p.game->block_entities().fuel_seconds("core:coal") == 0);
+	for (const auto &[id, def] : p.content.items) {
+		CAPTURE(id);
+		CHECK_FALSE(def.contains("tool"));
+		CHECK_FALSE(def.contains("armor"));
+		CHECK_FALSE(def.contains("damage"));
+	}
+	// A furnace is a plain block now; a chest still holds things.
+	const BlockPos at{3, 60, 3};
+	REQUIRE(p.world->set_block(at, p.id("core:furnace")));
+	CHECK_FALSE(p.game->block_entities().at(at));
+	REQUIRE(p.world->set_block(at, p.id("core:chest")));
+	CHECK(p.game->block_entities().at(at));
+}
+
+TEST_CASE("hand crafting (a mod's recipes): from logs to a pickaxe and a chest") {
+	Play p(with_kit());
 	gc::Game &g = *p.game;
-	CHECK(g.hand_recipes().size() > 20);
-	const gc::Recipe *planks = find_recipe(g, "core:log_to_planks");
-	const gc::Recipe *sticks = find_recipe(g, "core:planks_to_sticks"); // shaped, from main.lua
-	const gc::Recipe *pickaxe = find_recipe(g, "core:wood_pickaxe");
-	const gc::Recipe *chest = find_recipe(g, "core:chest");
+	CHECK(g.hand_recipes().size() == 4);
+	const gc::Recipe *planks = find_recipe(g, "kit:log_to_planks");
+	const gc::Recipe *sticks = find_recipe(g, "kit:planks_to_sticks"); // shaped
+	const gc::Recipe *pickaxe = find_recipe(g, "kit:wood_pickaxe");
+	const gc::Recipe *chest = find_recipe(g, "kit:chest");
 	REQUIRE(planks);
 	REQUIRE(sticks);
 	REQUIRE(pickaxe);
@@ -212,9 +246,9 @@ TEST_CASE("hand crafting: from logs to a pickaxe and a chest, as the core mod's 
 	CHECK(inv.count_of("core:log") == 0);
 	CHECK(inv.count_of("core:planks") == 16);
 	CHECK(g.craft(*sticks));
-	CHECK(inv.count_of("core:stick") == 4);
+	CHECK(inv.count_of("kit:stick") == 4);
 	CHECK(g.craft(*pickaxe));
-	CHECK(inv.count_of("core:wood_pickaxe") == 1);
+	CHECK(inv.count_of("kit:wood_pickaxe") == 1);
 	CHECK(inv.count_of("core:planks") == 16 - 2 - 3);
 	CHECK(inv.count_of("core:planks") == 11);
 	CHECK(g.craft(*chest)); // 8 planks
@@ -223,15 +257,15 @@ TEST_CASE("hand crafting: from logs to a pickaxe and a chest, as the core mod's 
 	CHECK_FALSE(g.can_craft(*chest));
 }
 
-TEST_CASE("crafting into a full inventory changes nothing") {
-	Play p;
+TEST_CASE("crafting (a mod's recipes) into a full inventory changes nothing") {
+	Play p(with_kit());
 	gc::Game &g = *p.game;
 	auto &inv = g.inventory();
 	for (gc::Stack &s : inv.slots) {
 		s = {"core:dirt", 64};
 	}
 	inv.slots[0] = {"core:log", 1};
-	const gc::Recipe *planks = find_recipe(g, "core:log_to_planks");
+	const gc::Recipe *planks = find_recipe(g, "kit:log_to_planks");
 	REQUIRE(planks);
 	// Taking the log frees its slot, so the planks fit: allowed.
 	CHECK(g.craft(*planks));
@@ -268,7 +302,7 @@ TEST_CASE("a chest: made with its block, holds items, saved (false for an empty 
 	REQUIRE(copy.at(at));
 	CHECK(copy.at(at)->slots[4] == Stack{"core:dirt", 2});
 
-	p.game->break_block(at, "core:wood_axe");
+	p.game->break_block(at, "");
 	CHECK_FALSE(be.at(at));
 	int coal = 0, dirt = 0, chests = 0;
 	for (const auto &d : p.game->drops().drops()) {
@@ -281,14 +315,15 @@ TEST_CASE("a chest: made with its block, holds items, saved (false for an empty 
 	CHECK(chests == 1);
 }
 
-TEST_CASE("a furnace smelts with fuel, as the core mod's recipes say") {
-	Play p;
+TEST_CASE("a furnace (a mod's) smelts with fuel, as the mod's recipes say") {
+	Play p(with_kit());
 	const BlockPos at{3, 60, 3};
-	REQUIRE(p.world->set_block(at, p.id("core:furnace")));
+	REQUIRE(p.world->set_block(at, p.id("kit:kiln")));
 	gc::BlockEntities &be = p.game->block_entities();
+	REQUIRE(be.at(at));
 	using B = gc::BlockEntities;
 	CHECK(be.fuel_seconds("core:coal") == 40);
-	CHECK(be.smelting("core:iron_ore") == Stack{"core:iron_ingot", 1});
+	CHECK(be.smelting("core:iron_ore") == Stack{"kit:iron_ingot", 1});
 	CHECK_FALSE(be.smelting("core:dirt"));
 	CHECK(be.click(at, B::FURNACE_FUEL, {"core:dirt", 1}) == Stack{"core:dirt", 1}); // not fuel: refused
 	CHECK(be.click(at, B::FURNACE_OUTPUT, {"core:iron_ore", 1}) == Stack{"core:iron_ore", 1}); // output: take only
@@ -297,7 +332,7 @@ TEST_CASE("a furnace smelts with fuel, as the core mod's recipes say") {
 	for (int i = 0; i < 44; i++) { // 11 s: two ingots (5 s each)
 		be.update(0.25);
 	}
-	CHECK(be.at(at)->slots[B::FURNACE_OUTPUT] == Stack{"core:iron_ingot", 2});
+	CHECK(be.at(at)->slots[B::FURNACE_OUTPUT] == Stack{"kit:iron_ingot", 2});
 	CHECK(be.at(at)->slots[B::FURNACE_INPUT].empty());
 	CHECK(be.at(at)->slots[B::FURNACE_FUEL].empty()); // the coal is burning
 	float burn, progress;
@@ -606,8 +641,8 @@ TEST_CASE("a sapling grows into a tree: the generator's shape, where there's roo
 	CHECK_FALSE(p.game->grow_tree({1, 41, 1}, "core:nonexistent"));
 }
 
-TEST_CASE("milestone 5: from a new survival world to a crafted tool and a container") {
-	Play p; // a new survival player: just the starting torch
+TEST_CASE("milestone 5 (with a mod's recipes): from a new survival world to a crafted tool and a container") {
+	Play p(with_kit()); // a new survival player: just the starting torch
 	CHECK(p.game->inventory().count_of("core:torch") == 1);
 	// A tree trunk (4 logs) two blocks ahead, on a stone floor.
 	const int h = 40;
@@ -627,7 +662,7 @@ TEST_CASE("milestone 5: from a new survival world to a crafted tool and a contai
 	p.player.position[2] = 0.5f;
 	p.player.yaw = 0;
 
-	// Mine the logs by holding the button (hand: 2.0 hardness x 0.75 = 1.5 s each),
+	// Mine the logs by holding the button (2.0 hardness x 0.375 = 0.75 s each),
 	// standing still; the drops fall and come to the player.
 	gc::GameInput hold;
 	hold.captured = true;
@@ -648,10 +683,10 @@ TEST_CASE("milestone 5: from a new survival world to a crafted tool and a contai
 	REQUIRE(inv.count_of("core:log") == 4);
 
 	// Craft: 16 planks, 4 sticks, a wooden pickaxe, a chest.
-	const gc::Recipe *planks = find_recipe(g, "core:log_to_planks");
-	const gc::Recipe *sticks = find_recipe(g, "core:planks_to_sticks");
-	const gc::Recipe *pickaxe = find_recipe(g, "core:wood_pickaxe");
-	const gc::Recipe *chest = find_recipe(g, "core:chest");
+	const gc::Recipe *planks = find_recipe(g, "kit:log_to_planks");
+	const gc::Recipe *sticks = find_recipe(g, "kit:planks_to_sticks");
+	const gc::Recipe *pickaxe = find_recipe(g, "kit:wood_pickaxe");
+	const gc::Recipe *chest = find_recipe(g, "kit:chest");
 	REQUIRE((planks && sticks && pickaxe && chest));
 	for (int i = 0; i < 4; i++) {
 		REQUIRE(g.craft(*planks));
@@ -659,7 +694,7 @@ TEST_CASE("milestone 5: from a new survival world to a crafted tool and a contai
 	REQUIRE(g.craft(*sticks));
 	REQUIRE(g.craft(*pickaxe));
 	REQUIRE(g.craft(*chest));
-	CHECK(inv.count_of("core:wood_pickaxe") == 1);
+	CHECK(inv.count_of("kit:wood_pickaxe") == 1);
 	CHECK(inv.count_of("core:chest") == 1);
 
 	// Put the chest in the hand and place it on the floor ahead, then open it.
@@ -709,38 +744,23 @@ void use_down(Play &p, const std::string &item) {
 
 } // namespace
 
-TEST_CASE("farming (the core mod's Lua): a hoe tills grass and dirt; seeds are planted on farmland") {
+TEST_CASE("farming (the core mod's Lua): seeds are planted on farmland, and grow") {
 	Play p;
 	pool(p, "core:air");
 	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:stone")));
-	use_down(p, "core:wood_hoe");
-	CHECK(p.block(1, 40, 1) == "core:stone"); // not stone
 	use_down(p, "core:seeds");
-	CHECK(p.block(1, 41, 1) == "core:air"); // nor seeds on stone
+	CHECK(p.block(1, 41, 1) == "core:air"); // not on stone
 	CHECK(p.game->inventory().slots[0].count == 1);
 	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:dirt")));
-	use_down(p, "core:wood_hoe");
-	CHECK(p.block(1, 40, 1) == "core:farmland");
-	CHECK(p.game->inventory().slots[0].id == "core:wood_hoe"); // (a hoe isn't used up)
+	use_down(p, "core:seeds");
+	CHECK(p.block(1, 41, 1) == "core:air"); // nor on dirt (there are no hoes to till it)
+	CHECK(p.block(1, 40, 1) == "core:dirt");
+	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:farmland")));
 	use_down(p, "core:seeds");
 	CHECK(p.block(1, 41, 1) == "core:wheat_0");
 	CHECK(p.game->inventory().slots[0].count == 0);
 	run_ticks(p, 0.2f);
 	CHECK(p.game->save_plants().size() == 1); // growing
-	// Something on top: no tilling.
-	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:grass")));
-	use_down(p, "core:wood_hoe");
-	CHECK(p.block(1, 40, 1) == "core:grass");
-	// Grass now and then turns up seeds (1 in 10).
-	REQUIRE(p.world->set_block({1, 41, 1}, 0));
-	for (int i = 0; i < 100; i++) {
-		REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:grass")));
-		use_down(p, "core:stone_hoe");
-		REQUIRE(p.block(1, 40, 1) == "core:farmland");
-	}
-	const int seeds = drops_of_item(p, "core:seeds");
-	CHECK(seeds >= 1);
-	CHECK(seeds <= 30);
 }
 
 TEST_CASE("fluids (the core mod's Lua): water spreads one level lower a block, and drains away") {

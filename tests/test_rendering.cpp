@@ -85,8 +85,8 @@ TEST_CASE("item models: a small cube for blocks (a slab half of it, a bed whole)
 	CHECK(m.models->is_block("core:bed"));
 	extent(bed, 1, lo, hi);
 	CHECK(hi - lo == doctest::Approx(0.25f * 9.0f / 16.0f));
-	// A torch (not solid) and a stick (an item): extruded icons, thin, 0.42 across at most.
-	for (const char *item : {"core:torch", "core:stick"}) {
+	// A torch (not solid) and seeds (an item): extruded icons, thin, 0.42 across at most.
+	for (const char *item : {"core:torch", "core:seeds"}) {
 		const auto &model = m.models->model(item);
 		CAPTURE(item);
 		REQUIRE(!model.empty());

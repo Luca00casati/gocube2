@@ -84,7 +84,7 @@ gc::ModLimits quick() {
 
 } // namespace
 
-TEST_CASE("the base game's main.lua registers its planks and recipe") {
+TEST_CASE("the base game's main.lua registers its planks (and no recipes)") {
 	gc::Content content;
 	load_base_game(content);
 	REQUIRE(content.blocks.count("core:planks"));
@@ -93,9 +93,7 @@ TEST_CASE("the base game's main.lua registers its planks and recipe") {
 	CHECK(planks["textures"]["all"] == "textures/planks.png");
 	CHECK(planks["hardness"].get<double>() == 2.0);
 	CHECK(planks["mod"] == "core");
-	REQUIRE(content.recipes.count("core:planks_to_sticks"));
-	CHECK(content.recipes["core:planks_to_sticks"]["pattern"] == Data::array({"P", "P"}));
-	CHECK(content.recipes["core:planks_to_sticks"]["output"]["count"] == 4);
+	CHECK(content.recipes.empty()); // (no crafting in the base game)
 }
 
 TEST_CASE("an endless loop is stopped and the mod undone; others load") {

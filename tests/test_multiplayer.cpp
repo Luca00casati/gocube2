@@ -205,6 +205,15 @@ TEST_CASE("multiplayer: a survival client's inventory, placing, mining time, dro
 	c.input.break_held = false;
 	CHECK(run_until(both_sides, [&] { return inv.count_of("core:planks") == 4 && h.game().drops().drops().empty(); }, 5));
 
+	// Stone too, by hand (there are no tools): it gives cobblestone.
+	h.world().set_block(cell, h.play->id("core:stone"));
+	REQUIRE(run_until(both_sides, [&] { return c.play->block(cell) == "core:stone"; }, 5));
+	c.aim(cell.x + 0.5f, cell.y + 0.5f, cell.z + 0.5f);
+	c.input.break_held = true;
+	CHECK(run_until(both_sides, [&] { return both(h, c, cell, "core:air"); }, 10));
+	c.input.break_held = false;
+	CHECK(run_until(both_sides, [&] { return inv.count_of("core:cobblestone") == 1; }, 5));
+
 	// A door, opened; a bed, placed whole (one used).
 	const BlockPos door{1, 100, 4};
 	REQUIRE(c.hold("core:wood_door"));
@@ -260,6 +269,10 @@ TEST_CASE("multiplayer: a survival client's inventory, placing, mining time, dro
 	h.world().set_block(feet, h.play->id("core:lava"));
 	CHECK(run_until(both_sides, [&] { return c.game().health() < gc::Game::MAX_HEALTH; }, 5));
 	h.world().set_block(feet, 0);
+	// Out of it, health comes back (the host heals us, a point every 2.5 s after 4 s).
+	run_for(both_sides, 1.0f);
+	const int burnt = c.game().health();
+	CHECK(run_until(both_sides, [&] { return c.game().health() > burnt; }, 9));
 
 	// The host keeps what we have when we leave.
 	client.reset();

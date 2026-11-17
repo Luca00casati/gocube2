@@ -51,15 +51,19 @@ main thread; never call into it from a worker. Keep `mods/**` and `tests/data/**
 byte for byte (`.gitattributes`): fingerprints and test expectations hash bytes.
 
 ## Where the game's rules live
-Decisions (mining time, drops, recipes, smelting, fuel, fall damage, food, plants,
-farming, flowing fluids) are the base game's Lua in `mods/core/rules/`, set with `game.set_rule`; C++
+Decisions (mining time, drops, fall damage, food, plants, farming, flowing
+fluids; recipes, smelting and fuel when a mod adds them) are the base game's Lua
+in `mods/core/rules/`, set with `game.set_rule`; C++
 (`src/game/`) keeps the data (inventory, block entities, drops, health, time) and
 asks `Mods::rule`, with a plain built-in default if no mod answers. Creatures
 the same way: their bodies, physics and models are C++ (`game/creatures.h`,
 `game/creature_models.h`), what they do is `rules/creatures.lua` through the
 `creatures` API (it runs at the 20 Hz tick; the bodies at 60 Hz). Ports of the
 Godot version's GDScript keep its numbers and behaviour; tests in
-`tests/test_survival.cpp` pin them down. Saved data keeps the Godot `world.json`
+`tests/test_survival.cpp` pin them down. Deliberate departures: the base game
+has no tools, weapons, armour, crafting or smelting (everything is mined by
+hand, hardness x 0.375 s, and drops), and no health bar (the screen reddens
+the lower health is). Saved data keeps the Godot `world.json`
 fields (`player.inventory`, `health`, `bed`, `block_entities`, `plants`, `spawn`,
 `time`).
 Every Lua call has the mods' time limit (20 ms, debug builds included; three
