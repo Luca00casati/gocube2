@@ -1,5 +1,5 @@
 #pragma once
-// Multiplayer over ENet: the Godot version's Session.
+// Multiplayer over TCP and UDP (net/transport.h): the Godot version's Session.
 //
 // The host is an authoritative server that also plays. World generation is
 // deterministic, so clients generate terrain themselves from the seed and only
@@ -34,6 +34,7 @@
 #include "game/figure.h"
 #include "game/game.h"
 #include "game/vitals.h"
+#include "net/transport.h"
 
 #include <array>
 #include <filesystem>
@@ -43,9 +44,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-typedef struct _ENetHost ENetHost;
-typedef struct _ENetPeer ENetPeer;
 
 namespace gc {
 
@@ -216,11 +214,15 @@ public:
 		float per_second, burst;
 	};
 	static const std::map<std::string, Rate> &rates();
+	// For the tests: play without UDP (as behind a firewall that blocks it; set
+	// before host() or join()), and whether positions go by UDP now.
+	void set_udp_enabled(bool on) { udp_enabled_ = on; }
+	bool udp_ready() const;
 
 	struct Peer; // (session.cpp)
 
 private:
-	void send(ENetPeer *to, const std::vector<uint8_t> &bytes, bool reliable = true);
+	void send(Transport::Connection *to, const std::vector<uint8_t> &bytes, bool reliable = true);
 	void send_host(const std::vector<uint8_t> &bytes, bool reliable = true);
 	void to_players(const std::vector<uint8_t> &bytes, bool reliable = true);
 	void end(const std::string &why);
@@ -240,8 +242,9 @@ private:
 	std::string held_item(const Peer &p) const;
 
 	Mode mode_ = Mode::OFFLINE;
-	ENetHost *enet_ = nullptr;
-	ENetPeer *server_ = nullptr; // a client's connection to the host
+	std::unique_ptr<Transport> net_;
+	Transport::Connection *server_ = nullptr; // a client's connection to the host
+	bool udp_enabled_ = true;
 	std::string name_;
 	std::vector<std::string> mods_;
 	int my_id_ = 0;

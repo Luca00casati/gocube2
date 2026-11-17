@@ -39,12 +39,6 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC thirdparty/imgui thirdparty/imgui/backends)
 target_compile_options(imgui PRIVATE /W0 /MP)
 
-file(GLOB ENET_SOURCES thirdparty/enet/*.c)
-add_library(enet STATIC ${ENET_SOURCES})
-target_include_directories(enet PUBLIC thirdparty/enet/include)
-target_compile_definitions(enet PRIVATE _WINSOCK_DEPRECATED_NO_WARNINGS _CRT_SECURE_NO_WARNINGS)
-target_compile_options(enet PRIVATE /W0)
-target_link_libraries(enet PUBLIC ws2_32 winmm)
 
 add_library(doctest INTERFACE)
 target_include_directories(doctest INTERFACE thirdparty/doctest)
@@ -121,10 +115,13 @@ target_sources(gocube_core PRIVATE
 	src/game/vitals.h
 	src/net/session.cpp
 	src/net/session.h
+	src/net/transport.cpp
+	src/net/transport.h
+	src/platform/fine_sleep.h
 	src/net/wire.h
 )
 target_include_directories(gocube_core PUBLIC src)
-target_link_libraries(gocube_core PRIVATE lua png zlib bcrypt enet)
+target_link_libraries(gocube_core PRIVATE lua png zlib bcrypt ws2_32 PUBLIC winmm) # (winmm: platform/fine_sleep.h)
 target_compile_definitions(gocube_core PUBLIC ${GOCUBE_DEFINES})
 target_compile_options(gocube_core PRIVATE ${GOCUBE_OPTIONS})
 # The voxel engine is the Godot version's, unchanged: quiet its warnings here
@@ -210,6 +207,7 @@ add_executable(gocube_tests
 	tests/test_rendering.cpp
 	tests/test_save.cpp
 	tests/test_survival.cpp
+	tests/test_transport.cpp
 	tests/test_worldgen.cpp
 )
 target_link_libraries(gocube_tests PRIVATE gocube_core doctest zlib bcrypt)

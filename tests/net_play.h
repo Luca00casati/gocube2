@@ -66,10 +66,11 @@ struct NetPlay {
 	// their frames), then builds the world from it. Null if it was turned away
 	// (`why` says why).
 	// `mods`: the mods we say we have (default: the base game's); `more_mods`:
-	// folders of mod folders to load them from (Play::Setup).
+	// folders of mod folders to load them from (Play::Setup); `udp`: false
+	// plays as behind a firewall that blocks UDP.
 	static std::unique_ptr<NetPlay> join(int port, const std::string &name, const std::function<void()> &others,
 			std::string *why = nullptr, std::vector<std::string> mods = {},
-			std::vector<std::filesystem::path> more_mods = {}) {
+			std::vector<std::filesystem::path> more_mods = {}, bool udp = true) {
 		const bool chosen = !mods.empty();
 		auto n = std::make_unique<NetPlay>();
 		if (mods.empty()) {
@@ -78,6 +79,7 @@ struct NetPlay {
 			m.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"});
 			mods = gc::Session::mod_list(m.loaded());
 		}
+		n->session.set_udp_enabled(udp);
 		PLAY_REQUIRE(n->session.join("127.0.0.1", port, name, mods).empty());
 		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
 		while (!n->session.welcomed() && n->session.ended().empty() && std::chrono::steady_clock::now() < deadline) {

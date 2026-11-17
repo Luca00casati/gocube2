@@ -4,8 +4,6 @@
 #include "mods/mod_pack.h"
 #include "net/wire.h"
 
-#include <enet/enet.h>
-
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -86,7 +84,6 @@ bool valid_entry(const std::string &e) {
 	return true;
 }
 
-constexpr int CHANNELS = 2; // 0: reliable, in order; 1: positions (unreliable, newest wins)
 constexpr size_t MAX_CHUNK_BYTES = 256 * 1024;
 constexpr int MAX_MODS = 256;
 
@@ -126,24 +123,10 @@ float distance(const float a[3], const float b[3]) {
 	return std::sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2]));
 }
 
-struct EnetInit {
-	bool ok = enet_initialize() == 0;
-	~EnetInit() {
-		if (ok) {
-			enet_deinitialize();
-		}
-	}
-};
-
-bool enet_ready() {
-	static EnetInit init;
-	return init.ok;
-}
-
 } // namespace
 
 struct Session::Peer {
-	ENetPeer *enet = nullptr;
+	Transport::Connection *conn = nullptr;
 	int id = 0;
 	bool joined = false;
 	std::string name;
@@ -272,15 +255,11 @@ std::string Session::clean_name(const std::string &requested) {
 
 std::string Session::host(int port, const std::string &name, std::vector<std::string> mods) {
 	leave();
-	if (!enet_ready()) {
-		return "Couldn't start the network.";
-	}
-	ENetAddress address{};
-	address.host = ENET_HOST_ANY;
-	address.port = enet_uint16(port);
-	enet_ = enet_host_create(&address, MAX_PLAYERS - 1, CHANNELS, 0, 0);
-	if (!enet_) {
-		return "Couldn't host on port " + std::to_string(port) + " (is it in use?).";
+	net_ = std::make_unique<Transport>();
+	net_->set_udp_enabled(udp_enabled_);
+	if (std::string e = net_->listen(port, MAX_PLAYERS - 1); !e.empty()) {
+		net_.reset();
+		return e;
 	}
 	mode_ = Mode::HOST;
 	name_ = clean_name(name).empty() ? "Host" : clean_name(name);
@@ -292,25 +271,11 @@ std::string Session::host(int port, const std::string &name, std::vector<std::st
 
 std::string Session::join(const std::string &address, int port, const std::string &name, std::vector<std::string> mods) {
 	leave();
-	if (!enet_ready()) {
-		return "Couldn't start the network.";
-	}
-	enet_ = enet_host_create(nullptr, 1, CHANNELS, 0, 0);
-	if (!enet_) {
-		return "Couldn't start the network.";
-	}
-	ENetAddress to{};
-	if (enet_address_set_host(&to, address.c_str()) != 0) {
-		enet_host_destroy(enet_);
-		enet_ = nullptr;
-		return "Couldn't find " + address + ".";
-	}
-	to.port = enet_uint16(port);
-	server_ = enet_host_connect(enet_, &to, CHANNELS, PROTOCOL);
-	if (!server_) {
-		enet_host_destroy(enet_);
-		enet_ = nullptr;
-		return "Couldn't connect to " + address + ".";
+	net_ = std::make_unique<Transport>();
+	net_->set_udp_enabled(udp_enabled_);
+	if (std::string e = net_->connect(address, port); !e.empty()) {
+		net_.reset();
+		return e;
 	}
 	mode_ = Mode::CLIENT;
 	name_ = clean_name(name).empty() ? "Player" : clean_name(name);
@@ -321,17 +286,16 @@ std::string Session::join(const std::string &address, int port, const std::strin
 
 void Session::leave() {
 	detach();
-	if (enet_) {
+	if (net_) {
 		if (server_) {
-			enet_peer_disconnect_now(server_, 0);
+			net_->disconnect_now(server_);
 		}
 		for (auto &p : peers_) {
-			enet_peer_disconnect_now(p->enet, 0);
+			net_->disconnect_now(p->conn);
 		}
-		enet_host_flush(enet_);
-		enet_host_destroy(enet_);
+		net_->close();
 	}
-	enet_ = nullptr;
+	net_.reset();
 	server_ = nullptr;
 	peers_.clear();
 	avatars_.clear();
@@ -389,14 +353,14 @@ void Session::attach(const Attach &a) {
 		}
 		Writer w(H_STRUCK);
 		w.i32(amount).vec3(push);
-		send(p->enet, w.bytes);
+		send(p->conn, w.bytes);
 	};
 	game.on_pickup = [this](int peer, const Stack &s) {
 		if (Peer *p = peer_by_id(peer)) {
 			p->inv_changed = true;
 			Writer w(H_PICKED);
 			w.str(s.id).u16(uint16_t(std::clamp(s.count, 0, 65535)));
-			send(p->enet, w.bytes);
+			send(p->conn, w.bytes);
 		}
 	};
 	game.on_shared_sound = [this](const SoundEvent &e) {
@@ -432,14 +396,25 @@ void Session::detach() {
 
 // --- Sending ----------------------------------------------------------------------
 
-void Session::send(ENetPeer *to, const std::vector<uint8_t> &bytes, bool reliable) {
-	if (!to) {
-		return;
+void Session::send(Transport::Connection *to, const std::vector<uint8_t> &bytes, bool reliable) {
+	if (to && net_) {
+		net_->send(to, bytes, reliable);
 	}
-	ENetPacket *packet = enet_packet_create(bytes.data(), bytes.size(), reliable ? ENET_PACKET_FLAG_RELIABLE : 0);
-	if (enet_peer_send(to, reliable ? 0 : 1, packet) != 0) {
-		enet_packet_destroy(packet);
+}
+
+bool Session::udp_ready() const {
+	if (!net_) {
+		return false;
 	}
+	if (is_client()) {
+		return net_->udp_ready(server_);
+	}
+	for (const auto &p : peers_) {
+		if (p->joined && !net_->udp_ready(p->conn)) {
+			return false;
+		}
+	}
+	return !peers_.empty();
 }
 
 void Session::send_host(const std::vector<uint8_t> &bytes, bool reliable) {
@@ -451,7 +426,7 @@ void Session::send_host(const std::vector<uint8_t> &bytes, bool reliable) {
 void Session::to_players(const std::vector<uint8_t> &bytes, bool reliable) {
 	for (auto &p : peers_) {
 		if (p->joined) {
-			send(p->enet, bytes, reliable);
+			send(p->conn, bytes, reliable);
 		}
 	}
 }
@@ -468,15 +443,23 @@ Session::Peer *Session::peer_by_id(int id) {
 // --- Receiving --------------------------------------------------------------------
 
 void Session::poll() {
-	if (!enet_) {
+	if (!net_) {
 		return;
 	}
-	ENetEvent ev;
-	while (enet_ && enet_host_service(enet_, &ev, 0) > 0) {
+	Transport::Event ev;
+	while (net_ && net_->poll(ev)) {
+		// (The host: the player on that connection.)
+		Peer *from = nullptr;
+		for (auto &p : peers_) {
+			if (p->conn == ev.connection) {
+				from = p.get();
+			}
+		}
 		switch (ev.type) {
-			case ENET_EVENT_TYPE_CONNECT:
+			case Transport::Event::CONNECT:
 				if (is_client()) {
 					connected_ = true;
+					server_ = ev.connection;
 					Writer w(C_HELLO);
 					w.u16(PROTOCOL).str(name_).u16(uint16_t(mods_.size()));
 					for (const std::string &m : mods_) {
@@ -485,39 +468,33 @@ void Session::poll() {
 					send(server_, w.bytes);
 				} else {
 					auto p = std::make_unique<Peer>();
-					p->enet = ev.peer;
+					p->conn = ev.connection;
 					p->id = next_id_++;
-					ev.peer->data = p.get();
 					peers_.push_back(std::move(p));
 				}
 				break;
-			case ENET_EVENT_TYPE_RECEIVE:
+			case Transport::Event::RECEIVE:
 				if (is_client() && welcomed_ && !a_.game) {
 					// Welcomed, the world still being built: kept for when it's there.
-					held_.emplace_back(ev.packet->data, ev.packet->data + ev.packet->dataLength);
+					held_.push_back(std::move(ev.data));
 				} else if (is_client()) {
-					on_client_message(ev.packet->data, ev.packet->dataLength);
-				} else if (ev.peer->data) {
-					on_host_message(*static_cast<Peer *>(ev.peer->data), ev.packet->data, ev.packet->dataLength);
+					on_client_message(ev.data.data(), ev.data.size());
+				} else if (from) {
+					on_host_message(*from, ev.data.data(), ev.data.size());
 				}
-				enet_packet_destroy(ev.packet);
 				break;
-			case ENET_EVENT_TYPE_DISCONNECT:
+			case Transport::Event::DISCONNECT:
 				if (is_client()) {
 					end(connected_ ? "The server closed the connection." : "Couldn't connect to the server.");
 					connected_ = false;
 					server_ = nullptr;
-				} else if (ev.peer->data) {
-					Peer *gone = static_cast<Peer *>(ev.peer->data);
-					ev.peer->data = nullptr;
-					if (gone->joined) {
-						log("%s left", gone->name.c_str());
+				} else if (from) {
+					if (from->joined) {
+						log("%s left", from->name.c_str());
 						saved_players(); // (keeps its inventory and health)
 					}
-					std::erase_if(peers_, [&](const auto &p) { return p.get() == gone; });
+					std::erase_if(peers_, [&](const auto &p) { return p.get() == from; });
 				}
-				break;
-			default:
 				break;
 		}
 	}
@@ -565,7 +542,7 @@ void Session::hello(Peer &p, const uint8_t *data, size_t size) {
 			for (const std::string &e : mods_) {
 				w.str(e).u32(entry_id(e) == "core" ? 0 : uint32_t(pack_of(e).size()));
 			}
-			send(p.enet, w.bytes);
+			send(p.conn, w.bytes);
 			log("A player has other mods; offering ours");
 			return;
 		}
@@ -587,8 +564,8 @@ void Session::hello(Peer &p, const uint8_t *data, size_t size) {
 		log("Turned a player away: %s", reason.c_str());
 		Writer w(H_REJECTED);
 		w.str(reason);
-		send(p.enet, w.bytes);
-		enet_peer_disconnect_later(p.enet, 0); // (after the message)
+		send(p.conn, w.bytes);
+		net_->disconnect_later(p.conn); // (after the message)
 		return;
 	}
 	p.name = name;
@@ -635,7 +612,7 @@ void Session::hello(Peer &p, const uint8_t *data, size_t size) {
 	for (const auto &[pos, bytes] : chunks) {
 		w.i32(pos.x).i32(pos.y).i32(pos.z).blob(bytes);
 	}
-	send(p.enet, w.bytes);
+	send(p.conn, w.bytes);
 	log("%s joined (player %d)", name.c_str(), p.id);
 }
 
@@ -793,7 +770,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 		const size_t from = part * MOD_PART, to = std::min(pack.size(), from + MOD_PART);
 		Writer w(H_MOD_PART);
 		w.str(entry).u32(part).u32(uint32_t(parts)).blob(std::vector<uint8_t>(pack.begin() + from, pack.begin() + to));
-		send(p.enet, w.bytes);
+		send(p.conn, w.bytes);
 		return;
 	}
 	if (!p.joined) {
@@ -818,7 +795,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 					p.corrected = now();
 					Writer w(H_CORRECT);
 					w.vec3(p.eye);
-					send(p.enet, w.bytes);
+					send(p.conn, w.bytes);
 				}
 				return;
 			}
@@ -993,7 +970,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 				if (!bytes.empty()) {
 					Writer w(H_CHUNK);
 					w.i32(c.x).i32(c.y).i32(c.z).blob(bytes);
-					send(p.enet, w.bytes);
+					send(p.conn, w.bytes);
 				}
 			}
 			break;
@@ -1355,8 +1332,8 @@ void Session::update(float dt, const LocalPose &pose) {
 		client_update(dt, pose);
 	}
 	update_avatars(dt);
-	if (enet_) {
-		enet_host_flush(enet_);
+	if (net_) {
+		net_->flush();
 	}
 }
 
@@ -1417,7 +1394,7 @@ void Session::host_update(float dt) {
 				p->vitals.changed = false;
 				Writer w(H_HEALTH);
 				w.i32(p->vitals.health);
-				send(p->enet, w.bytes);
+				send(p->conn, w.bytes);
 			}
 			if (p->inv_changed) {
 				p->inv_changed = false;
@@ -1425,7 +1402,7 @@ void Session::host_update(float dt) {
 				data["cursor"] = p->inv->cursor.empty() ? Data(false) : Data::array({p->inv->cursor.id, p->inv->cursor.count});
 				Writer w(H_INVENTORY);
 				w.u32(p->done).data(data);
-				send(p->enet, w.bytes);
+				send(p->conn, w.bytes);
 			}
 		}
 	}
@@ -1474,7 +1451,7 @@ void Session::host_update(float dt) {
 					sent = text;
 					Writer w(H_CONTAINER);
 					block_pos(w, pos).data(data.is_null() ? Data(false) : data);
-					send(p->enet, w.bytes);
+					send(p->conn, w.bytes);
 				}
 			}
 		}

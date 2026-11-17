@@ -1,4 +1,4 @@
-// Multiplayer: a host and a client in one process, over ENet on localhost.
+// Multiplayer: a host and a client in one process, over TCP and UDP on localhost.
 // The client is driven as a person would (aim, click, walk); the host checks
 // what it asks and does it as that player. Both worlds must agree after.
 // (tests/mp_smoke.cpp does a round of play across two real processes.)
@@ -21,7 +21,7 @@ using gc::Data;
 namespace {
 
 int test_port(int n) {
-	return 26000 + (_getpid() % 1500) * 5 + n;
+	return 26000 + (_getpid() % 1000) * 8 + n;
 }
 
 // Both worlds have this block at p.
@@ -69,6 +69,8 @@ TEST_CASE("multiplayer: joining gets the host's world, and block changes go both
 	CHECK(h.session.avatars()[0].name == "Client");
 	CHECK(c.session.held_lights()[0][3] == 13.0f);
 	CHECK(c.session.player_count() == 2);
+	// Positions go by UDP (checked both ways first).
+	CHECK(run_until(both_sides, [&] { return c.session.udp_ready() && h.session.udp_ready(); }, 5));
 
 	// We place a block: the host does it, both worlds have it.
 	const BlockPos cell{4, 100, 1};
@@ -131,6 +133,29 @@ TEST_CASE("multiplayer: joining gets the host's world, and block changes go both
 	// When the client leaves, the host sees it go.
 	client.reset();
 	CHECK(run_until({&h}, [&] { return h.session.avatars().empty(); }, 5));
+}
+
+TEST_CASE("multiplayer: with UDP blocked, everything goes over TCP") {
+	auto host = NetPlay::host(test_port(6), true);
+	auto client = NetPlay::join(test_port(6), "Client", [&] { host->frame(); }, nullptr, {}, {}, false);
+	REQUIRE(client);
+	NetPlay &h = *host, &c = *client;
+	const std::vector<NetPlay *> both_sides = {&h, &c};
+	REQUIRE(run_until(both_sides, [&] { return c.world().is_loaded(4, 100, 1); }, 20));
+	// Each sees the other move.
+	REQUIRE(run_until(both_sides, [&] { return c.session.avatars().size() == 1 && h.session.avatars().size() == 1; }, 5));
+	h.player().position[0] = 3.5f;
+	CHECK(run_until(both_sides, [&] { return std::abs(c.session.avatars()[0].eye[0] - 3.5f) < 0.01f; }, 5));
+	CHECK_FALSE(c.session.udp_ready());
+	CHECK_FALSE(h.session.udp_ready());
+	// A change goes through the host.
+	const BlockPos cell{4, 100, 1};
+	c.game().inventory().slots[0] = {"core:planks", 1};
+	c.input.number_key = 1;
+	c.frame();
+	aim_at_floor(c, cell.x, cell.z);
+	c.input.use_pressed = true;
+	CHECK(run_until(both_sides, [&] { return both(h, c, cell, "core:planks"); }, 5));
 }
 
 TEST_CASE("multiplayer: a survival client's inventory, placing, mining time, drops and moves are the host's") {

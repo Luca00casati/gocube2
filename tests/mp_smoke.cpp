@@ -22,6 +22,8 @@
 
 #include <windows.h>
 
+#include "platform/fine_sleep.h"
+
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -330,6 +332,7 @@ int run_both() {
 } // namespace
 
 int main(int argc, char **argv) {
+	const gc::FineSleep fine;
 	const std::string role = argc > 1 ? argv[1] : "";
 	const int port = argc > 2 ? std::atoi(argv[2]) : 24711;
 	if (role == "host") {

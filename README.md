@@ -79,7 +79,8 @@ downloaded from servers). Changes show at once; they're kept in
 `%APPDATA%\GoCube\settings.lua`, with your name and the last address you joined.
 
 Playing together: in the title menu, tick "Open the world I play to others" and
-play a world (others join it on port 24680), or type the host's address and
+play a world (others join it on port 24680: TCP, and UDP too if it gets through,
+for smoother movement), or type the host's address and
 "Join their world". The host's world is the world: it checks and does what
 joined players do, keeps their inventories and health (saved in its world, by
 name), and runs the creatures, items, chests, furnaces and time; the night is
@@ -153,8 +154,9 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
   (shaped blocks' variants, doors, beds, support).
 - `src/mods/`: finding, ordering and loading mods; the Lua sandbox and API;
   fingerprints.
-- `src/net/`: multiplayer over ENet (the Godot version's Session): the host's
-  checks, what travels between host and clients, and the message format.
+- `src/net/`: multiplayer (the Godot version's Session): the host's checks, what
+  travels between host and clients, the message format, and the transport (TCP,
+  and UDP for positions, on the same port; Winsock only).
 - `src/render/`, `shaders/`: Direct3D 11, the terrain, sky and item shaders (HLSL,
   compiled by FXC at build time), drawn as the Godot version shows them.
 - `mods/core/`: the base game: content, assets and `main.lua` (the Godot version's
@@ -175,5 +177,4 @@ statically (versions and licences: `thirdparty/README.md`):
 [Dear ImGui](https://github.com/ocornut/imgui) 1.93.0 (MIT),
 [libpng](https://github.com/pnggroup/libpng) 1.6.59 (libpng licence) with
 [zlib](https://github.com/madler/zlib) 1.3.2 (zlib licence),
-[ENet](https://github.com/lsalzman/enet) 1.3.18 (MIT),
 [doctest](https://github.com/doctest/doctest) 2.5.3 (MIT, tests only).

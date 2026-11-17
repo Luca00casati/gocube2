@@ -60,6 +60,7 @@
 #include "log.h"
 #include "mods/mods.h"
 #include "net/session.h"
+#include "platform/fine_sleep.h"
 #include "platform/window.h"
 #include "render/chunk_renderer.h"
 #include "render/renderer.h"
@@ -1696,6 +1697,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 }
 
 int main(int argc, char **argv) {
+	const gc::FineSleep fine; // (the frame rate limit sleeps to the millisecond)
 	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 	const Options options = parse(argc, argv);
 	if (!options.hidden) { // (tests play with the defaults)
