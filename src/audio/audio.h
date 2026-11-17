@@ -1,13 +1,15 @@
 #pragma once
-// The game's sounds (the Godot version's Sounds), through miniaudio: a sound
+// The game's sounds (the Godot version's Sounds), through XAudio2: a sound
 // set's sound (content "sound_sets": a list of files per kind), a random one
 // of its files, its pitch varied a little so repeats don't sound the same,
 // heard from where it is (full volume within UNIT_SIZE blocks, then falling
 // off, silent beyond MAX_DISTANCE). Two ambience loops (day and night)
 // crossfade with the daylight; underwater, everything is muffled.
 //
-// Sounds are decoded once and kept; at most VOICES play at a time (the
-// oldest stops for a new one). Without a sound device the game runs silent.
+// Sounds (.wav) are read once and kept; at most VOICES play at a time (the
+// oldest stops for a new one). How loud each is in each ear and the underwater
+// filter are audio/mixing.h's. Without a sound device the game runs silent; when
+// the device goes or the default one changes, sound starts again on the new one.
 
 #include "content/content.h"
 

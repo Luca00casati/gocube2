@@ -39,11 +39,6 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC thirdparty/imgui thirdparty/imgui/backends)
 target_compile_options(imgui PRIVATE /W0 /MP)
 
-add_library(miniaudio STATIC thirdparty/miniaudio/miniaudio.c)
-target_include_directories(miniaudio PUBLIC thirdparty/miniaudio)
-target_compile_definitions(miniaudio PUBLIC MA_NO_MP3 MA_NO_FLAC MA_NO_ENCODING MA_NO_GENERATION) # (WAV only)
-target_compile_options(miniaudio PRIVATE /W0)
-
 file(GLOB ENET_SOURCES thirdparty/enet/*.c)
 add_library(enet STATIC ${ENET_SOURCES})
 target_include_directories(enet PUBLIC thirdparty/enet/include)
@@ -73,6 +68,8 @@ add_library(gocube_core STATIC
 	src/content/content.h
 	src/content/item_models.cpp
 	src/content/item_models.h
+	src/audio/mixing.cpp
+	src/audio/mixing.h
 	src/data/data.cpp
 	src/data/data.h
 	src/data/lua_data.cpp
@@ -191,7 +188,7 @@ set_source_files_properties(shaders/chunk.hlsl shaders/lines.hlsl shaders/sky.hl
 	shaders/creatures.hlsl
 	PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
 target_include_directories(gocube PRIVATE ${SHADER_DIR})
-target_link_libraries(gocube PRIVATE gocube_core imgui png miniaudio d3d11 dxgi dxguid shell32 ole32)
+target_link_libraries(gocube PRIVATE gocube_core imgui png xaudio2 d3d11 dxgi dxguid shell32 ole32)
 target_compile_definitions(gocube PRIVATE
 	GOCUBE_VERSION="${PROJECT_VERSION}"
 	$<$<CONFIG:Debug>:GOCUBE_DEBUG>
@@ -206,6 +203,7 @@ add_executable(gocube_tests
 	tests/main.cpp
 	tests/net_play.h
 	tests/play.h
+	tests/test_audio.cpp
 	tests/test_mods.cpp
 	tests/test_multiplayer.cpp
 	tests/test_player.cpp
