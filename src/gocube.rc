@@ -1,0 +1,4 @@
+// The executable's resources.
+#include "ui/ui_font.h"
+
+GOCUBE_UI_FONT RCDATA "../thirdparty/font/Share_Tech/ShareTech-Regular.ttf"

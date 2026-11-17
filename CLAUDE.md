@@ -16,8 +16,9 @@ then, once, `cmake -B build -G "Visual Studio 18 2026" -A x64`; to build and tes
 Release unless asked).
 
 ## World generation must not change
-`tests/test_worldgen.cpp` checks the Godot version's fingerprints (seed 777 with
-generator 3, seed 4242 with generator 1): block data and light of the chunks around
+`tests/test_worldgen.cpp` checks fingerprints (seed 777 with generator 3, seed 4242
+with generator 1; the Godot version's until the base game dropped its small
+plants, farming, birch, spruce and snow grass): block data and light of the chunks around
 the origin. Unedited chunks are generated again every time a world is opened, so any
 change in what comes out moves caves, ores and light in worlds already played. Block
 ids (`core:air`, then sorted ids after shaped blocks' variants are added), the block
@@ -51,8 +52,8 @@ main thread; never call into it from a worker. Keep `mods/**` and `tests/data/**
 byte for byte (`.gitattributes`): fingerprints and test expectations hash bytes.
 
 ## Where the game's rules live
-Decisions (mining time, drops, fall damage, food, plants, farming, flowing
-fluids; recipes, smelting and fuel when a mod adds them) are the base game's Lua
+Decisions (mining time, drops, fall damage, plants, flowing fluids; recipes,
+smelting, fuel, food and planting (`use_item`) when a mod adds them) are the base game's Lua
 in `mods/core/rules/`, set with `game.set_rule`; C++
 (`src/game/`) keeps the data (inventory, block entities, drops, health, time) and
 asks `Mods::rule`, with a plain built-in default if no mod answers. Creatures
@@ -61,7 +62,8 @@ the same way: their bodies, physics and models are C++ (`game/creatures.h`,
 `creatures` API (it runs at the 20 Hz tick; the bodies at 60 Hz). Ports of the
 Godot version's GDScript keep its numbers and behaviour; tests in
 `tests/test_survival.cpp` pin them down. Deliberate departures: the base game
-has no tools, weapons, armour, crafting or smelting (everything is mined by
+has no tools, weapons, armour, crafting, smelting, farming, food or small
+plants, one grass and one wood (oak) (everything is mined by
 hand, hardness x 0.375 s, and drops), no enemies (no ninjas: only harmless
 Block Eaters), and no health bar (the screen reddens the lower health is). Saved data keeps the Godot `world.json`
 fields (`player.inventory`, `health`, `bed`, `block_entities`, `plants`, `spawn`,
@@ -110,7 +112,7 @@ screenshots run with the defaults. `--screen=settings` shows the settings screen
 One deliberate departure: block faces aren't the Godot version's textures. Most
 are painted from a colour and noise (`textures = {all = <table>}`, the base
 game's in `mods/core/content/looks.lua`, `src/content/image.h`; the same table
-always paints the same pixels); the few with a shape to draw (plants, torch,
+always paints the same pixels); the few with a shape to draw (sapling, torch,
 ladder, door, glass, bed, chest, furnace front, lamp, items) are PPM files
 (`mods/core/textures/*.ppm`, magenta = see-through: PPM has no alpha). There is
 no PNG reader; screenshots are written through Windows' WIC. Compare light and
@@ -139,6 +141,19 @@ Direct3D 11, feature level 11_0 minimum. Not Direct3D 12: the development PC's
 Intel HD Graphics 4600 hangs on every Direct3D 12 draw (Intel disabled Direct3D 12
 on Haswell). Check rendering changes on that GPU, not only on WARP:
 `build\Debug\gocube.exe --hidden --frames=600` must exit 0 (debug layer on).
+
+## UI
+The UI is our own (no Dear ImGui): `src/ui/gui.h` is an immediate-mode core in
+`gocube_core` (layout, hit testing, text fields, drop-downs, scrolling; it
+measures text through a callback), `src/ui/gui_d2d.h` draws its commands with
+Direct2D and DirectWrite over the back buffer on the game's device, keeping the
+Direct3D state around it. Its look ("minimal glass": see-through dark
+panels, white highlights) is `ui::Theme`; its font is Share Tech
+(`thirdparty/font/`), built into the executable (`src/gocube.rc`) and loaded
+from there, Segoe UI if that fails. A new widget or behaviour needs a check in
+`tests/test_gui.cpp` (fixed-width fake font, input frame by frame). Windows
+that fit their content are sized from the frame before, so they show from
+their second frame.
 
 ## Plan
 The rewrite follows the GoCube Native Rewrite Plan

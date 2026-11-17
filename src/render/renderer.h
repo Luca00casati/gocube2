@@ -1,5 +1,5 @@
 #pragma once
-// Direct3D 11: device, flip-model swap chain, depth buffer, Dear ImGui.
+// Direct3D 11: device, flip-model swap chain, depth buffer; the UI drawn over it.
 //
 // Direct3D 11, not 12: Intel disabled Direct3D 12 on 4th-generation (Haswell)
 // graphics such as the HD 4600, where every Direct3D 12 draw hangs the GPU,
@@ -7,8 +7,8 @@
 //
 // The world is drawn into the plain back buffer: its shaders work out linear
 // light and write it as the Godot version's renderer does (shaders/
-// godot_color.hlsli), so see-through surfaces blend as there; Dear ImGui's
-// colours are already what the screen shows. With a render scale below
+// godot_color.hlsli), so see-through surfaces blend as there; the UI's
+// colours (Direct2D, ui/gui_d2d.h) are already what the screen shows. With a render scale below
 // 1 the world is drawn into a smaller target first, then stretched over the
 // window (bilinear), under the full-size UI: the Godot version's setting.
 
@@ -16,6 +16,7 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+#include <functional>
 #include <string>
 
 namespace gc {
@@ -40,7 +41,6 @@ public:
 	~Renderer();
 
 	bool init(HWND hwnd, int width, int height, const RendererOptions &options);
-	bool init_imgui(); // after ImGui_ImplWin32_Init
 	void resize(int width, int height);
 
 	// The world's resolution as a part of the window's (0.25..1; the Godot
@@ -52,13 +52,15 @@ public:
 	// Clears the world's target (to a linear colour) and the depth buffer, and
 	// binds them for drawing the world.
 	void begin_frame(const float clear_linear[4]);
-	// Draws the ImGui draw data, saves a screenshot if `screenshot_png` is
-	// given, presents. False if the device was lost.
-	bool end_frame(const char *screenshot_png = nullptr);
+	// Calls `overlay` with the back buffer bound (the UI draws there), saves a
+	// screenshot if `screenshot_png` is given, presents. False if the device
+	// was lost.
+	bool end_frame(const std::function<void()> &overlay = {}, const char *screenshot_png = nullptr);
 	void shutdown();
 
 	ID3D11Device *device() const { return device_.Get(); }
 	ID3D11DeviceContext *context() const { return context_.Get(); }
+	IDXGISwapChain1 *swap_chain() const { return swap_chain_.Get(); }
 	int width() const { return width_; }
 	int height() const { return height_; }
 	const std::string &adapter_name() const { return adapter_name_; }
@@ -91,7 +93,6 @@ private:
 	ComPtr<ID3D11PixelShader> blit_ps_;
 	ComPtr<ID3D11SamplerState> bilinear_;
 	bool tearing_ = false;
-	bool imgui_ = false;
 	int debug_messages_ = 0;
 };
 

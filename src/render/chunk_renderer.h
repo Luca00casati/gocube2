@@ -83,8 +83,6 @@ public:
 	static constexpr int HAND_LIGHT_SIZE = 48;
 	void set_hand_light(ID3D11DeviceContext *context, const std::vector<uint8_t> &volume, const BlockPos &origin,
 			int count, bool changed);
-	// The block atlas for Dear ImGui (a plain view: ImGui draws without sRGB).
-	ID3D11ShaderResourceView *ui_atlas() const { return atlas_.Get(); }
 	// After draw(): the edges of these boxes (world coordinates), just outside
 	// them so the lines don't fight with the faces.
 	void draw_outline(ID3D11DeviceContext *context, const std::vector<gocube::Box> &boxes);

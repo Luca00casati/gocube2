@@ -2,13 +2,14 @@
 
 #include "data/lua_data.h"
 
-#include <imgui.h>
 
 #include <shellapi.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <string>
+#include <vector>
 
 namespace gc {
 
@@ -44,33 +45,20 @@ std::string utf8(const fs::path &p) {
 	return std::string(u.begin(), u.end());
 }
 
-void dim(const std::string &text) {
-	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 1, 1, 0.6f));
-	ImGui::TextWrapped("%s", text.c_str());
-	ImGui::PopStyleColor();
+const ui::Color DIM = ui::rgba(255, 255, 255, 153);
+const ui::Color PROBLEM = ui::rgba(255, 128, 115);
+
+void heading(ui::Gui &gui, const char *text) {
+	gui.space(6);
+	gui.text(text, 1.25f);
 }
 
-void problem(const std::string &text) {
-	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.45f, 1));
-	ImGui::TextWrapped("%s", text.c_str());
-	ImGui::PopStyleColor();
-}
-
-void heading(const char *text) {
-	ImGui::Dummy(ImVec2(0, 6));
-	ImGui::SetWindowFontScale(1.25f);
-	ImGui::TextUnformatted(text);
-	ImGui::SetWindowFontScale(1.0f);
-}
-
-// A row of the settings table: what it is on the left, its control on the right.
-void row(const char *label) {
-	ImGui::TableNextRow();
-	ImGui::TableNextColumn();
-	ImGui::AlignTextToFramePadding();
-	ImGui::TextUnformatted(label);
-	ImGui::TableNextColumn();
-	ImGui::SetNextItemWidth(-FLT_MIN);
+// A row of the settings: what it is on the left, its control (next) on the right.
+void row(ui::Gui &gui, std::string_view label, float column) {
+	gui.align_text_to_frame();
+	gui.text(label);
+	gui.same_line(column);
+	gui.next_width(-4);
 }
 
 } // namespace
@@ -153,7 +141,7 @@ void SettingsScreen::open(const ModFolders &folders, const Mods &mods, bool serv
 	}
 }
 
-bool SettingsScreen::draw(Settings &s, const Window &window, bool esc_pressed, const fs::path &file) {
+bool SettingsScreen::draw(ui::Gui &gui, Settings &s, const Window &window, bool esc_pressed, const fs::path &file) {
 	// Waiting for a key: the next one pressed (Esc cancels).
 	bool keep_open = true;
 	if (!capturing_.empty()) {
@@ -175,162 +163,162 @@ bool SettingsScreen::draw(Settings &s, const Window &window, bool esc_pressed, c
 		keep_open = false;
 	}
 
-	const ImGuiIO &io = ImGui::GetIO();
-	ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 150));
-	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-	ImGui::SetNextWindowSize(ImVec2(std::min(600.0f, io.DisplaySize.x - 40), std::min(660.0f, io.DisplaySize.y - 40)));
-	ImGui::Begin("Settings##screen", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-			ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
-	ImGui::SetWindowFontScale(1.6f);
-	const float title_w = ImGui::CalcTextSize("Settings").x;
-	ImGui::SetCursorPosX((ImGui::GetWindowWidth() - title_w) * 0.5f);
-	ImGui::TextUnformatted("Settings");
-	ImGui::SetWindowFontScale(1.0f);
-	ImGui::BeginChild("settings", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() - 6), ImGuiChildFlags_None);
+	const ui::Input &in = gui.input();
+	gui.background().fill({0, 0, in.width, in.height}, ui::rgba(0, 0, 0, 150));
+	ui::WindowOptions o;
+	o.pos = {in.width * 0.5f, in.height * 0.5f};
+	o.pivot = {0.5f, 0.5f};
+	o.size = {std::min(680.0f, in.width - 40), std::min(660.0f, in.height - 40)};
+	gui.begin_window("Settings##screen", o);
+	gui.set_cursor_x((gui.window_width() - gui.text_size("Settings", 1.6f).x) * 0.5f - gui.theme.padding.x);
+	gui.text("Settings", 1.6f);
+	gui.begin_child("settings", {0, -gui.frame_height() - gui.theme.spacing.y - 6}, false);
+	const float column = std::floor(gui.available_width() * 0.4f);
 
-	if (ImGui::BeginTable("main", 2, ImGuiTableFlags_SizingStretchProp)) {
-		ImGui::TableSetupColumn("what", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-		ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 1.2f);
-		char label[96];
-		// View distance.
-		std::snprintf(label, sizeof(label), "View distance: %d blocks", s.view_distance);
-		row(label);
-		int view = 0;
-		for (int i = 0; i < int(std::size(Settings::VIEW_DISTANCES)); i++) {
-			view = Settings::VIEW_DISTANCES[i] <= s.view_distance ? i : view;
-		}
-		if (ImGui::SliderInt("##view", &view, 0, int(std::size(Settings::VIEW_DISTANCES)) - 1, "")) {
-			s.view_distance = Settings::VIEW_DISTANCES[view];
-		}
-		// Mouse sensitivity.
-		std::snprintf(label, sizeof(label), "Mouse sensitivity: %.1f", s.mouse_sensitivity * 1000.0f);
-		row(label);
-		float sens = s.mouse_sensitivity * 1000.0f;
-		if (ImGui::SliderFloat("##sens", &sens, 0.5f, 10.0f, "")) {
-			s.mouse_sensitivity = std::round(sens * 10.0f) / 10000.0f;
-		}
-		// Frame rate limit.
-		row("Frame rate limit");
-		auto fps_name = [](int limit) { return limit == 0 ? std::string("Unlimited") : std::to_string(limit) + " FPS"; };
-		if (ImGui::BeginCombo("##fps", fps_name(s.max_fps).c_str())) {
-			for (int limit : Settings::FPS_LIMITS) {
-				if (ImGui::Selectable(fps_name(limit).c_str(), limit == s.max_fps)) {
-					s.max_fps = limit;
-				}
-			}
-			ImGui::EndCombo();
-		}
-		row("VSync");
-		ImGui::Checkbox("Wait for the screen (no tearing)", &s.vsync);
-		row("Smooth lighting");
-		ImGui::Checkbox("Blend light at block corners", &s.smooth_lighting);
-		row("Sun shadows");
-		auto shadow_name = [](const std::string &m) { return m == "blocks" ? "Blocks (whole faces, cheap)" : "Off"; };
-		if (ImGui::BeginCombo("##shadows", shadow_name(s.shadow_mode))) {
-			for (const char *m : Settings::SHADOW_MODES) {
-				if (ImGui::Selectable(shadow_name(m), s.shadow_mode == m)) {
-					s.shadow_mode = m;
-				}
-			}
-			ImGui::EndCombo();
-		}
-		row("Render scale");
-		auto scale_name = [](float f) {
-			return std::to_string(int(std::lround(f * 100))) + "%" + (f >= 1.0f ? " (sharpest)" : "");
-		};
-		if (ImGui::BeginCombo("##scale", scale_name(s.render_scale).c_str())) {
-			for (float f : Settings::RENDER_SCALES) {
-				if (ImGui::Selectable(scale_name(f).c_str(), std::abs(f - s.render_scale) < 0.001f)) {
-					s.render_scale = f;
-				}
-			}
-			ImGui::EndCombo();
-		}
-		if (ImGui::IsItemHovered()) {
-			ImGui::SetTooltip("Draws the world at a lower resolution and stretches it: blurrier, but much less GPU.");
-		}
-		struct Volume {
-			const char *name;
-			float *value;
-		};
-		for (const Volume &v : {Volume{"Master volume", &s.master_volume}, Volume{"Effects volume", &s.effects_volume},
-					 Volume{"Ambience volume", &s.ambience_volume}}) {
-			std::snprintf(label, sizeof(label), "%s: %d%%", v.name, int(std::lround(*v.value * 100)));
-			row(label);
-			int percent = int(std::lround(*v.value * 20)) * 5;
-			ImGui::PushID(v.name);
-			if (ImGui::SliderInt("##v", &percent, 0, 100, "", ImGuiSliderFlags_AlwaysClamp)) {
-				*v.value = float(percent / 5 * 5) / 100.0f;
-			}
-			ImGui::PopID();
-		}
-		row("Clock");
-		ImGui::Checkbox("24-hour clock (07:19 instead of 7:19 AM)", &s.clock_24h);
-		ImGui::EndTable();
+	char label[96];
+	// View distance.
+	std::snprintf(label, sizeof(label), "View distance: %d blocks", s.view_distance);
+	row(gui, label, column);
+	int view = 0;
+	for (int i = 0; i < int(std::size(Settings::VIEW_DISTANCES)); i++) {
+		view = Settings::VIEW_DISTANCES[i] <= s.view_distance ? i : view;
 	}
+	if (gui.slider("##view", view, 0, int(std::size(Settings::VIEW_DISTANCES)) - 1)) {
+		s.view_distance = Settings::VIEW_DISTANCES[view];
+	}
+	// Mouse sensitivity.
+	std::snprintf(label, sizeof(label), "Mouse sensitivity: %.1f", s.mouse_sensitivity * 1000.0f);
+	row(gui, label, column);
+	float sens = s.mouse_sensitivity * 1000.0f;
+	if (gui.slider("##sens", sens, 0.5f, 10.0f)) {
+		s.mouse_sensitivity = std::round(sens * 10.0f) / 10000.0f;
+	}
+	// Frame rate limit.
+	row(gui, "Frame rate limit", column);
+	{
+		std::vector<std::string> names;
+		int at = 0;
+		for (int i = 0; i < int(std::size(Settings::FPS_LIMITS)); i++) {
+			const int limit = Settings::FPS_LIMITS[i];
+			names.push_back(limit == 0 ? std::string("Unlimited") : std::to_string(limit) + " FPS");
+			at = limit == s.max_fps ? i : at;
+		}
+		if (gui.combo("##fps", at, names)) {
+			s.max_fps = Settings::FPS_LIMITS[at];
+		}
+	}
+	row(gui, "VSync", column);
+	gui.checkbox("Wait for the screen (no tearing)", s.vsync);
+	row(gui, "Smooth lighting", column);
+	gui.checkbox("Blend light at block corners", s.smooth_lighting);
+	row(gui, "Sun shadows", column);
+	{
+		std::vector<std::string> names;
+		int at = 0;
+		for (int i = 0; i < int(std::size(Settings::SHADOW_MODES)); i++) {
+			const std::string m = Settings::SHADOW_MODES[i];
+			names.push_back(m == "blocks" ? "Blocks (whole faces, cheap)" : "Off");
+			at = s.shadow_mode == m ? i : at;
+		}
+		if (gui.combo("##shadows", at, names)) {
+			s.shadow_mode = Settings::SHADOW_MODES[at];
+		}
+	}
+	row(gui, "Render scale", column);
+	{
+		std::vector<std::string> names;
+		int at = 0;
+		for (int i = 0; i < int(std::size(Settings::RENDER_SCALES)); i++) {
+			const float f = Settings::RENDER_SCALES[i];
+			names.push_back(std::to_string(int(std::lround(f * 100))) + "%" + (f >= 1.0f ? " (sharpest)" : ""));
+			at = std::abs(f - s.render_scale) < 0.001f ? i : at;
+		}
+		if (gui.combo("##scale", at, names)) {
+			s.render_scale = Settings::RENDER_SCALES[at];
+		}
+		if (gui.item_hovered()) {
+			gui.tooltip("Draws the world at a lower resolution and stretches it: blurrier, but much less GPU.");
+		}
+	}
+	struct Volume {
+		const char *name;
+		float *value;
+	};
+	for (const Volume &v : {Volume{"Master volume", &s.master_volume}, Volume{"Effects volume", &s.effects_volume},
+				 Volume{"Ambience volume", &s.ambience_volume}}) {
+		std::snprintf(label, sizeof(label), "%s: %d%%", v.name, int(std::lround(*v.value * 100)));
+		row(gui, label, column);
+		int percent = int(std::lround(*v.value * 20)) * 5;
+		gui.push_id(v.name);
+		if (gui.slider("##v", percent, 0, 100)) {
+			*v.value = float(percent / 5 * 5) / 100.0f;
+		}
+		gui.pop_id();
+	}
+	row(gui, "Clock", column);
+	gui.checkbox("24-hour clock (07:19 instead of 7:19 AM)", s.clock_24h);
 
 	// Key bindings.
-	heading("Keys (click, then press a key; Esc cancels)");
-	if (ImGui::BeginTable("keys", 2, ImGuiTableFlags_SizingStretchProp)) {
-		for (const Settings::Action &a : Settings::actions()) {
-			row(a.label);
-			const int k = s.key(a.id);
-			std::string text = capturing_ == a.id ? "Press a key..." : key_name(k);
-			if (capturing_ != a.id && s.actions_using(k).size() > 1) {
-				text += "  (also used!)";
-			}
-			ImGui::PushID(a.id);
-			if (ImGui::Button(text.c_str(), ImVec2(200, 0))) {
-				capturing_ = a.id;
-				for (int vk = 0; vk < 256; vk++) {
-					was_down_[vk] = window.key_down(vk); // (the click itself isn't a key)
-				}
-			}
-			ImGui::PopID();
+	heading(gui, "Keys (click, then press a key; Esc cancels)");
+	for (const Settings::Action &a : Settings::actions()) {
+		row(gui, a.label, column);
+		const int k = s.key(a.id);
+		std::string text = capturing_ == a.id ? "Press a key..." : key_name(k);
+		if (capturing_ != a.id && s.actions_using(k).size() > 1) {
+			text += "  (also used!)";
 		}
-		ImGui::EndTable();
+		gui.push_id(a.id);
+		if (gui.button(text + "##key", {200, 0})) {
+			capturing_ = a.id;
+			for (int vk = 0; vk < 256; vk++) {
+				was_down_[vk] = window.key_down(vk); // (the click itself isn't a key)
+			}
+		}
+		gui.pop_id();
 	}
-	dim("Mouse: look, hold left = mine, right = place, wheel/1-9 = hotbar · Esc = pause · F3 = details");
+	gui.text_wrapped("Mouse: look, hold left = mine, right = place, wheel/1-9 = hotbar · Esc = pause · F3 = details",
+			DIM);
 
 	// Mods.
-	heading("Mods");
-	if (ImGui::Button("Open the mods folder")) {
+	heading(gui, "Mods");
+	if (gui.button("Open the mods folder")) {
 		std::error_code ec;
 		fs::create_directories(folders_.user, ec);
 		ShellExecuteW(nullptr, L"explore", folders_.user.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 	}
 	if (rows_.empty()) {
-		dim("No mods installed. Put mod folders in the mods folder (" + utf8(folders_.user) + ").");
+		gui.text_wrapped("No mods installed. Put mod folders in the mods folder (" + utf8(folders_.user) + ").", DIM);
 	}
 	for (const ModRow &r : rows_) {
 		bool on = std::find(s.disabled_mods.begin(), s.disabled_mods.end(), r.id) == s.disabled_mods.end();
-		ImGui::PushID(r.id.c_str());
-		if (ImGui::Checkbox(r.label.c_str(), &on)) {
+		gui.push_id(r.id);
+		if (gui.checkbox(r.label + "##on", on)) {
 			std::erase(s.disabled_mods, r.id);
 			if (!on) {
 				s.disabled_mods.push_back(r.id);
 			}
 		}
-		ImGui::PopID();
-		if (ImGui::IsItemHovered()) {
-			ImGui::SetTooltip("%s", r.id.c_str());
+		if (gui.item_hovered()) {
+			gui.tooltip(r.id);
 		}
-		ImGui::SameLine();
+		gui.pop_id();
 		const bool off = std::find(s.disabled_mods.begin(), s.disabled_mods.end(), r.id) != s.disabled_mods.end();
-		dim(r.where + " · " + (off && r.status != "loaded" ? "turned off" : r.status));
+		gui.text_wrapped(r.where + " · " + (off && r.status != "loaded" ? "turned off" : r.status), DIM);
 		if (!r.problem.empty()) {
-			problem(r.problem);
+			gui.text_wrapped(r.problem, PROBLEM);
 		}
 	}
 	for (const std::string &p : other_problems_) {
-		problem(p);
+		gui.text_wrapped(p, PROBLEM);
 	}
-	dim("Turning mods on or off takes effect the next time the game starts.");
-	ImGui::TextUnformatted("Downloaded from servers");
-	dim(cache_count_ ? std::to_string(cache_count_) + " mod(s), " + human_size(cache_bytes_) : std::string("None"));
-	ImGui::SameLine();
-	ImGui::BeginDisabled(cache_count_ == 0 || server_mods_);
-	if (ImGui::Button("Delete them")) {
+	gui.text_wrapped("Turning mods on or off takes effect the next time the game starts.", DIM);
+	gui.text("Downloaded from servers");
+	gui.align_text_to_frame();
+	gui.text(cache_count_ ? std::to_string(cache_count_) + " mod(s), " + human_size(cache_bytes_) : std::string("None"),
+			DIM);
+	gui.same_line();
+	gui.begin_disabled(cache_count_ == 0 || server_mods_);
+	if (gui.button("Delete them")) {
 		std::error_code ec;
 		fs::remove_all(folders_.downloaded, ec);
 		if (!ec) {
@@ -338,23 +326,23 @@ bool SettingsScreen::draw(Settings &s, const Window &window, bool esc_pressed, c
 			cache_bytes_ = 0;
 		}
 	}
-	ImGui::EndDisabled();
-	if (server_mods_ && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-		ImGui::SetTooltip("In use: you're playing with a server's mods.");
+	gui.end_disabled();
+	if (server_mods_ && gui.item_hovered_even_disabled()) {
+		gui.tooltip("In use: you're playing with a server's mods.");
 	}
-	dim("A server's mods are downloaded again if you join it later.");
-	ImGui::EndChild();
+	gui.text_wrapped("A server's mods are downloaded again if you join it later.", DIM);
+	gui.end_child();
 
 	// Reset keys, Done.
-	ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 240);
-	if (ImGui::Button("Reset keys", ImVec2(110, 0))) {
+	gui.set_cursor_x(gui.window_width() - 2 * gui.theme.padding.x - 228);
+	if (gui.button("Reset keys", {110, 0})) {
 		s.reset_keys();
 	}
-	ImGui::SameLine();
-	if (ImGui::Button("Done", ImVec2(110, 0))) {
+	gui.same_line();
+	if (gui.button("Done", {110, 0})) {
 		keep_open = false;
 	}
-	ImGui::End();
+	gui.end_window();
 	if (!keep_open) {
 		s.save(file);
 	}

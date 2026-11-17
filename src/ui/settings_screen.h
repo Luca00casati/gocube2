@@ -9,6 +9,7 @@
 #include "game/settings.h"
 #include "mods/mods.h"
 #include "platform/window.h"
+#include "ui/gui.h"
 
 #include <filesystem>
 #include <string>
@@ -28,7 +29,7 @@ public:
 
 	// One frame of it; false once it closes (Done, or Esc while not waiting
 	// for a key), with the settings saved to `file`.
-	bool draw(Settings &s, const Window &window, bool esc_pressed, const std::filesystem::path &file);
+	bool draw(ui::Gui &gui, Settings &s, const Window &window, bool esc_pressed, const std::filesystem::path &file);
 	bool waiting_for_key() const { return !capturing_.empty(); }
 
 	// A key's name ("W", "Space", "Left Shift"...).

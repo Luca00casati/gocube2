@@ -1,6 +1,7 @@
 #include "ui/screens.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -8,124 +9,123 @@ namespace gc {
 
 namespace {
 
-const ImU32 SLOT_BG = IM_COL32(30, 30, 34, 230);
-const ImU32 SLOT_HOVER = IM_COL32(60, 60, 70, 240);
-const ImU32 SLOT_BORDER = IM_COL32(255, 255, 255, 50);
-const ImU32 SLOT_HIGHLIGHT = IM_COL32(255, 230, 120, 255);
+const ui::Color SLOT_BG = ui::rgba(255, 255, 255, 12);
+const ui::Color SLOT_HOVER = ui::rgba(255, 255, 255, 40);
+const ui::Color SLOT_BORDER = ui::rgba(255, 255, 255, 40);
+const ui::Color SLOT_HIGHLIGHT = ui::rgba(255, 255, 255, 235);
 
-void count_text(ImDrawList *dl, ImVec2 b, int count) {
+void count_text(ui::Gui &gui, ui::DrawList &dl, ui::Vec2 corner, int count) {
 	const std::string n = std::to_string(count);
-	const ImVec2 size = ImGui::CalcTextSize(n.c_str());
-	dl->AddText(ImVec2(b.x - size.x - 3, b.y - size.y - 1), IM_COL32(0, 0, 0, 255), n.c_str());
-	dl->AddText(ImVec2(b.x - size.x - 4, b.y - size.y - 2), IM_COL32(255, 255, 255, 255), n.c_str());
+	const ui::Vec2 size = gui.text_size(n);
+	dl.text({corner.x - size.x - 3, corner.y - size.y - 1}, ui::rgba(0, 0, 0), n, gui.theme.font);
+	dl.text({corner.x - size.x - 4, corner.y - size.y - 2}, ui::rgba(255, 255, 255), n, gui.theme.font);
 }
 
 // Dims the world behind a screen.
-void dim_background() {
-	const ImGuiIO &io = ImGui::GetIO();
-	ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 140));
+void dim_background(ui::Gui &gui) {
+	gui.background().fill({0, 0, gui.input().width, gui.input().height}, ui::rgba(0, 0, 0, 140));
+}
+
+ui::WindowOptions centred(ui::Gui &gui) {
+	ui::WindowOptions o;
+	o.pos = {gui.input().width * 0.5f, gui.input().height * 0.5f};
+	o.pivot = {0.5f, 0.5f};
+	o.alpha = 0.92f;
+	return o;
 }
 
 } // namespace
 
-void UiIcons::draw(ImDrawList *dl, const std::string &id, ImVec2 a, ImVec2 b) const {
-	float uv[4];
-	table->atlas.tile_uv(table->icon(id), uv);
-	dl->AddImage(atlas, a, b, ImVec2(uv[0], uv[1]), ImVec2(uv[2], uv[3]));
+void UiIcons::draw(ui::DrawList &dl, const std::string &id, ui::Rect r) const {
+	dl.image(r, table->icon(id));
 }
 
-bool slot_button(const char *id, const Stack &stack, const UiIcons &icons, bool highlight, bool show_count, float size) {
-	ImGui::PushID(id);
-	const ImVec2 a = ImGui::GetCursorScreenPos();
-	const bool clicked = ImGui::InvisibleButton("slot", ImVec2(size, size));
-	const bool hovered = ImGui::IsItemHovered();
-	const ImVec2 b(a.x + size, a.y + size);
-	ImDrawList *dl = ImGui::GetWindowDrawList();
-	dl->AddRectFilled(a, b, hovered ? SLOT_HOVER : SLOT_BG, 4.0f);
-	dl->AddRect(a, b, highlight ? SLOT_HIGHLIGHT : SLOT_BORDER, 4.0f, 0, highlight ? 2.0f : 1.0f);
+bool slot_button(ui::Gui &gui, const char *id, const Stack &stack, const UiIcons &icons, bool highlight,
+		bool show_count, float size) {
+	gui.push_id(id);
+	const bool clicked = gui.invisible_button("slot", {size, size});
+	const bool hovered = gui.item_hovered();
+	const ui::Rect r = gui.item_rect();
+	ui::DrawList &dl = gui.draw_list();
+	dl.fill(r, hovered ? SLOT_HOVER : SLOT_BG, 4);
+	dl.stroke(r, highlight ? SLOT_HIGHLIGHT : SLOT_BORDER, 4, highlight ? 2.0f : 1.0f);
 	if (!stack.empty()) {
-		const float inset = size * 0.14f;
-		icons.draw(dl, stack.id, ImVec2(a.x + inset, a.y + inset), ImVec2(b.x - inset, b.y - inset));
+		const float inset = std::floor(size * 0.14f);
+		icons.draw(dl, stack.id, {r.x0 + inset, r.y0 + inset, r.x1 - inset, r.y1 - inset});
 		if (show_count && stack.count > 1) {
-			count_text(dl, b, stack.count);
+			count_text(gui, dl, {r.x1, r.y1}, stack.count);
 		}
 		if (hovered) {
-			ImGui::SetTooltip("%s", display_name(*icons.content, stack.id).c_str());
+			gui.tooltip(display_name(*icons.content, stack.id));
 		}
 	}
-	ImGui::PopID();
+	gui.pop_id();
 	return clicked;
 }
 
-bool inventory_screen(Game &game, const UiIcons &icons) {
-	dim_background();
+bool inventory_screen(ui::Gui &gui, Game &game, const UiIcons &icons) {
+	dim_background(gui);
 	Inventory &inv = game.inventory();
 	const bool creative = game.creative();
 	// Armour slots and crafting only if the mods have any (the base game has neither).
 	const bool armour = std::any_of(icons.content->items.begin(), icons.content->items.end(),
 			[](const auto &e) { return e.second.contains("armor"); });
 	const bool crafting = !creative && !game.hand_recipes().empty();
-	const ImGuiIO &io = ImGui::GetIO();
-	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-	ImGui::SetNextWindowBgAlpha(0.92f);
-	const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse;
-	bool keep_open = true;
-	ImGui::Begin("Inventory", nullptr, flags);
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 4));
+	gui.begin_window("Inventory", centred(gui));
+	gui.push_spacing({4, 4});
 
 	// Left: the backpack (rows of 9), armour, the hotbar row.
-	ImGui::BeginGroup();
-	ImGui::TextUnformatted("Inventory");
+	gui.begin_group();
+	gui.text("Inventory");
 	// (Through the game: a client's host does each click to its copy too.)
 	auto click = [&](int i) { game.inventory_action(Data::array({"click", i})); };
 	for (int i = Inventory::HOTBAR; i < Inventory::SIZE; i++) {
 		if ((i - Inventory::HOTBAR) % Inventory::HOTBAR != 0) {
-			ImGui::SameLine();
+			gui.same_line();
 		}
-		if (slot_button(std::to_string(i).c_str(), inv.slots[i], icons, false, !creative)) {
+		if (slot_button(gui, std::to_string(i).c_str(), inv.slots[i], icons, false, !creative)) {
 			click(i);
 		}
 	}
 	if (!creative && armour) {
-		ImGui::Dummy(ImVec2(0, 6));
-		ImGui::TextUnformatted("Armour");
+		gui.space(6);
+		gui.text("Armour");
 		for (int k = 0; k < 4; k++) {
 			if (k) {
-				ImGui::SameLine();
+				gui.same_line();
 			}
 			const std::string id = std::string("armor_") + Inventory::ARMOR_SLOTS[k];
-			if (slot_button(id.c_str(), inv.armor[k], icons, false, false)) {
+			if (slot_button(gui, id.c_str(), inv.armor[k], icons, false, false)) {
 				game.inventory_action(Data::array({"armor", k}));
 			}
-			if (ImGui::IsItemHovered() && inv.armor[k].empty()) {
-				ImGui::SetTooltip("%s", display_name(*icons.content, Inventory::ARMOR_SLOTS[k]).c_str());
+			if (gui.item_hovered() && inv.armor[k].empty()) {
+				gui.tooltip(display_name(*icons.content, Inventory::ARMOR_SLOTS[k]));
 			}
 		}
 	}
-	ImGui::Dummy(ImVec2(0, 6));
-	ImGui::TextUnformatted("Hotbar");
+	gui.space(6);
+	gui.text("Hotbar");
 	for (int i = 0; i < Inventory::HOTBAR; i++) {
 		if (i) {
-			ImGui::SameLine();
+			gui.same_line();
 		}
-		if (slot_button(std::to_string(i).c_str(), inv.slots[i], icons, i == game.selected(), !creative)) {
+		if (slot_button(gui, std::to_string(i).c_str(), inv.slots[i], icons, i == game.selected(), !creative)) {
 			click(i);
 		}
 	}
 	if (!creative && !crafting) {
-		ImGui::TextDisabled("E or Esc to close");
+		gui.text_dim("E or Esc to close");
 	}
-	ImGui::EndGroup();
+	gui.end_group();
 
 	// Right: crafting (survival, if there is any) or every block and item (creative).
 	if (creative || crafting) {
-		ImGui::SameLine(0, 24);
-		ImGui::BeginGroup();
+		gui.same_line(-1, 24);
+		gui.begin_group();
 	}
 	if (creative) {
-		ImGui::TextUnformatted("All blocks and items");
-		ImGui::BeginChild("palette", ImVec2(9 * 44 + 24, 380), ImGuiChildFlags_None);
+		gui.text("All blocks and items");
+		gui.begin_child("palette", {9 * 44 + 24, 380}, false);
 		std::vector<std::string> ids;
 		for (const std::string &id : icons.content->block_ids()) {
 			auto it = icons.content->blocks.find(id);
@@ -139,155 +139,148 @@ bool inventory_screen(Game &game, const UiIcons &icons) {
 		}
 		for (size_t k = 0; k < ids.size(); k++) {
 			if (k % 9) {
-				ImGui::SameLine();
+				gui.same_line();
 			}
-			if (slot_button(ids[k].c_str(), {ids[k], 1}, icons, false, false, 40)) {
+			if (slot_button(gui, ids[k].c_str(), {ids[k], 1}, icons, false, false, 40)) {
 				game.inventory_action(Data::array({"pick", ids[k]}));
 			}
 		}
-		ImGui::EndChild();
-		ImGui::TextDisabled("Click one, then a slot. E or Esc to close");
+		gui.end_child();
+		gui.text_dim("Click one, then a slot. E or Esc to close");
 	} else if (crafting) {
-		ImGui::TextUnformatted("Crafting");
-		ImGui::BeginChild("recipes", ImVec2(340, 380), ImGuiChildFlags_None);
+		gui.text("Crafting");
+		gui.begin_child("recipes", {340, 380}, false);
 		for (const Recipe &r : game.hand_recipes()) {
-			ImGui::PushID(r.id.c_str());
-			const ImVec2 a = ImGui::GetCursorScreenPos();
-			ImGui::Dummy(ImVec2(32, 32));
-			icons.draw(ImGui::GetWindowDrawList(), r.output, a, ImVec2(a.x + 32, a.y + 32));
-			ImGui::SameLine();
-			ImGui::BeginGroup();
-			ImGui::Text("%d x %s", r.count, display_name(*icons.content, r.output).c_str());
+			gui.push_id(r.id);
+			gui.dummy({32, 32});
+			icons.draw(gui.draw_list(), r.output, gui.item_rect());
+			gui.same_line();
+			gui.begin_group();
+			gui.text(std::to_string(r.count) + " x " + display_name(*icons.content, r.output));
 			std::string parts;
 			for (const auto &[item, n] : r.ingredients) {
 				parts += (parts.empty() ? "" : ", ") + std::to_string(n) + " " + display_name(*icons.content, item);
 			}
-			ImGui::TextDisabled("%s", parts.c_str());
-			ImGui::EndGroup();
-			ImGui::SameLine(280);
-			const bool can = game.can_craft(r);
-			ImGui::BeginDisabled(!can);
-			if (ImGui::Button("Craft")) {
+			gui.text_dim(parts);
+			gui.end_group();
+			gui.same_line(270);
+			gui.begin_disabled(!game.can_craft(r));
+			if (gui.button("Craft")) {
 				game.inventory_action(Data::array({"craft", r.id}));
 			}
-			ImGui::EndDisabled();
-			ImGui::PopID();
+			gui.end_disabled();
+			gui.pop_id();
 		}
-		ImGui::EndChild();
-		ImGui::TextDisabled("E or Esc to close");
+		gui.end_child();
+		gui.text_dim("E or Esc to close");
 	}
 	if (creative || crafting) {
-		ImGui::EndGroup();
+		gui.end_group();
 	}
-	ImGui::PopStyleVar();
-	ImGui::End();
-	return keep_open;
+	gui.pop_spacing();
+	gui.end_window();
+	return true;
 }
 
 namespace {
 
 // The player's backpack and hotbar rows, for a container screen.
-void inventory_rows(Game &game, const UiIcons &icons) {
+void inventory_rows(ui::Gui &gui, Game &game, const UiIcons &icons) {
 	Inventory &inv = game.inventory();
-	ImGui::TextUnformatted("Inventory");
+	gui.text("Inventory");
 	for (int i = Inventory::HOTBAR; i < Inventory::SIZE; i++) {
 		if ((i - Inventory::HOTBAR) % Inventory::HOTBAR != 0) {
-			ImGui::SameLine();
+			gui.same_line();
 		}
-		if (slot_button(("inv" + std::to_string(i)).c_str(), inv.slots[i], icons, false, true)) {
+		if (slot_button(gui, ("inv" + std::to_string(i)).c_str(), inv.slots[i], icons, false, true)) {
 			game.inventory_action(Data::array({"click", i}));
 		}
 	}
-	ImGui::Dummy(ImVec2(0, 4));
+	gui.space(4);
 	for (int i = 0; i < Inventory::HOTBAR; i++) {
 		if (i) {
-			ImGui::SameLine();
+			gui.same_line();
 		}
-		if (slot_button(("inv" + std::to_string(i)).c_str(), inv.slots[i], icons, i == game.selected(), true)) {
+		if (slot_button(gui, ("inv" + std::to_string(i)).c_str(), inv.slots[i], icons, i == game.selected(), true)) {
 			game.inventory_action(Data::array({"click", i}));
 		}
 	}
 }
 
-void bar(float fraction, ImVec2 size, ImU32 color) {
-	const ImVec2 a = ImGui::GetCursorScreenPos();
-	ImGui::Dummy(size);
-	ImDrawList *dl = ImGui::GetWindowDrawList();
-	dl->AddRectFilled(a, ImVec2(a.x + size.x, a.y + size.y), IM_COL32(0, 0, 0, 160), 3.0f);
-	dl->AddRectFilled(a, ImVec2(a.x + size.x * std::clamp(fraction, 0.0f, 1.0f), a.y + size.y), color, 3.0f);
+void bar(ui::Gui &gui, float fraction, ui::Vec2 size, ui::Color color) {
+	gui.dummy(size);
+	const ui::Rect r = gui.item_rect();
+	ui::DrawList &dl = gui.draw_list();
+	dl.fill(r, ui::rgba(0, 0, 0, 160), 3);
+	dl.fill({r.x0, r.y0, r.x0 + size.x * std::clamp(fraction, 0.0f, 1.0f), r.y1}, color, 3);
 }
 
 } // namespace
 
-bool container_screen(Game &game, const BlockPos &pos, const UiIcons &icons) {
+bool container_screen(ui::Gui &gui, Game &game, const BlockPos &pos, const UiIcons &icons) {
 	BlockEntity *e = game.block_entities().at(pos);
 	if (!e) {
 		return false; // it went away
 	}
-	dim_background();
-	const ImGuiIO &io = ImGui::GetIO();
-	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-	ImGui::SetNextWindowBgAlpha(0.92f);
-	ImGui::Begin("Container", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 4));
+	dim_background(gui);
+	gui.begin_window("Container", centred(gui));
+	gui.push_spacing({4, 4});
 	auto click = [&](int slot) { game.inventory_action(Data::array({"container", pos.x, pos.y, pos.z, slot})); };
 	if (e->type == "furnace") {
-		ImGui::TextUnformatted("Furnace");
+		gui.text("Furnace");
 		float burn, progress;
 		BlockEntities::furnace_status(*e, burn, progress);
-		ImGui::BeginGroup();
-		ImGui::TextDisabled("Input");
-		if (slot_button("in", e->slots[BlockEntities::FURNACE_INPUT], icons, false, true)) {
+		gui.begin_group();
+		gui.text_dim("Input");
+		if (slot_button(gui, "in", e->slots[BlockEntities::FURNACE_INPUT], icons, false, true)) {
 			click(BlockEntities::FURNACE_INPUT);
 		}
-		bar(burn, ImVec2(48, 6), IM_COL32(255, 140, 40, 255)); // the flame: fuel left
-		ImGui::TextDisabled("Fuel");
-		if (slot_button("fuel", e->slots[BlockEntities::FURNACE_FUEL], icons, false, true)) {
+		bar(gui, burn, {48, 6}, ui::rgba(255, 140, 40)); // the flame: fuel left
+		gui.text_dim("Fuel");
+		if (slot_button(gui, "fuel", e->slots[BlockEntities::FURNACE_FUEL], icons, false, true)) {
 			click(BlockEntities::FURNACE_FUEL);
 		}
-		ImGui::EndGroup();
-		ImGui::SameLine(0, 16);
-		ImGui::BeginGroup();
-		ImGui::Dummy(ImVec2(0, 34));
-		bar(progress, ImVec2(80, 10), IM_COL32(255, 255, 255, 230)); // smelting
-		ImGui::EndGroup();
-		ImGui::SameLine(0, 16);
-		ImGui::BeginGroup();
-		ImGui::TextDisabled("Output");
-		if (slot_button("out", e->slots[BlockEntities::FURNACE_OUTPUT], icons, false, true)) {
+		gui.end_group();
+		gui.same_line(-1, 16);
+		gui.begin_group();
+		gui.space(34);
+		bar(gui, progress, {80, 10}, ui::rgba(255, 255, 255, 230)); // smelting
+		gui.end_group();
+		gui.same_line(-1, 16);
+		gui.begin_group();
+		gui.text_dim("Output");
+		if (slot_button(gui, "out", e->slots[BlockEntities::FURNACE_OUTPUT], icons, false, true)) {
 			click(BlockEntities::FURNACE_OUTPUT);
 		}
-		ImGui::EndGroup();
+		gui.end_group();
 	} else {
-		ImGui::TextUnformatted("Chest");
+		gui.text("Chest");
 		for (int i = 0; i < int(e->slots.size()); i++) {
 			if (i % 9) {
-				ImGui::SameLine();
+				gui.same_line();
 			}
-			if (slot_button(("c" + std::to_string(i)).c_str(), e->slots[i], icons, false, true)) {
+			if (slot_button(gui, ("c" + std::to_string(i)).c_str(), e->slots[i], icons, false, true)) {
 				click(i);
 			}
 		}
 	}
-	ImGui::Dummy(ImVec2(0, 8));
-	inventory_rows(game, icons);
-	ImGui::TextDisabled("E or Esc to close");
-	ImGui::PopStyleVar();
-	ImGui::End();
+	gui.space(8);
+	inventory_rows(gui, game, icons);
+	gui.text_dim("E or Esc to close");
+	gui.pop_spacing();
+	gui.end_window();
 	return true;
 }
 
-void draw_held(const Stack &held, const UiIcons &icons) {
+void draw_held(ui::Gui &gui, const Stack &held, const UiIcons &icons) {
 	if (held.empty()) {
 		return;
 	}
-	const ImVec2 m = ImGui::GetIO().MousePos;
-	ImDrawList *dl = ImGui::GetForegroundDrawList();
-	const ImVec2 a(m.x + 4, m.y + 4), b(m.x + 40, m.y + 40);
-	icons.draw(dl, held.id, a, b);
+	const ui::Vec2 m = gui.input().mouse;
+	ui::DrawList &dl = gui.foreground();
+	icons.draw(dl, held.id, {m.x + 4, m.y + 4, m.x + 40, m.y + 40});
 	if (held.count > 1) {
-		count_text(dl, b, held.count);
+		count_text(gui, dl, {m.x + 40, m.y + 40}, held.count);
 	}
 }
 

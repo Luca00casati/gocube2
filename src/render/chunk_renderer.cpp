@@ -181,7 +181,7 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 	// The atlas, with mipmaps made by the GPU (tiles repeat within their cells,
 	// so mip levels don't mix neighbouring tiles). Read as it is, sRGB numbers
 	// not decoded: by the world's shaders as the Godot version's renderer does
-	// (see chunk.hlsl), and by ImGui.
+	// (see chunk.hlsl).
 	D3D11_TEXTURE2D_DESC td = {};
 	td.Width = UINT(atlas.width);
 	td.Height = UINT(atlas.height);

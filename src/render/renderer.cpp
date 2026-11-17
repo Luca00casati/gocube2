@@ -5,9 +5,6 @@
 #include "blit_ps.h"
 #include "blit_vs.h"
 
-#include <imgui.h>
-#include <imgui_impl_dx11.h>
-
 #include <wincodec.h>
 
 #include <algorithm>
@@ -185,11 +182,6 @@ bool Renderer::create_targets() {
 			!failed(device_->CreateDepthStencilView(depth.Get(), nullptr, &depth_), "CreateDepthStencilView");
 }
 
-bool Renderer::init_imgui() {
-	imgui_ = ImGui_ImplDX11_Init(device_.Get(), context_.Get());
-	return imgui_;
-}
-
 void Renderer::resize(int width, int height) {
 	if (!swap_chain_ || width <= 0 || height <= 0) {
 		return;
@@ -225,7 +217,7 @@ void Renderer::begin_frame(const float clear_linear[4]) {
 	context_->RSSetViewports(1, &vp);
 }
 
-bool Renderer::end_frame(const char *screenshot_png) {
+bool Renderer::end_frame(const std::function<void()> &overlay, const char *screenshot_png) {
 	if (scaled()) {
 		// Stretch the world over the window (bilinear, on the pixel values as Godot scales).
 		ID3D11RenderTargetView *full[] = {target_.Get()};
@@ -249,8 +241,8 @@ bool Renderer::end_frame(const char *screenshot_png) {
 	}
 	ID3D11RenderTargetView *targets[] = {target_.Get()};
 	context_->OMSetRenderTargets(1, targets, nullptr);
-	if (imgui_) {
-		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+	if (overlay) {
+		overlay();
 	}
 	if (screenshot_png && !save_png(screenshot_png)) {
 		log("Couldn't save the screenshot %s", screenshot_png);
@@ -351,10 +343,6 @@ int Renderer::debug_messages() {
 }
 
 void Renderer::shutdown() {
-	if (imgui_) {
-		ImGui_ImplDX11_Shutdown();
-		imgui_ = false;
-	}
 	if (context_) {
 		context_->ClearState();
 		context_->Flush();

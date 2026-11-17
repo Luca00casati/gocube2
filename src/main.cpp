@@ -69,9 +69,8 @@
 #include "world/save.h"
 #include "world/world.h"
 
-#include <imgui.h>
-#include <imgui_impl_dx11.h>
-#include <imgui_impl_win32.h>
+#include "ui/gui.h"
+#include "ui/gui_d2d.h"
 
 #include <shellapi.h>
 #include <shlobj.h>
@@ -79,11 +78,13 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdarg>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <random>
@@ -299,41 +300,111 @@ int number_pressed(const gc::Window &window, Controls &controls) {
 	return pressed;
 }
 
-// The hotbar, the mining bar and the crosshair.
+// The UI: the game's own (ui/gui.h), drawn with Direct2D (ui/gui_d2d.h).
+struct Ui {
+	gc::GuiD2D d2d;
+	gc::ui::Gui gui{[this](std::string_view text, float size, float wrap) { return d2d.measure(text, size, wrap); }};
+	std::vector<gc::ui::DrawCmd> cmds;
+	std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+};
+Ui *the_ui = nullptr;
+
+gc::ui::Gui &gui() {
+	return the_ui->gui;
+}
+
+// Starts a UI frame with what the window got (nothing for the UI while the
+// mouse is captured for looking around).
+void begin_ui(gc::Window &window) {
+	const auto now = std::chrono::steady_clock::now();
+	gc::ui::Input in;
+	in.dt = std::clamp(std::chrono::duration<float>(now - the_ui->last).count(), 0.0001f, 0.25f);
+	the_ui->last = now;
+	in.width = float(window.width());
+	in.height = float(window.height());
+	float x, y;
+	if (window.mouse_position(x, y)) {
+		in.mouse = {x, y};
+	}
+	gc::Window::UiEvents e = window.take_ui_events();
+	for (int b = 0; b < 3; b++) {
+		in.down[b] = !window.mouse_captured() && window.button_down(gc::Window::Button(b));
+		in.clicks[b] = e.clicks[b];
+	}
+	in.wheel = window.mouse_captured() ? 0 : e.wheel;
+	in.text = std::move(e.text);
+	in.keys = std::move(e.keys);
+	in.ctrl = window.key_down(VK_CONTROL);
+	gui().begin_frame(in);
+}
+
+void end_ui() {
+	the_ui->cmds = gui().end_frame();
+}
+
+// For Renderer::end_frame: the UI, over the frame.
+std::function<void()> ui_overlay(gc::Renderer &renderer) {
+	return [&renderer] { the_ui->d2d.draw(renderer.swap_chain(), renderer.context(), the_ui->cmds); };
+}
+
+std::string format(const char *f, ...) {
+	char out[512];
+	va_list args;
+	va_start(args, f);
+	std::vsnprintf(out, sizeof(out), f, args);
+	va_end(args);
+	return out;
+}
+
+gc::ui::Rect screen_rect() {
+	return {0, 0, gui().input().width, gui().input().height};
+}
+
+// Behind the menus with no world: an evening sky, for the glass panels to sit on.
+void sky_backdrop() {
+	const gc::ui::Rect r = screen_rect();
+	const float a = std::floor(r.y1 * 0.5f), b = std::floor(r.y1 * 0.68f);
+	const gc::ui::Color top = gc::ui::rgba(12, 20, 42), sky = gc::ui::rgba(66, 92, 132),
+			glow = gc::ui::rgba(170, 136, 124), ground = gc::ui::rgba(20, 22, 30);
+	gc::ui::DrawList &bg = gui().background();
+	bg.gradient({r.x0, r.y0, r.x1, a}, top, sky, true);
+	bg.gradient({r.x0, a, r.x1, b}, sky, glow, true);
+	bg.gradient({r.x0, b, r.x1, r.y1}, glow, ground, true);
+}
+
 // The death screen; true when Respawn is pressed.
 bool death_screen() {
-	const ImGuiIO &io = ImGui::GetIO();
-	ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(90, 0, 0, 140));
-	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.45f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-	ImGui::Begin("Dead", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground);
-	ImGui::SetWindowFontScale(2.5f);
-	ImGui::TextUnformatted("You died");
-	ImGui::SetWindowFontScale(1.0f);
-	ImGui::Dummy(ImVec2(0, 10));
-	const bool respawn = ImGui::Button("Respawn", ImVec2(ImGui::GetContentRegionAvail().x, 36));
-	ImGui::End();
+	gc::ui::Gui &g = gui();
+	g.background().fill(screen_rect(), gc::ui::rgba(90, 0, 0, 140));
+	gc::ui::WindowOptions o;
+	o.pos = {g.input().width * 0.5f, g.input().height * 0.45f};
+	o.pivot = {0.5f, 0.5f};
+	o.background = false;
+	g.begin_window("Dead", o);
+	g.text("You died", gc::ui::rgba(255, 255, 255), 2.5f);
+	g.space(10);
+	const bool respawn = g.button("Respawn", {std::max(160.0f, g.text_size("You died", 2.5f).x), 36});
+	g.end_window();
 	return respawn;
 }
 
 // Text with a black outline, as the Godot version's HUD draws it.
-void outlined_text(ImDrawList *dl, ImVec2 at, ImU32 col, const char *text) {
-	for (const ImVec2 o : {ImVec2(-1, 0), ImVec2(1, 0), ImVec2(0, -1), ImVec2(0, 1), ImVec2(-1, -1), ImVec2(1, 1)}) {
-		dl->AddText(ImVec2(at.x + o.x, at.y + o.y), IM_COL32(0, 0, 0, (col >> IM_COL32_A_SHIFT) & 0xff), text);
-	}
-	dl->AddText(at, col, text);
+void outlined_text(gc::ui::DrawList &dl, gc::ui::Vec2 at, gc::ui::Color col, const std::string &text) {
+	dl.outlined_text(at, col, text, gui().theme.font);
 }
 
 // A bar with its text on it (the Godot version's Hotbar._bar).
-void status_bar(ImDrawList *dl, ImVec2 a, ImVec2 size, float fraction, ImU32 fill, ImU32 highlight, const char *text) {
-	const ImVec2 b(a.x + size.x, a.y + size.y);
-	dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 140));
+void status_bar(gc::ui::DrawList &dl, gc::ui::Vec2 a, gc::ui::Vec2 size, float fraction, gc::ui::Color fill,
+		gc::ui::Color highlight, const char *text) {
+	const gc::ui::Rect r{a.x, a.y, a.x + size.x, a.y + size.y};
+	dl.fill(r, gc::ui::rgba(0, 0, 0, 140));
 	const float fx = a.x + size.x * std::clamp(fraction, 0.0f, 1.0f);
-	dl->AddRectFilled(a, ImVec2(fx, b.y), fill);
-	dl->AddRectFilled(a, ImVec2(fx, a.y + 3), highlight);
-	dl->AddRect(a, b, IM_COL32(255, 255, 255, 128));
-	const ImVec2 ts = ImGui::CalcTextSize(text);
-	outlined_text(dl, ImVec2(a.x + (size.x - ts.x) / 2, a.y + (size.y - ts.y) / 2), IM_COL32(255, 255, 255, 255), text);
+	dl.fill({a.x, a.y, fx, r.y1}, fill);
+	dl.fill({a.x, a.y, fx, a.y + 3}, highlight);
+	dl.stroke(r, gc::ui::rgba(255, 255, 255, 128));
+	const gc::ui::Vec2 ts = gui().text_size(text);
+	outlined_text(dl, {std::floor(a.x + (size.x - ts.x) / 2), std::floor(a.y + (size.y - ts.y) / 2)},
+			gc::ui::rgba(255, 255, 255), text);
 }
 
 // Health as the HUD shows it: down at once when hurt, up no faster than the
@@ -351,66 +422,62 @@ float shown_health(int health, float dt) {
 }
 
 // Hurt: the screen reddens the lower health is, mostly at the edges.
-void draw_wounds(ImDrawList *dl, ImVec2 size, float health) {
+void draw_wounds(gc::ui::DrawList &dl, gc::ui::Vec2 size, float health) {
 	const float missing = std::clamp(1.0f - health / float(gc::Game::MAX_HEALTH), 0.0f, 1.0f);
 	if (missing <= 0.0f) {
 		return;
 	}
 	const int tint = int(110.0f * missing * missing), edge = int(220.0f * missing);
-	dl->AddRectFilled(ImVec2(0, 0), size, IM_COL32(150, 0, 0, tint));
-	const ImU32 red = IM_COL32(170, 0, 0, edge), clear = IM_COL32(170, 0, 0, 0);
+	dl.fill({0, 0, size.x, size.y}, gc::ui::rgba(150, 0, 0, tint));
+	const gc::ui::Color red = gc::ui::rgba(170, 0, 0, edge), clear = gc::ui::rgba(170, 0, 0, 0);
 	const float band = 0.35f * std::min(size.x, size.y) * (0.5f + missing);
-	dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(size.x, band), red, red, clear, clear);
-	dl->AddRectFilledMultiColor(ImVec2(0, size.y - band), size, clear, clear, red, red);
-	dl->AddRectFilledMultiColor(ImVec2(0, 0), ImVec2(band, size.y), red, clear, clear, red);
-	dl->AddRectFilledMultiColor(ImVec2(size.x - band, 0), size, clear, red, red, clear);
+	dl.gradient({0, 0, size.x, band}, red, clear, true);
+	dl.gradient({0, size.y - band, size.x, size.y}, clear, red, true);
+	dl.gradient({0, 0, band, size.y}, red, clear, false);
+	dl.gradient({size.x - band, 0, size.x, size.y}, clear, red, false);
 }
 
 // The HUD, as the Godot version's: the crosshair, the mining progress under
 // it, the 9 hotbar slots, breath (and armour) bars above them in survival, the
 // held item's name, notices. Health has no bar: the screen reddens instead.
-void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::ChunkRenderer &chunks,
-		const gc::BlockRules &rules, bool captured) {
-	const ImGuiIO &io = ImGui::GetIO();
-	ImDrawList *dl = ImGui::GetForegroundDrawList();
-	const ImVec2 c(std::floor(io.DisplaySize.x * 0.5f), std::floor(io.DisplaySize.y * 0.5f));
+void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::BlockRules &rules, bool captured) {
+	gc::ui::Gui &g = gui();
+	const gc::ui::Vec2 display{g.input().width, g.input().height};
+	gc::ui::DrawList &dl = g.foreground();
+	const gc::ui::Vec2 c{std::floor(display.x * 0.5f), std::floor(display.y * 0.5f)};
+	const gc::ui::Color white = gc::ui::rgba(255, 255, 255);
 	// Hurt: red, the more the lower health is (under the rest of the HUD, which stays readable).
-	draw_wounds(dl, io.DisplaySize, shown_health(game.health(), io.DeltaTime));
+	draw_wounds(dl, display, shown_health(game.health(), g.input().dt));
 	if (captured) { // two bars, 16 x 2
-		const ImU32 col = IM_COL32(255, 255, 255, 191);
-		dl->AddRectFilled(ImVec2(c.x - 8, c.y - 1), ImVec2(c.x + 8, c.y + 1), col);
-		dl->AddRectFilled(ImVec2(c.x - 1, c.y - 8), ImVec2(c.x + 1, c.y - 1), col);
-		dl->AddRectFilled(ImVec2(c.x - 1, c.y + 1), ImVec2(c.x + 1, c.y + 8), col);
+		const gc::ui::Color col = gc::ui::rgba(255, 255, 255, 191);
+		dl.fill({c.x - 8, c.y - 1, c.x + 8, c.y + 1}, col);
+		dl.fill({c.x - 1, c.y - 8, c.x + 1, c.y - 1}, col);
+		dl.fill({c.x - 1, c.y + 1, c.x + 1, c.y + 8}, col);
 	}
 	if (game.mining_progress() > 0) { // 120 x 8, under the crosshair
-		const ImVec2 a(c.x - 60, c.y + 22), b(c.x + 60, c.y + 30);
-		dl->AddRectFilled(a, b, IM_COL32(26, 26, 26, 153), 3.0f);
-		dl->AddRectFilled(a, ImVec2(a.x + 120 * game.mining_progress(), b.y), IM_COL32(178, 196, 222, 255), 3.0f);
+		const gc::ui::Rect r{c.x - 60, c.y + 22, c.x + 60, c.y + 30};
+		dl.fill(r, gc::ui::rgba(26, 26, 26, 153), 3);
+		dl.fill({r.x0, r.y0, r.x0 + 120 * game.mining_progress(), r.y1}, gc::ui::rgba(178, 196, 222), 3);
 	}
 	const float slot = 52, gap = 4;
 	const float total = gc::Inventory::HOTBAR * slot + (gc::Inventory::HOTBAR - 1) * gap;
-	const float x0 = std::floor((io.DisplaySize.x - total) / 2), y0 = io.DisplaySize.y - slot - 12;
-	const ImTextureID atlas = ImTextureID(chunks.ui_atlas());
+	const float x0 = std::floor((display.x - total) / 2), y0 = display.y - slot - 12;
 	for (int i = 0; i < gc::Inventory::HOTBAR; i++) {
-		const ImVec2 a(x0 + i * (slot + gap), y0), b(a.x + slot, a.y + slot);
-		const bool chosen = i == game.selected();
-		dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 115));
+		const gc::ui::Rect r{x0 + i * (slot + gap), y0, x0 + i * (slot + gap) + slot, y0 + slot};
+		dl.fill(r, gc::ui::rgba(0, 0, 0, 115));
 		const gc::Stack &s = game.inventory().slots[i];
 		if (!s.empty()) {
-			float uv[4];
-			table.atlas.tile_uv(table.icon(s.id), uv);
-			dl->AddImage(atlas, ImVec2(a.x + 8, a.y + 8), ImVec2(b.x - 8, b.y - 8), ImVec2(uv[0], uv[1]),
-					ImVec2(uv[2], uv[3]));
+			dl.image({r.x0 + 8, r.y0 + 8, r.x1 - 8, r.y1 - 8}, table.icon(s.id));
 			if (!game.creative() && s.count > 1) {
 				const std::string n = std::to_string(s.count);
-				const ImVec2 size = ImGui::CalcTextSize(n.c_str());
-				outlined_text(dl, ImVec2(b.x - 6 - size.x, b.y - 6 - size.y), IM_COL32(255, 255, 255, 255), n.c_str());
+				const gc::ui::Vec2 size = g.text_size(n);
+				outlined_text(dl, {r.x1 - 6 - size.x, r.y1 - 6 - size.y}, white, n);
 			}
 		}
-		if (chosen) {
-			dl->AddRect(ImVec2(a.x + 1, a.y + 1), ImVec2(b.x - 1, b.y - 1), IM_COL32(255, 255, 255, 242), 0.0f, 0, 3.0f);
+		if (i == game.selected()) {
+			dl.stroke(r, gc::ui::rgba(255, 255, 255, 242), 0, 3);
 		} else {
-			dl->AddRect(a, b, IM_COL32(255, 255, 255, 64));
+			dl.stroke(r, gc::ui::rgba(255, 255, 255, 64));
 		}
 	}
 	// Survival: breath on the right above the hotbar (while it's being used),
@@ -418,36 +485,34 @@ void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::Chunk
 	const int armor = game.inventory().armor_points();
 	if (!game.creative()) {
 		const float width = (total - 12.0f) / 2.0f, y = y0 - 20;
-		char text[32];
 		if (game.breath() < gc::Game::MAX_BREATH) {
-			status_bar(dl, ImVec2(x0 + total - width, y), ImVec2(width, 14), game.breath() / gc::Game::MAX_BREATH,
-					IM_COL32(89, 166, 242, 255), IM_COL32(150, 199, 246, 255), "Air");
+			status_bar(dl, {x0 + total - width, y}, {width, 14}, game.breath() / gc::Game::MAX_BREATH,
+					gc::ui::rgba(89, 166, 242), gc::ui::rgba(150, 199, 246), "Air");
 		}
 		if (armor > 0) { // full iron armour is 15 points
-			std::snprintf(text, sizeof(text), "Armour %d", armor);
-			status_bar(dl, ImVec2(x0, y), ImVec2(width, 12), armor / 15.0f, IM_COL32(158, 163, 179, 255),
-					IM_COL32(193, 196, 206, 255), text);
+			status_bar(dl, {x0, y}, {width, 12}, armor / 15.0f, gc::ui::rgba(158, 163, 179), gc::ui::rgba(193, 196, 206),
+					format("Armour %d", armor).c_str());
 		}
 	}
 	// Hurt: a flash at the blow. A notice at the top.
 	if (game.since_hurt() < 0.4f) {
-		dl->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(200, 0, 0, int(90 * (1.0f - game.since_hurt() / 0.4f))));
+		dl.fill({0, 0, display.x, display.y}, gc::ui::rgba(200, 0, 0, int(90 * (1.0f - game.since_hurt() / 0.4f))));
 	}
 	if (game.notice_time() > 0) {
-		const ImVec2 size = ImGui::CalcTextSize(game.notice().c_str());
+		const gc::ui::Vec2 size = g.text_size(game.notice());
 		const int alpha = int(255 * std::min(1.0f, game.notice_time()));
-		outlined_text(dl, ImVec2(c.x - size.x / 2, 60), IM_COL32(255, 255, 255, alpha), game.notice().c_str());
+		outlined_text(dl, {std::floor(c.x - size.x / 2), 60}, gc::ui::rgba(255, 255, 255, alpha), game.notice());
 	}
 	// The held item's name above the hotbar (above the bars in survival).
 	const gc::Stack &held = game.inventory().slots[game.selected()];
 	if (!held.empty()) {
 		const std::string name = gc::display_name(rules.content(), held.id);
-		const ImVec2 size = ImGui::CalcTextSize(name.c_str());
+		const gc::ui::Vec2 size = g.text_size(name);
 		float bottom = y0 - 10;
 		if (!game.creative() && (armor > 0 || game.breath() < gc::Game::MAX_BREATH)) {
 			bottom -= 18.0f; // (above the bars)
 		}
-		outlined_text(dl, ImVec2(c.x - size.x / 2, bottom - size.y), IM_COL32(255, 255, 255, 255), name.c_str());
+		outlined_text(dl, {std::floor(c.x - size.x / 2), bottom - size.y}, white, name);
 	}
 }
 
@@ -471,61 +536,53 @@ gc::PlayerInput read_input(const gc::Window &window) {
 void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::World &world,
 		const gc::ChunkRenderer &chunks, const gc::WorldSave *save, uint32_t seed, const gc::Game &game,
 		const gc::Mods &mods, bool captured, double day_time, bool details, const std::string &net_status) {
-	const ImGuiIO &io = ImGui::GetIO();
-	{
-		char clock[16], line[320];
-		gc::DayCycle::clock_text(day_time, settings.clock_24h, clock, sizeof(clock));
-		std::snprintf(line, sizeof(line), "%.0f FPS \u00b7 %s \u00b7 %s \u00b7 %s \u00b7 E inventory%s", io.Framerate, clock,
-				game.creative() ? "creative" : "survival", player.flying ? "flying (F)" : "walking (F to fly)",
-				net_status.c_str());
-		outlined_text(ImGui::GetForegroundDrawList(), ImVec2(8, 8), IM_COL32(255, 255, 255, 255), line);
-	}
-	float y = 30;
+	gc::ui::Gui &g = gui();
+	gc::ui::DrawList &fg = g.foreground();
+	char clock[16];
+	gc::DayCycle::clock_text(day_time, settings.clock_24h, clock, sizeof(clock));
+	outlined_text(fg, {8, 8}, gc::ui::rgba(255, 255, 255),
+			format("%.0f FPS · %s · %s · %s · E inventory%s", g.framerate(), clock,
+					game.creative() ? "creative" : "survival", player.flying ? "flying (F)" : "walking (F to fly)",
+					net_status.c_str()));
+	float y = 8 + g.line_height() + 4;
 	for (const auto &[id, why] : mods.problems()) {
-		const std::string text = "Mod " + id + ": " + why;
-		outlined_text(ImGui::GetForegroundDrawList(), ImVec2(8, y), IM_COL32(255, 160, 110, 255), text.c_str());
-		y += 18;
+		outlined_text(fg, {8, y}, gc::ui::rgba(255, 160, 110), "Mod " + id + ": " + why);
+		y += g.line_height() + 2;
 	}
 	if (!captured) {
-		outlined_text(ImGui::GetForegroundDrawList(), ImVec2(8, y), IM_COL32(220, 220, 220, 255),
+		outlined_text(fg, {8, y}, gc::ui::rgba(220, 220, 220),
 				"Click to play. W A S D, Space, Shift, Ctrl, F to fly. Left click breaks, right click places, "
 				"1-9 or the wheel choose a slot. F3: details");
-		y += 18;
+		y += g.line_height() + 2;
 	}
 	if (!details) {
 		return;
 	}
-	ImGui::SetNextWindowPos(ImVec2(8, y + 4), ImGuiCond_Always);
-	ImGui::SetNextWindowBgAlpha(0.6f);
-	const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
-			ImGuiWindowFlags_NoInputs;
-	if (ImGui::Begin("Info", nullptr, flags)) {
-		const gc::WorldStats ws = world.stats();
-		const gc::ChunkRenderStats &cs = chunks.stats();
-		ImGui::Text("GoCube %s  -  %s", GOCUBE_VERSION, renderer.adapter_name().c_str());
-		ImGui::Text("%.0f fps (%.2f ms)", io.Framerate, 1000.0f / io.Framerate);
-		char clock[16];
-		gc::DayCycle::clock_text(day_time, settings.clock_24h, clock, sizeof(clock));
-		ImGui::SameLine();
-		ImGui::Text("  -  %s", clock);
-		ImGui::Text("Position %.1f, %.1f, %.1f%s  -  seed %u", player.position[0], player.position[1],
-				player.position[2], player.flying ? "  (flying)" : "", seed);
-		ImGui::Text("Chunks: %d loaded, %d meshed, %d drawn, %d jobs waiting", ws.loaded, ws.meshed, cs.drawn, ws.queued);
-		if (save) {
-			ImGui::Text("World: %s  (%d edited chunks not saved yet)", utf8_string(save->dir().filename()).c_str(), ws.dirty);
-		} else {
-			ImGui::TextDisabled("World not saved (use --world=NAME), or someone else's");
-		}
-		ImGui::Text("%s  -  %d items lying around", game.creative() ? "Creative" : "Survival",
-				int(game.drops().drops().size()));
-		std::string names;
-		for (const gc::ModInfo &m : mods.loaded()) {
-			names += (names.empty() ? "" : ", ") + m.id + " " + m.version;
-		}
-		ImGui::Text("Mods: %s", names.c_str());
+	gc::ui::WindowOptions o;
+	o.pos = {8, y + 4};
+	o.alpha = 0.6f;
+	o.inputs = false;
+	g.begin_window("Info", o);
+	const gc::WorldStats ws = world.stats();
+	const gc::ChunkRenderStats &cs = chunks.stats();
+	g.text(format("GoCube %s  -  %s", GOCUBE_VERSION, renderer.adapter_name().c_str()));
+	g.text(format("%.0f fps (%.2f ms)  -  %s", g.framerate(), 1000.0f / std::max(g.framerate(), 0.001f), clock));
+	g.text(format("Position %.1f, %.1f, %.1f%s  -  seed %u", player.position[0], player.position[1], player.position[2],
+			player.flying ? "  (flying)" : "", seed));
+	g.text(format("Chunks: %d loaded, %d meshed, %d drawn, %d jobs waiting", ws.loaded, ws.meshed, cs.drawn, ws.queued));
+	if (save) {
+		g.text(format("World: %s  (%d edited chunks not saved yet)", utf8_string(save->dir().filename()).c_str(), ws.dirty));
+	} else {
+		g.text_dim("World not saved (use --world=NAME), or someone else's");
 	}
-	ImGui::End();
+	g.text(format("%s  -  %d items lying around", game.creative() ? "Creative" : "Survival",
+			int(game.drops().drops().size())));
+	std::string names;
+	for (const gc::ModInfo &m : mods.loaded()) {
+		names += (names.empty() ? "" : ", ") + m.id + " " + m.version;
+	}
+	g.text("Mods: " + names);
+	g.end_window();
 }
 
 // sRGB (as colours are written, and as the Godot version gave them to its
@@ -602,24 +659,28 @@ enum class PauseChoice { NONE, RESUME, SETTINGS, QUIT };
 
 // The pause menu (single player: the world waits behind it).
 PauseChoice pause_menu(bool saved, bool from_menu) {
-	const ImGuiIO &io = ImGui::GetIO();
-	ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 120));
-	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-	ImGui::Begin("Paused", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize |
-			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
+	gc::ui::Gui &g = gui();
+	g.background().fill(screen_rect(), gc::ui::rgba(0, 0, 0, 120));
+	gc::ui::WindowOptions o;
+	o.pos = {g.input().width * 0.5f, g.input().height * 0.5f};
+	o.pivot = {0.5f, 0.5f};
+	g.begin_window("Paused", o);
+	g.text("Paused", 1.4f);
+	g.separator();
+	g.space(2);
 	PauseChoice choice = PauseChoice::NONE;
-	if (ImGui::Button("Resume", ImVec2(260, 36))) {
+	if (g.button("Resume", {260, 36})) {
 		choice = PauseChoice::RESUME;
 	}
-	if (ImGui::Button("Settings", ImVec2(260, 36))) {
+	if (g.button("Settings", {260, 36})) {
 		choice = PauseChoice::SETTINGS;
 	}
 	const char *quit = from_menu ? (saved ? "Save and quit to title" : "Quit to title") : (saved ? "Save and quit" : "Quit");
-	if (ImGui::Button(quit, ImVec2(260, 36))) {
+	if (g.button(quit, {260, 36})) {
 		choice = PauseChoice::QUIT;
 	}
-	ImGui::TextDisabled("Esc to resume");
-	ImGui::End();
+	g.text_dim("Esc to resume");
+	g.end_window();
 	return choice;
 }
 
@@ -634,12 +695,12 @@ struct TitleMenu {
 	std::vector<WorldEntry> worlds;
 	int selected = -1;
 	bool confirm_delete = false;
-	char new_name[64] = "New World";
-	char new_seed[24] = "";
+	std::string new_name = "New World";
+	std::string new_seed;
 	int new_mode = 0; // 0 survival, 1 creative
-	char player_name[32] = "Player";
+	std::string player_name = "Player";
 	bool open_to_others = false;
-	char join_address[64] = "127.0.0.1";
+	std::string join_address = "127.0.0.1";
 	bool loaded_names = false;
 	bool in_settings = false; // the settings screen, over the menu
 	gc::SettingsScreen settings_screen;
@@ -730,36 +791,35 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 		}
 		if (!menu.loaded_names) { // (the last ones used)
 			menu.loaded_names = true;
-			strncpy_s(menu.player_name, settings.player_name.c_str(), _TRUNCATE);
-			strncpy_s(menu.join_address, settings.last_address.c_str(), _TRUNCATE);
+			menu.player_name = settings.player_name.substr(0, 31);
+			menu.join_address = settings.last_address.substr(0, 63);
 		}
-		ImGui_ImplDX11_NewFrame();
-		ImGui_ImplWin32_NewFrame();
-		ImGui::NewFrame();
+		begin_ui(window);
 		const bool esc_down = window.key_down(VK_ESCAPE);
 		const bool esc = esc_down && !menu.esc_was_down;
 		menu.esc_was_down = esc_down;
 		if (menu.in_settings) {
-			menu.in_settings = menu.settings_screen.draw(settings, window, esc, settings_file());
+			menu.in_settings = menu.settings_screen.draw(gui(), settings, window, esc, settings_file());
 			renderer.set_vsync(!options.no_vsync && settings.vsync);
 			renderer.set_render_scale(render_scale(options));
-			ImGui::Render();
+			sky_backdrop();
+			end_ui();
 			const float clear[4] = {0.18f, 0.32f, 0.62f, 1.0f};
 			renderer.begin_frame(clear);
-			renderer.end_frame(nullptr);
+			renderer.end_frame(ui_overlay(renderer));
 			continue;
 		}
-		const ImGuiIO &io = ImGui::GetIO();
-		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-		ImGui::SetNextWindowSize(ImVec2(std::min(760.0f, io.DisplaySize.x - 40), std::min(680.0f, io.DisplaySize.y - 40)));
-		ImGui::Begin("GoCube", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-				ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
-		ImGui::SetWindowFontScale(2.0f);
-		ImGui::TextUnformatted("GoCube");
-		ImGui::SetWindowFontScale(1.0f);
-		ImGui::TextDisabled("%s", GOCUBE_VERSION);
-		ImGui::SameLine(ImGui::GetWindowWidth() - 130);
-		if (ImGui::Button("Settings", ImVec2(110, 0))) {
+		gc::ui::Gui &g = gui();
+		const gc::ui::Color warn = gc::ui::rgba(255, 153, 102);
+		gc::ui::WindowOptions o;
+		o.pos = {g.input().width * 0.5f, g.input().height * 0.5f};
+		o.pivot = {0.5f, 0.5f};
+		o.size = {std::min(760.0f, g.input().width - 40), std::min(680.0f, g.input().height - 40)};
+		g.begin_window("GoCube", o);
+		g.text("GoCube", 2.0f);
+		g.text_dim(GOCUBE_VERSION);
+		g.same_line(g.window_width() - 2 * g.theme.padding.x - 110);
+		if (g.button("Settings", {110, 0})) {
 			// (The mods as they'd load now, for its list of them.)
 			gc::Content content;
 			gc::Mods mods(content);
@@ -768,91 +828,94 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 			menu.settings_screen.open(mod_folders(), mods, false);
 			menu.in_settings = true;
 		}
-		ImGui::Separator();
+		g.separator();
+		g.begin_child("menu", {0, 0}, false); // (scrolls, on a small window)
 
-		ImGui::TextUnformatted("Worlds");
-		ImGui::BeginChild("worlds", ImVec2(0, 220), ImGuiChildFlags_Borders);
+		g.text("Worlds");
+		g.begin_child("worlds", {0, 140}, true);
 		for (int i = 0; i < int(menu.worlds.size()); i++) {
 			const WorldEntry &w = menu.worlds[i];
-			ImGui::PushID(i);
-			const std::string label = w.name + "##world";
-			if (ImGui::Selectable(label.c_str(), menu.selected == i, ImGuiSelectableFlags_AllowDoubleClick)) {
+			g.push_id(i);
+			if (g.selectable(w.name + "##world", menu.selected == i)) {
 				menu.selected = i;
 				menu.confirm_delete = false;
-				if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+				if (g.double_clicked()) {
 					choice = WorldChoice{w.dir, 0, w.mode};
 				}
 			}
-			ImGui::SameLine(300);
-			ImGui::TextDisabled("%s  -  seed %s  -  %s", w.mode.c_str(), w.seed.c_str(), w.saved.c_str());
-			ImGui::PopID();
+			g.same_line(300);
+			g.text(w.mode + "  -  seed " + w.seed + "  -  " + w.saved, g.theme.text_dim);
+			g.pop_id();
 		}
 		if (menu.worlds.empty()) {
-			ImGui::TextDisabled("No worlds yet: create one below.");
+			g.text_dim("No worlds yet: create one below.");
 		}
-		ImGui::EndChild();
+		g.end_child();
 		const bool has = menu.selected >= 0 && menu.selected < int(menu.worlds.size());
-		ImGui::BeginDisabled(!has);
-		if (ImGui::Button("Play", ImVec2(120, 32)) && has) {
+		g.begin_disabled(!has);
+		if (g.button("Play", {120, 32}) && has) {
 			choice = WorldChoice{menu.worlds[menu.selected].dir, 0, menu.worlds[menu.selected].mode};
 		}
-		ImGui::SameLine();
+		g.same_line();
 		if (!menu.confirm_delete) {
-			if (ImGui::Button("Delete...", ImVec2(120, 32))) {
+			if (g.button("Delete...", {120, 32})) {
 				menu.confirm_delete = true;
 			}
 		} else if (has) {
-			ImGui::TextColored(ImVec4(1, 0.6f, 0.4f, 1), "Move \"%s\" to the Recycle Bin?", menu.worlds[menu.selected].name.c_str());
-			ImGui::SameLine();
-			if (ImGui::Button("Delete")) {
+			g.align_text_to_frame();
+			g.text("Move \"" + menu.worlds[menu.selected].name + "\" to the Recycle Bin?", warn);
+			g.same_line();
+			if (g.button("Delete")) {
 				if (!to_recycle_bin(menu.worlds[menu.selected].dir)) {
 					problem = "The world couldn't be moved to the Recycle Bin.";
 				}
 				menu.confirm_delete = false;
 				menu.refresh = true;
 			}
-			ImGui::SameLine();
-			if (ImGui::Button("Keep it")) {
+			g.same_line();
+			if (g.button("Keep it")) {
 				menu.confirm_delete = false;
 			}
 		}
-		ImGui::EndDisabled();
+		g.end_disabled();
 
-		ImGui::Dummy(ImVec2(0, 8));
-		ImGui::Separator();
-		ImGui::TextUnformatted("New world");
-		ImGui::SetNextItemWidth(260);
-		ImGui::InputText("Name", menu.new_name, sizeof(menu.new_name));
-		ImGui::SetNextItemWidth(260);
-		ImGui::InputTextWithHint("Seed", "random", menu.new_seed, sizeof(menu.new_seed), ImGuiInputTextFlags_CharsDecimal);
-		ImGui::SetNextItemWidth(260);
-		ImGui::Combo("Mode", &menu.new_mode, "Survival\0Creative\0");
+		g.space(8);
+		g.separator();
+		g.text("New world");
+		g.next_width(260);
+		g.input_text("Name", menu.new_name, 63);
+		g.next_width(260);
+		g.input_text("Seed", menu.new_seed, 20, "random", true);
+		g.next_width(260);
+		g.combo("Mode", menu.new_mode, {"Survival", "Creative"});
 		const std::string why = name_problem(menu.new_name);
-		ImGui::BeginDisabled(!why.empty());
-		if (ImGui::Button("Create and play", ImVec2(200, 32)) && why.empty()) {
+		g.begin_disabled(!why.empty());
+		if (g.button("Create and play", {200, 32}) && why.empty()) {
 			WorldChoice c;
-			c.dir = user_dir() / "worlds" / utf8_path(menu.new_name);
-			c.seed = menu.new_seed[0] ? uint32_t(strtoull(menu.new_seed, nullptr, 10)) : uint32_t(std::random_device{}());
+			c.dir = user_dir() / "worlds" / utf8_path(menu.new_name.c_str());
+			c.seed = !menu.new_seed.empty() ? uint32_t(strtoull(menu.new_seed.c_str(), nullptr, 10))
+			                                : uint32_t(std::random_device{}());
 			c.mode = menu.new_mode == 1 ? "creative" : "survival";
 			choice = c;
 		}
-		ImGui::EndDisabled();
+		g.end_disabled();
 		if (!why.empty()) {
-			ImGui::SameLine();
-			ImGui::TextDisabled("%s", why.c_str());
+			g.same_line();
+			g.align_text_to_frame();
+			g.text_dim(why);
 		}
 
-		ImGui::Dummy(ImVec2(0, 8));
-		ImGui::Separator();
-		ImGui::TextUnformatted("Playing with others");
-		ImGui::SetNextItemWidth(260);
-		ImGui::InputText("Your name", menu.player_name, sizeof(menu.player_name));
-		ImGui::Checkbox("Open the world I play to others (port 24680)", &menu.open_to_others);
-		ImGui::SetNextItemWidth(260);
-		ImGui::InputText("Address##join", menu.join_address, sizeof(menu.join_address));
-		ImGui::SameLine();
-		ImGui::BeginDisabled(menu.join_address[0] == 0);
-		if (ImGui::Button("Join their world", ImVec2(160, 0)) && menu.join_address[0]) {
+		g.space(8);
+		g.separator();
+		g.text("Playing with others");
+		g.next_width(260);
+		g.input_text("Your name", menu.player_name, 31);
+		g.checkbox("Open the world I play to others (port 24680)", menu.open_to_others);
+		g.next_width(260);
+		g.input_text("Address##join", menu.join_address, 63);
+		g.same_line();
+		g.begin_disabled(menu.join_address.empty());
+		if (g.button("Join their world", {160, 0}) && !menu.join_address.empty()) {
 			WorldChoice c;
 			c.join = menu.join_address;
 			if (const size_t colon = c.join.rfind(':'); colon != std::string::npos) {
@@ -861,16 +924,18 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 			}
 			choice = c;
 		}
-		ImGui::EndDisabled();
+		g.end_disabled();
 		if (!problem.empty()) {
-			ImGui::TextColored(ImVec4(1, 0.6f, 0.4f, 1), "%s", problem.c_str());
+			g.text_wrapped(problem, warn);
 		}
-		ImGui::End();
-		ImGui::Render();
+		g.end_child();
+		g.end_window();
+		sky_backdrop();
+		end_ui();
 		const float clear[4] = {0.18f, 0.32f, 0.62f, 1.0f};
 		renderer.begin_frame(clear);
 		const bool last_frame = options.frames > 0 && ++frame >= options.frames; // (testing)
-		renderer.end_frame(last_frame && !options.screenshot.empty() ? options.screenshot.c_str() : nullptr);
+		renderer.end_frame(ui_overlay(renderer), last_frame && !options.screenshot.empty() ? options.screenshot.c_str() : nullptr);
 		if (choice) {
 			choice->name = menu.player_name;
 			settings.player_name = menu.player_name; // (kept for next time)
@@ -941,43 +1006,43 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 				renderer.resize(window.width(), window.height());
 			}
 			session.poll();
-			ImGui_ImplDX11_NewFrame();
-			ImGui_ImplWin32_NewFrame();
-			ImGui::NewFrame();
-			const ImGuiIO &io = ImGui::GetIO();
-			ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-			ImGui::Begin("Joining", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
-					ImGuiWindowFlags_NoSavedSettings);
+			begin_ui(window);
+			gc::ui::Gui &g = gui();
+			gc::ui::WindowOptions o;
+			o.pos = {g.input().width * 0.5f, g.input().height * 0.5f};
+			o.pivot = {0.5f, 0.5f};
+			g.begin_window("Joining", o);
 			if (!session.mods_offered()) {
-				ImGui::Text("Connecting to %s...", choice.join.c_str());
+				g.text("Connecting to " + choice.join + "...");
 			} else if (!downloading) {
 				// Same game, other mods: play with the host's (downloading what we lack)?
 				size_t bytes = 0;
 				for (const auto &[entry, size] : session.missing_mods()) {
 					bytes += size;
 				}
-				ImGui::Text("%s plays with other mods:", choice.join.c_str());
+				g.text(choice.join + " plays with other mods:");
 				for (const std::string &e : session.host_mods()) {
 					const bool missing = session.missing_mods().count(e) > 0;
-					ImGui::BulletText("%s%s", e.substr(0, e.find('#')).c_str(), missing ? "  (to download)" : "");
+					g.bullet(e.substr(0, e.find('#')) + (missing ? "  (to download)" : ""));
 				}
-				ImGui::TextDisabled("Mods run in the game's sandbox. They're kept in %%APPDATA%%\\GoCube\\server_mods.");
+				g.text_dim("Mods run in the game's sandbox. They're kept in %APPDATA%\\GoCube\\server_mods.");
 				const std::string label = session.missing_mods().empty() ? "Play with these mods"
 						: "Download (" + std::to_string(std::max<size_t>(1, bytes >> 10)) + " KB) and play with them";
-				if (ImGui::Button(label.c_str(), ImVec2(320, 32)) || options.accept_mods) {
+				if (g.button(label, {320, 32}) || options.accept_mods) {
 					session.download_mods(user_dir() / "server_mods");
 					downloading = true;
 				}
-				ImGui::SameLine();
+				g.same_line();
 			} else {
-				ImGui::Text("Downloading the server's mods: %zu KB...", session.downloaded_bytes() >> 10);
+				g.text(format("Downloading the server's mods: %zu KB...", session.downloaded_bytes() >> 10));
 			}
-			cancelled = ImGui::Button("Cancel", ImVec2(160, 32));
-			ImGui::End();
-			ImGui::Render();
+			cancelled = g.button("Cancel", {160, 32});
+			g.end_window();
+			sky_backdrop();
+			end_ui();
 			const float clear[4] = {0.18f, 0.32f, 0.62f, 1.0f};
 			renderer.begin_frame(clear);
-			renderer.end_frame(nullptr);
+			renderer.end_frame(ui_overlay(renderer));
 		}
 		if (!session.welcomed()) {
 			problem = cancelled ? "" : session.ended();
@@ -1027,6 +1092,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	gc::log("%zu blocks, %zu atlas tiles", table.blocks.size(), table.atlas.tiles.size());
 
 	gc::ChunkRenderer chunks;
+	the_ui->d2d.set_icons(table.atlas); // (item icons)
 	if (!chunks.init(renderer.device(), table.atlas)) {
 		gc::log("Couldn't set up the terrain renderer");
 		return End::FAILED;
@@ -1266,7 +1332,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		}
 		const bool paused = (screen == Screen::PAUSE || screen == Screen::SETTINGS) && !online; // (single player: the world waits)
 		const bool captured = window.mouse_captured() && screen == Screen::NONE;
-		if (left && !window.mouse_captured() && screen == Screen::NONE && !ImGui::GetIO().WantCaptureMouse) {
+		if (left && !window.mouse_captured() && screen == Screen::NONE && !gui().wants_mouse()) {
 			window.set_mouse_captured(true); // (that click only captures)
 		}
 		if (window.minimized()) {
@@ -1471,14 +1537,12 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			last_save = now;
 		}
 
-		ImGui_ImplDX11_NewFrame();
-		ImGui_ImplWin32_NewFrame();
-		ImGui::NewFrame();
+		begin_ui(window);
 		if (screen == Screen::NONE) {
 			draw_ui(renderer, player, *world, chunks, save ? &*save : nullptr, seed,
 					game, mods, window.mouse_captured(), day.time, controls.details, net_status);
 		}
-		const gc::UiIcons icons{ImTextureID(chunks.ui_atlas()), &table, &content};
+		const gc::UiIcons icons{&table, &content};
 		if (game.dead()) {
 			if (window.mouse_captured()) {
 				window.set_mouse_captured(false);
@@ -1487,9 +1551,9 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 				game.respawn();
 				window.set_mouse_captured(true);
 			}
-		} else if (screen == Screen::INVENTORY && !gc::inventory_screen(game, icons)) {
+		} else if (screen == Screen::INVENTORY && !gc::inventory_screen(gui(), game, icons)) {
 			close_screen();
-		} else if (screen == Screen::CONTAINER && !gc::container_screen(game, container, icons)) {
+		} else if (screen == Screen::CONTAINER && !gc::container_screen(gui(), game, container, icons)) {
 			close_screen();
 		} else if (screen == Screen::PAUSE) {
 			switch (pause_menu(save.has_value(), from_menu)) {
@@ -1508,17 +1572,16 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 				default:
 					break;
 			}
-		} else if (screen == Screen::SETTINGS && !settings_screen.draw(settings, window, key_esc, settings_file())) {
+		} else if (screen == Screen::SETTINGS && !settings_screen.draw(gui(), settings, window, key_esc, settings_file())) {
 			screen = Screen::PAUSE; // (saved; back to the pause menu)
 		}
 		if (in_fluid) { // (under the HUD)
-			ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize,
-					in_lava ? IM_COL32(230, 89, 13, 191) : IM_COL32(26, 77, 140, 115));
+			gui().background().fill(screen_rect(), in_lava ? gc::ui::rgba(230, 89, 13, 191) : gc::ui::rgba(26, 77, 140, 115));
 		}
 		{ // Name tags over other players' heads.
 			const float tag_aspect = float(renderer.width()) / float(std::max(1, renderer.height()));
 			const DirectX::XMMATRIX view_projection = camera.view() * camera.projection(tag_aspect);
-			const ImVec2 display = ImGui::GetIO().DisplaySize;
+			const gc::ui::Vec2 display{gui().input().width, gui().input().height};
 			for (const gc::Avatar &a : session.avatars()) {
 				const DirectX::XMVECTOR clip = DirectX::XMVector4Transform(
 						DirectX::XMVectorSet(a.shown[0], a.shown[1] + 0.55f, a.shown[2], 1), view_projection);
@@ -1530,20 +1593,19 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 				}
 				const float sx = (DirectX::XMVectorGetX(clip) / w * 0.5f + 0.5f) * display.x;
 				const float sy = (0.5f - DirectX::XMVectorGetY(clip) / w * 0.5f) * display.y;
-				const ImVec2 size = ImGui::CalcTextSize(a.name.c_str());
-				outlined_text(ImGui::GetBackgroundDrawList(), ImVec2(sx - size.x * 0.5f, sy - size.y),
-						IM_COL32(255, 255, 255, 255), a.name.c_str());
+				const gc::ui::Vec2 size = gui().text_size(a.name);
+				outlined_text(gui().background(), {std::floor(sx - size.x * 0.5f), std::floor(sy - size.y)},
+						gc::ui::rgba(255, 255, 255), a.name);
 			}
 		}
 		if (screen != Screen::SETTINGS) { // (it covers the screen)
-			draw_hud(game, table, chunks, rules, captured);
+			draw_hud(game, table, rules, captured);
 		}
 		if (sleeping >= 0) {
-			ImGui::GetForegroundDrawList()->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize,
-					IM_COL32(0, 0, 0, int(230 * std::min(1.0f, sleeping / 1.5f))));
+			gui().foreground().fill(screen_rect(), gc::ui::rgba(0, 0, 0, int(230 * std::min(1.0f, sleeping / 1.5f))));
 		}
-		gc::draw_held(game.inventory().cursor, icons);
-		ImGui::Render();
+		gc::draw_held(gui(), game.inventory().cursor, icons);
+		end_ui();
 
 		sky.time = std::chrono::duration<float>(now - start).count();
 		if (!options.screenshot.empty()) {
@@ -1696,7 +1758,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			counting = true;
 		}
 		const bool last_frame = options.frames > 0 && counting && ++frame >= options.frames;
-		if (!renderer.end_frame(last_frame && !options.screenshot.empty() ? options.screenshot.c_str() : nullptr)) {
+		if (!renderer.end_frame(ui_overlay(renderer), last_frame && !options.screenshot.empty() ? options.screenshot.c_str() : nullptr)) {
 			end = End::FAILED;
 			break;
 		}
@@ -1741,16 +1803,13 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 	renderer.set_render_scale(render_scale(options));
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGui::GetIO().IniFilename = nullptr; // no imgui.ini next to the game
-	ImGui::StyleColorsDark();
-	ImGui::GetStyle().DisabledAlpha = 0.35f; // (what can't be done now looks it)
-	ImGui_ImplWin32_Init(window.hwnd());
-	if (!renderer.init_imgui()) {
-		gc::log("Couldn't start Dear ImGui's Direct3D 11 backend");
+	Ui ui; // (before the renderer goes: it draws with its device)
+	the_ui = &ui;
+	if (!ui.d2d.init(renderer.device())) {
+		gc::log("Couldn't start Direct2D for the UI");
 		return 1;
 	}
+	ui.gui.clipboard = [&window] { return window.clipboard_text(); };
 
 	bool ok = true;
 	// Started for a world (or for testing): straight into it.
@@ -1799,9 +1858,8 @@ int main(int argc, char **argv) {
 	}
 
 	const int messages = renderer.debug_messages();
+	the_ui = nullptr;
 	renderer.shutdown();
-	ImGui_ImplWin32_Shutdown();
-	ImGui::DestroyContext();
 	if (messages > 0) {
 		gc::log("The Direct3D 11 debug layer reported %d errors or warnings", messages);
 	}

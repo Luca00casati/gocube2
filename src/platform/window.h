@@ -3,6 +3,9 @@
 
 #include <windows.h>
 
+#include <string>
+#include <vector>
+
 namespace gc {
 
 class Window {
@@ -53,6 +56,20 @@ public:
 	// Whether a key (a virtual-key code) is held, while the window has focus.
 	bool key_down(int vk) const;
 
+	// For the UI (ui/gui.h): what happened since the last call.
+	struct UiEvents {
+		std::string text;      // typed, UTF-8
+		std::vector<int> keys; // keys pressed (virtual-key codes, repeats too)
+		int clicks[BUTTONS] = {};
+		float wheel = 0;
+	};
+	UiEvents take_ui_events();
+	// The mouse in the client area (false: outside it, or captured).
+	bool mouse_position(float &x, float &y) const;
+	bool button_down(Button b) const { return down_[b]; }
+	// The clipboard's text (UTF-8), if it has some.
+	std::string clipboard_text() const;
+
 private:
 	static LRESULT CALLBACK proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 	LRESULT handle(UINT msg, WPARAM wp, LPARAM lp);
@@ -63,6 +80,9 @@ private:
 	bool open_ = false;
 	bool captured_ = false;
 	bool pressed_[BUTTONS] = {};
+	bool down_[BUTTONS] = {};
+	UiEvents ui_;
+	wchar_t high_surrogate_ = 0;
 	float wheel_ = 0;
 	float mouse_dx_ = 0, mouse_dy_ = 0;
 };

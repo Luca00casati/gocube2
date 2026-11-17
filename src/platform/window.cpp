@@ -1,9 +1,6 @@
 #include "platform/window.h"
 
-#include <imgui.h>
-#include <imgui_impl_win32.h>
-
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+#include <algorithm>
 
 namespace gc {
 
@@ -67,9 +64,6 @@ bool Window::pump() {
 }
 
 LRESULT CALLBACK Window::proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) {
-		return 1;
-	}
 	if (msg == WM_NCCREATE) {
 		auto *cs = reinterpret_cast<CREATESTRUCTW *>(lp);
 		SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
@@ -99,6 +93,44 @@ void Window::set_mouse_captured(bool captured) {
 	mouse_dx_ = mouse_dy_ = 0;
 }
 
+Window::UiEvents Window::take_ui_events() {
+	UiEvents e = std::move(ui_);
+	ui_ = UiEvents{};
+	return e;
+}
+
+bool Window::mouse_position(float &x, float &y) const {
+	POINT p;
+	RECT r;
+	if (!hwnd_ || captured_ || !IsWindowVisible(hwnd_) || !GetCursorPos(&p) || !ScreenToClient(hwnd_, &p) || !GetClientRect(hwnd_, &r) ||
+			p.x < 0 || p.y < 0 || p.x >= r.right || p.y >= r.bottom) {
+		return false;
+	}
+	x = float(p.x);
+	y = float(p.y);
+	return true;
+}
+
+std::string Window::clipboard_text() const {
+	std::string out;
+	if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(hwnd_)) {
+		return out;
+	}
+	if (HANDLE h = GetClipboardData(CF_UNICODETEXT)) {
+		if (const auto *w = static_cast<const wchar_t *>(GlobalLock(h))) {
+			const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
+			if (n > 1) {
+				out.resize(size_t(n));
+				WideCharToMultiByte(CP_UTF8, 0, w, -1, out.data(), n, nullptr, nullptr);
+				out.resize(size_t(n - 1));
+			}
+			GlobalUnlock(h);
+		}
+	}
+	CloseClipboard();
+	return out;
+}
+
 bool Window::key_down(int vk) const {
 	return hwnd_ && GetForegroundWindow() == hwnd_ && (GetAsyncKeyState(vk) & 0x8000) != 0;
 }
@@ -116,19 +148,63 @@ LRESULT Window::handle(UINT msg, WPARAM wp, LPARAM lp) {
 			break; // DefWindowProc cleans up
 		}
 		case WM_LBUTTONDOWN:
-			pressed_[LEFT] = true;
-			return 0;
 		case WM_RBUTTONDOWN:
-			pressed_[RIGHT] = true;
+		case WM_MBUTTONDOWN: {
+			const Button b = msg == WM_LBUTTONDOWN ? LEFT : msg == WM_RBUTTONDOWN ? RIGHT : MIDDLE;
+			pressed_[b] = true;
+			down_[b] = true;
+			if (!captured_) {
+				ui_.clicks[b]++;
+				SetCapture(hwnd_); // (a drag past the window's edge still ends here)
+			}
 			return 0;
-		case WM_MBUTTONDOWN:
-			pressed_[MIDDLE] = true;
+		}
+		case WM_LBUTTONUP:
+		case WM_RBUTTONUP:
+		case WM_MBUTTONUP:
+			down_[msg == WM_LBUTTONUP ? LEFT : msg == WM_RBUTTONUP ? RIGHT : MIDDLE] = false;
+			if (!down_[LEFT] && !down_[RIGHT] && !down_[MIDDLE] && GetCapture() == hwnd_) {
+				ReleaseCapture();
+			}
 			return 0;
-		case WM_MOUSEWHEEL:
-			wheel_ += float(GET_WHEEL_DELTA_WPARAM(wp)) / WHEEL_DELTA;
+		case WM_MOUSEWHEEL: {
+			const float notches = float(GET_WHEEL_DELTA_WPARAM(wp)) / WHEEL_DELTA;
+			wheel_ += notches;
+			ui_.wheel += notches;
 			return 0;
+		}
+		case WM_KEYDOWN:
+		case WM_SYSKEYDOWN:
+			if (ui_.keys.size() < 64) {
+				ui_.keys.push_back(int(wp));
+			}
+			break; // (then WM_CHAR, through TranslateMessage)
+		case WM_CHAR: {
+			wchar_t w[2] = {wchar_t(wp), 0};
+			int n = 1;
+			if (w[0] >= 0xd800 && w[0] < 0xdc00) { // the first half of a pair: wait for the second
+				high_surrogate_ = w[0];
+				return 0;
+			}
+			if (w[0] >= 0xdc00 && w[0] < 0xe000) {
+				if (!high_surrogate_) {
+					return 0;
+				}
+				w[1] = w[0];
+				w[0] = high_surrogate_;
+				n = 2;
+			}
+			high_surrogate_ = 0;
+			if (w[0] >= 32 && w[0] != 127 && ui_.text.size() < 256) {
+				char out[8];
+				const int m = WideCharToMultiByte(CP_UTF8, 0, w, n, out, sizeof(out), nullptr, nullptr);
+				ui_.text.append(out, size_t(std::max(m, 0)));
+			}
+			return 0;
+		}
 		case WM_KILLFOCUS:
 			set_mouse_captured(false);
+			down_[LEFT] = down_[RIGHT] = down_[MIDDLE] = false;
 			return 0;
 		case WM_SIZE: {
 			const int w = LOWORD(lp), h = HIWORD(lp);

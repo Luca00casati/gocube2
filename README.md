@@ -5,7 +5,7 @@ A rewrite of the Godot version of GoCube; the plan is in the
 [GoCube Native Rewrite Plan](https://claude.ai/artifact/CMdng1jnMGWsAb7X84FHoy).
 
 Status: milestone 8. Survival: mining by hand, drops, chests, health, the day
-and night, growing plants, farming, flowing water and lava;
+and night, saplings growing into trees, flowing water and lava;
 creatures (harmless Block Eaters by day; no enemies);
 sound; creative; multiplayer (one player hosts, others join); a title menu
 and pause menu.
@@ -68,9 +68,10 @@ Survival as in the Godot version, without its tools, weapons, armour, crafting
 and smelting: everything is mined by hand (hardness x 0.375 s) and drops itself
 (or what it gives: stone gives cobblestone, coal ore coal), chests, health
 (falls, lava, drowning; no bar: the screen reddens the lower it is,
-and healing with time and food fades it), death and respawn at your bed or the world spawn, a day that
+and healing with time fades it), death and respawn at your bed or the world spawn, a day that
 lasts a real day by default and a bed to sleep through the night, falling sand,
-growing crops and saplings, decaying leaves. The world is saved every minute and
+growing saplings, decaying leaves. One kind of grass and of wood (oak), no
+small plants (flowers, tall grass), no farming and no food. The world is saved every minute and
 when you quit.
 
 Settings (the title menu's Settings button, or the pause menu's): view distance,
@@ -129,11 +130,12 @@ JSON files. A manifest is a data table:
 (`registry`, `events`, `world`, `game`). The base game is the example: its
 `content/` registers its blocks, items, ores, trees, biome and sounds,
 and its `main.lua` and `rules/` set the game's rules (mining time, drops, fall
-damage, food, plants, farming, fluids) with `game.set_rule`; a mod can replace
+damage, food, plants, fluids) with `game.set_rule`; a mod can replace
 one, or wrap it (`game.rule(name)` gives the one before). The game still
 supports what the base game left out: recipes and the `hand_recipes` rule
 (crafting in the inventory), furnaces (`block_entity = "furnace"`, the `smelting`
-and `fuel_seconds` rules), tools and weapons (`damage` on an item) and armour;
+and `fuel_seconds` rules), tools and weapons (`damage` on an item), armour, food
+(`food` on an item), and planting and crops (the `use_item` rule, `grows_into`);
 `tests/data/kit_mods/kit` is a small mod that adds them back.
 
 Mods are sandboxed: no files, OS, network or debug access, no bytecode, no
@@ -154,7 +156,7 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 - `src/content/`: the content mods register, block ids, the block table, the texture
   atlas, item models and the generator's tables, as the Godot version builds them.
   Most block faces are painted from a colour and noise (`image.h`; the base game's
-  in `mods/core/content/looks.lua`); the few drawn images (plants, torches, doors,
+  in `mods/core/content/looks.lua`); the few drawn images (saplings, torches, doors,
   beds, chests, items) are PPM files, where magenta is see-through.
 - `src/world/`: chunk streaming on worker threads, editing, the raycast, collision;
   the world folder (`world.lua`, `chunks\`).
@@ -167,6 +169,10 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
   and UDP for positions, on the same port; Winsock only).
 - `src/render/`, `shaders/`: Direct3D 11, the terrain, sky and item shaders (HLSL,
   compiled by FXC at build time), drawn as the Godot version shows them.
+- `src/ui/`: the UI, our own: an immediate-mode core (`gui.h`: windows, layout,
+  buttons, text fields, sliders, drop-downs, scrolling; tested with a fake font)
+  drawn with Direct2D and DirectWrite (`gui_d2d.h`) in the Share Tech font
+  (built into the executable); the inventory, container and settings screens.
 - `mods/core/`: the base game: content, assets and `main.lua` (the Godot version's
   `main.gd`, which registered a block from code).
 - `thirdparty/lua/`: Lua 5.4.8's sources, built with a fixed string-hash seed.
@@ -182,5 +188,9 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 In `thirdparty/` as source, pinned to releases and built with the game, linked
 statically (versions and licences: `thirdparty/README.md`):
 [Lua](https://www.lua.org) 5.4.8 (MIT),
-[Dear ImGui](https://github.com/ocornut/imgui) 1.93.0 (MIT),
-[doctest](https://github.com/doctest/doctest) 2.5.3 (MIT, tests only).
+[doctest](https://github.com/doctest/doctest) 2.5.3 (MIT, tests only), and the
+UI's font, [Share Tech](https://fonts.google.com/specimen/Share+Tech) (SIL Open
+Font License).
+Everything else is Windows' own: Direct3D 11, Direct2D and DirectWrite (the
+UI), XAudio2 (sound), Winsock (multiplayer), WIC (screenshots), the
+Compression API (mod packs).

@@ -15,18 +15,6 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # thirdparty/README.md), built here: nothing is downloaded at build time.
 # Their warnings are theirs: /W0.
 
-add_library(imgui STATIC
-	thirdparty/imgui/imgui.cpp
-	thirdparty/imgui/imgui_demo.cpp
-	thirdparty/imgui/imgui_draw.cpp
-	thirdparty/imgui/imgui_tables.cpp
-	thirdparty/imgui/imgui_widgets.cpp
-	thirdparty/imgui/backends/imgui_impl_dx11.cpp
-	thirdparty/imgui/backends/imgui_impl_win32.cpp
-)
-target_include_directories(imgui PUBLIC thirdparty/imgui thirdparty/imgui/backends)
-target_compile_options(imgui PRIVATE /W0 /MP)
-
 
 add_library(doctest INTERFACE)
 target_include_directories(doctest INTERFACE thirdparty/doctest)
@@ -111,6 +99,8 @@ target_sources(gocube_core PRIVATE
 	src/platform/compression.h
 	src/platform/fine_sleep.h
 	src/net/wire.h
+	src/ui/gui.cpp
+	src/ui/gui.h
 )
 target_include_directories(gocube_core PUBLIC src)
 target_link_libraries(gocube_core PRIVATE lua bcrypt ws2_32 PUBLIC winmm cabinet) # (winmm: platform/fine_sleep.h; cabinet: platform/compression.h)
@@ -165,6 +155,10 @@ add_executable(gocube
 	src/ui/settings_screen.h
 	src/ui/screens.cpp
 	src/ui/screens.h
+	src/ui/gui_d2d.cpp
+	src/ui/gui_d2d.h
+	src/ui/ui_font.h
+	src/gocube.rc
 	shaders/chunk.hlsl
 	shaders/lines.hlsl
 	shaders/sky.hlsl
@@ -177,7 +171,7 @@ set_source_files_properties(shaders/chunk.hlsl shaders/lines.hlsl shaders/sky.hl
 	shaders/creatures.hlsl
 	PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
 target_include_directories(gocube PRIVATE ${SHADER_DIR})
-target_link_libraries(gocube PRIVATE gocube_core imgui windowscodecs xaudio2 d3d11 dxgi dxguid shell32 ole32)
+target_link_libraries(gocube PRIVATE gocube_core d2d1 dwrite windowscodecs xaudio2 d3d11 dxgi dxguid shell32 ole32)
 target_compile_definitions(gocube PRIVATE
 	GOCUBE_VERSION="${PROJECT_VERSION}"
 	$<$<CONFIG:Debug>:GOCUBE_DEBUG>
@@ -193,6 +187,7 @@ add_executable(gocube_tests
 	tests/net_play.h
 	tests/play.h
 	tests/test_audio.cpp
+	tests/test_gui.cpp
 	tests/test_image.cpp
 	tests/test_mods.cpp
 	tests/test_multiplayer.cpp
