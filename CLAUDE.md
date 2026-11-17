@@ -107,7 +107,15 @@ player's settings (`%APPDATA%\GoCube\settings.lua`, `game/settings.h`): tests an
 screenshots run with the defaults. `--screen=settings` shows the settings screen.
 
 ## Looking like the Godot version
-The target is what the Godot version shows on the development PC: Godot's
+One deliberate departure: block faces aren't the Godot version's textures. Most
+are painted from a colour and noise (`textures = {all = <table>}`, the base
+game's in `mods/core/content/looks.lua`, `src/content/image.h`; the same table
+always paints the same pixels); the few with a shape to draw (plants, torch,
+ladder, door, glass, bed, chest, furnace front, lamp, items) are PPM files
+(`mods/core/textures/*.ppm`, magenta = see-through: PPM has no alpha). There is
+no PNG reader; screenshots are written through Windows' WIC. Compare light and
+colour with the Godot version, not texture detail.
+Otherwise the target is what the Godot version shows on the development PC: Godot's
 Compatibility renderer (its only one there). That renderer uses textures and
 colours as they are (sRGB numbers), takes emission and unshaded colour into
 linear light through its fast approximation of the sRGB curve, adds the sun's

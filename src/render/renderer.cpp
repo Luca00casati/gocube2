@@ -8,7 +8,7 @@
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
 
-#include <png.h>
+#include <wincodec.h>
 
 #include <algorithm>
 #include <cmath>
@@ -285,11 +285,14 @@ bool Renderer::save_png(const char *path) {
 	if (FAILED(context_->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &m))) {
 		return false;
 	}
-	std::vector<uint8_t> rgb(size_t(d.Width) * d.Height * 3);
+	std::vector<uint8_t> bgr(size_t(d.Width) * d.Height * 3);
 	for (UINT y = 0; y < d.Height; y++) {
 		const uint8_t *row = static_cast<const uint8_t *>(m.pData) + size_t(y) * m.RowPitch;
 		for (UINT x = 0; x < d.Width; x++) {
-			std::copy(row + x * 4, row + x * 4 + 3, &rgb[(size_t(y) * d.Width + x) * 3]);
+			uint8_t *o = &bgr[(size_t(y) * d.Width + x) * 3];
+			o[0] = row[x * 4 + 2];
+			o[1] = row[x * 4 + 1];
+			o[2] = row[x * 4 + 0];
 		}
 	}
 	context_->Unmap(staging.Get(), 0);
@@ -299,18 +302,30 @@ bool Renderer::save_png(const char *path) {
 	if (n <= 0 || !MultiByteToWideChar(CP_UTF8, 0, path, -1, wide.data(), n)) {
 		return false;
 	}
-	FILE *f = nullptr;
-	if (_wfopen_s(&f, wide.c_str(), L"wb") != 0 || !f) {
-		return false;
+	// Written by Windows' own PNG encoder (WIC).
+	const HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	bool ok = false;
+	{
+		ComPtr<IWICImagingFactory> factory;
+		ComPtr<IWICStream> stream;
+		ComPtr<IWICBitmapEncoder> encoder;
+		ComPtr<IWICBitmapFrameEncode> frame;
+		WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
+		ok = SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) &&
+				SUCCEEDED(factory->CreateStream(&stream)) &&
+				SUCCEEDED(stream->InitializeFromFilename(wide.c_str(), GENERIC_WRITE)) &&
+				SUCCEEDED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) &&
+				SUCCEEDED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)) &&
+				SUCCEEDED(encoder->CreateNewFrame(&frame, nullptr)) && SUCCEEDED(frame->Initialize(nullptr)) &&
+				SUCCEEDED(frame->SetSize(d.Width, d.Height)) && SUCCEEDED(frame->SetPixelFormat(&format)) &&
+				format == GUID_WICPixelFormat24bppBGR &&
+				SUCCEEDED(frame->WritePixels(d.Height, d.Width * 3, UINT(bgr.size()), bgr.data())) &&
+				SUCCEEDED(frame->Commit()) && SUCCEEDED(encoder->Commit());
 	}
-	png_image image = {};
-	image.version = PNG_IMAGE_VERSION;
-	image.width = d.Width;
-	image.height = d.Height;
-	image.format = PNG_FORMAT_RGB;
-	const bool ok = png_image_write_to_stdio(&image, f, 0, rgb.data(), png_int_32(d.Width * 3), nullptr) != 0;
-	png_image_free(&image);
-	return fclose(f) == 0 && ok;
+	if (SUCCEEDED(co)) {
+		CoUninitialize();
+	}
+	return ok;
 }
 
 int Renderer::debug_messages() {

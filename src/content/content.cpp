@@ -1,6 +1,7 @@
 #include "content/content.h"
 
-#include <png.h>
+#include "content/image.h"
+#include "data/lua_data.h"
 
 #include <algorithm>
 #include <array>
@@ -208,35 +209,6 @@ std::vector<Box> to_boxes(const std::vector<Box16> &in) {
 				{float(b[3] / 16.0), float(b[4] / 16.0), float(b[5] / 16.0)}, float(b[6] / 16.0)});
 	}
 	return out;
-}
-
-// Godot's Color.html: "#rgb", "#rgba", "#rrggbb" or "#rrggbbaa" ('#' optional).
-bool parse_html_color(std::string s, uint8_t out[4]) {
-	if (!s.empty() && s[0] == '#') {
-		s.erase(0, 1);
-	}
-	auto hex = [](char c) {
-		return c >= '0' && c <= '9' ? c - '0' : (c >= 'a' && c <= 'f' ? c - 'a' + 10 : (c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1));
-	};
-	for (char c : s) {
-		if (hex(c) < 0) {
-			return false;
-		}
-	}
-	out[3] = 255;
-	if (s.size() == 3 || s.size() == 4) {
-		for (size_t i = 0; i < s.size(); i++) {
-			out[i] = uint8_t(hex(s[i]) * 17);
-		}
-		return true;
-	}
-	if (s.size() == 6 || s.size() == 8) {
-		for (size_t i = 0; i < s.size() / 2; i++) {
-			out[i] = uint8_t(hex(s[2 * i]) * 16 + hex(s[2 * i + 1]));
-		}
-		return true;
-	}
-	return false;
 }
 
 } // namespace
@@ -512,33 +484,18 @@ struct AtlasBuilder {
 		return px;
 	}
 
-	// A PNG as 8-bit RGBA (libpng's simplified API, as Godot loads PNGs),
-	// resized to TILE x TILE.
-	static bool load_png(const std::filesystem::path &path, Pixels &out) {
-		FILE *f = nullptr;
-		if (_wfopen_s(&f, path.c_str(), L"rb") != 0 || !f) {
+	// A PPM, resized to TILE x TILE (nearest neighbour).
+	static bool load_image(const std::filesystem::path &path, Pixels &out) {
+		Image image;
+		if (!read_ppm(path, image)) {
 			return false;
 		}
-		png_image image = {};
-		image.version = PNG_IMAGE_VERSION;
-		std::vector<uint8_t> data;
-		bool ok = png_image_begin_read_from_stdio(&image, f) != 0;
-		if (ok) {
-			image.format = PNG_FORMAT_RGBA;
-			data.resize(PNG_IMAGE_SIZE(image));
-			ok = png_image_finish_read(&image, nullptr, data.data(), 0, nullptr) != 0;
-		}
-		png_image_free(&image);
-		fclose(f);
-		if (!ok || image.width == 0 || image.height == 0) {
-			return false;
-		}
-		const size_t w = image.width, h = image.height;
+		const size_t w = size_t(image.width), h = size_t(image.height);
 		out.assign(size_t(T) * T * 4, 0);
-		for (size_t y = 0; y < size_t(T); y++) { // nearest-neighbour resize to TILE x TILE
+		for (size_t y = 0; y < size_t(T); y++) {
 			for (size_t x = 0; x < size_t(T); x++) {
 				const size_t sx = x * w / T, sy = y * h / T;
-				std::copy(&data[(sy * w + sx) * 4], &data[(sy * w + sx) * 4] + 4, &out[(y * T + x) * 4]);
+				std::copy(&image.rgba[(sy * w + sx) * 4], &image.rgba[(sy * w + sx) * 4] + 4, &out[(y * T + x) * 4]);
 			}
 		}
 		return true;
@@ -563,7 +520,7 @@ struct AtlasBuilder {
 			return it->second;
 		}
 		Pixels px;
-		if (full.empty() || !load_png(full, px)) {
+		if (full.empty() || !load_image(full, px)) {
 			fprintf(stderr, "Image not found: %s (%s)\n", rel.c_str(), str(def, "id").c_str());
 			return -1;
 		}
@@ -582,11 +539,22 @@ struct AtlasBuilder {
 		return add(key, flat(c));
 	}
 
-	// One face's tile: its texture ("side"/"top"/"bottom", else "all"), else the
-	// block's colour, else magenta.
+	// One face's tile: its texture ("side"/"top"/"bottom", else "all": an image,
+	// or a table to paint it from), else the block's colour, else magenta.
 	int face_tile(const Data &def, const char *face, int turns) {
 		const Data textures = def.value("textures", Data::object());
 		const Data *rel = textures.contains(face) ? &textures[face] : (textures.contains("all") ? &textures["all"] : nullptr);
+		if (rel && rel->is_object()) {
+			const std::string key = "paint:" + write_lua_data(*rel) + (turns % 4 ? "@" + std::to_string(turns % 4) : "");
+			if (auto it = index.find(key); it != index.end()) {
+				return it->second;
+			}
+			Pixels px = paint_face(*rel, T).rgba;
+			for (int t = 0; t < turns % 4; t++) {
+				px = rotate_cw(px);
+			}
+			return add(key, std::move(px));
+		}
 		if (rel && rel->is_string()) {
 			const std::filesystem::path full = content.asset_path(def, rel->get<std::string>());
 			const std::string key = full.string() + (turns % 4 ? "@" + std::to_string(turns % 4) : "");
@@ -594,7 +562,7 @@ struct AtlasBuilder {
 				return it->second;
 			}
 			Pixels px;
-			if (!full.empty() && load_png(full, px)) {
+			if (!full.empty() && load_image(full, px)) {
 				for (int t = 0; t < turns % 4; t++) {
 					px = rotate_cw(px);
 				}

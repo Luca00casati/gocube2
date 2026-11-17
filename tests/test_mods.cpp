@@ -90,7 +90,7 @@ TEST_CASE("the base game's main.lua registers its planks (and no recipes)") {
 	REQUIRE(content.blocks.count("core:planks"));
 	const Data &planks = content.blocks["core:planks"];
 	CHECK(planks["color"] == "#b8945f");
-	CHECK(planks["textures"]["all"] == "textures/planks.png");
+	CHECK(planks["textures"]["all"]["color"] == "#93683d"); // painted (content/looks.lua), no image
 	CHECK(planks["hardness"].get<double>() == 2.0);
 	CHECK(planks["mod"] == "core");
 	CHECK(content.recipes.empty()); // (no crafting in the base game)

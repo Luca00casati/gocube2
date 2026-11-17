@@ -20,12 +20,6 @@ target_include_directories(zlib PUBLIC thirdparty/zlib)
 target_compile_options(zlib PRIVATE /W0 /MP)
 target_compile_definitions(zlib PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 
-file(GLOB PNG_SOURCES ${CMAKE_SOURCE_DIR}/thirdparty/libpng/*.c ${CMAKE_SOURCE_DIR}/thirdparty/libpng/intel/*.c)
-add_library(png STATIC ${PNG_SOURCES})
-target_include_directories(png PUBLIC thirdparty/libpng)
-target_link_libraries(png PUBLIC zlib)
-target_compile_options(png PRIVATE /W0 /MP)
-target_compile_definitions(png PRIVATE _CRT_SECURE_NO_WARNINGS)
 
 add_library(imgui STATIC
 	thirdparty/imgui/imgui.cpp
@@ -60,6 +54,8 @@ set(GOCUBE_OPTIONS /W4 /permissive- /utf-8 /EHsc /MP)
 add_library(gocube_core STATIC
 	src/content/content.cpp
 	src/content/content.h
+	src/content/image.cpp
+	src/content/image.h
 	src/content/item_models.cpp
 	src/content/item_models.h
 	src/audio/mixing.cpp
@@ -121,7 +117,7 @@ target_sources(gocube_core PRIVATE
 	src/net/wire.h
 )
 target_include_directories(gocube_core PUBLIC src)
-target_link_libraries(gocube_core PRIVATE lua png zlib bcrypt ws2_32 PUBLIC winmm) # (winmm: platform/fine_sleep.h)
+target_link_libraries(gocube_core PRIVATE lua zlib bcrypt ws2_32 PUBLIC winmm) # (winmm: platform/fine_sleep.h)
 target_compile_definitions(gocube_core PUBLIC ${GOCUBE_DEFINES})
 target_compile_options(gocube_core PRIVATE ${GOCUBE_OPTIONS})
 # The voxel engine is the Godot version's, unchanged: quiet its warnings here
@@ -185,7 +181,7 @@ set_source_files_properties(shaders/chunk.hlsl shaders/lines.hlsl shaders/sky.hl
 	shaders/creatures.hlsl
 	PROPERTIES HEADER_FILE_ONLY TRUE) # (built by FXC above)
 target_include_directories(gocube PRIVATE ${SHADER_DIR})
-target_link_libraries(gocube PRIVATE gocube_core imgui png xaudio2 d3d11 dxgi dxguid shell32 ole32)
+target_link_libraries(gocube PRIVATE gocube_core imgui windowscodecs xaudio2 d3d11 dxgi dxguid shell32 ole32)
 target_compile_definitions(gocube PRIVATE
 	GOCUBE_VERSION="${PROJECT_VERSION}"
 	$<$<CONFIG:Debug>:GOCUBE_DEBUG>
@@ -201,6 +197,7 @@ add_executable(gocube_tests
 	tests/net_play.h
 	tests/play.h
 	tests/test_audio.cpp
+	tests/test_image.cpp
 	tests/test_mods.cpp
 	tests/test_multiplayer.cpp
 	tests/test_player.cpp

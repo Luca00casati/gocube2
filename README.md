@@ -153,6 +153,9 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
   files), copied unchanged from the Godot version's GDExtension (GoCube `4425f46`).
 - `src/content/`: the content mods register, block ids, the block table, the texture
   atlas, item models and the generator's tables, as the Godot version builds them.
+  Most block faces are painted from a colour and noise (`image.h`; the base game's
+  in `mods/core/content/looks.lua`); the few drawn images (plants, torches, doors,
+  beds, chests, items) are PPM files, where magenta is see-through.
 - `src/world/`: chunk streaming on worker threads, editing, the raycast, collision;
   the world folder (`world.lua`, `chunks\`).
 - `src/game/`: the player (movement, breaking, placing) and the block rules
@@ -180,6 +183,5 @@ In `thirdparty/` as source, pinned to releases and built with the game, linked
 statically (versions and licences: `thirdparty/README.md`):
 [Lua](https://www.lua.org) 5.4.8 (MIT),
 [Dear ImGui](https://github.com/ocornut/imgui) 1.93.0 (MIT),
-[libpng](https://github.com/pnggroup/libpng) 1.6.59 (libpng licence) with
-[zlib](https://github.com/madler/zlib) 1.3.2 (zlib licence),
+[zlib](https://github.com/madler/zlib) 1.3.2 (zlib licence, for mod packs),
 [doctest](https://github.com/doctest/doctest) 2.5.3 (MIT, tests only).

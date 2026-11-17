@@ -3,6 +3,8 @@
 -- `events` and `game`.
 
 -- The content: blocks, items, what the world generator makes, sounds, creatures.
+local looks = require("content.looks")
+
 require("content.blocks")
 require("content.items")
 require("content.world")
@@ -10,7 +12,7 @@ require("content.sounds")
 require("content.creatures")
 
 registry.register_block("planks", {hardness = 2.0, flammable = true, color = "#b8945f",
-	textures = {all = "textures/planks.png"}, sound = "core:wood"})
+	textures = {all = looks.planks}, sound = "core:wood"})
 
 -- The rules of the game.
 require("rules.mining")

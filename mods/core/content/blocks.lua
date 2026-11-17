@@ -2,13 +2,15 @@
 -- Blocks: their look, hardness, what they drop,
 -- light, and how plants and fluids behave (the rules in rules/ read these).
 
+local looks = require("content.looks")
+
 registry.register_block("air", {solid = false, transparent = true})
 
 registry.register_block("stone", {
 	hardness = 1.5,
 	drops = "core:cobblestone",
 	color = "#7f7f7f",
-	textures = {all = "textures/stone.png"},
+	textures = {all = looks.stone},
 	sound = "core:stone",
 	random_rotation = true,
 })
@@ -16,7 +18,7 @@ registry.register_block("stone", {
 registry.register_block("cobblestone", {
 	hardness = 2.0,
 	color = "#6a6a6a",
-	textures = {all = "textures/cobblestone.png"},
+	textures = {all = looks.cobblestone},
 	sound = "core:stone",
 	random_rotation = true,
 })
@@ -24,7 +26,7 @@ registry.register_block("cobblestone", {
 registry.register_block("dirt", {
 	hardness = 0.5,
 	color = "#8b5a2b",
-	textures = {all = "textures/dirt.png"},
+	textures = {all = looks.dirt},
 	sound = "core:grass",
 	random_rotation = true,
 })
@@ -35,9 +37,9 @@ registry.register_block("grass", {
 	drops = "core:dirt",
 	color = "#5fa83a",
 	textures = {
-		top = "textures/grass_top.png",
-		side = "textures/grass_side.png",
-		bottom = "textures/dirt.png",
+		top = looks.grass_top,
+		side = looks.grass_side,
+		bottom = looks.dirt,
 	},
 	sound = "core:grass",
 	random_rotation = true,
@@ -46,7 +48,7 @@ registry.register_block("grass", {
 registry.register_block("sand", {
 	hardness = 0.5,
 	color = "#d6c38a",
-	textures = {all = "textures/sand.png"},
+	textures = {all = looks.sand},
 	sound = "core:sand",
 	random_rotation = true,
 	falls = true,
@@ -55,7 +57,7 @@ registry.register_block("sand", {
 registry.register_block("gravel", {
 	hardness = 0.6,
 	color = "#7a6f66",
-	textures = {all = "textures/gravel.png"},
+	textures = {all = looks.gravel},
 	sound = "core:gravel",
 	random_rotation = true,
 	falls = true,
@@ -66,9 +68,9 @@ registry.register_block("log", {
 	flammable = true,
 	color = "#59422c",
 	textures = {
-		top = "textures/log_top.png",
-		bottom = "textures/log_top.png",
-		side = "textures/log_side.png",
+		top = looks.log_top,
+		bottom = looks.log_top,
+		side = looks.log_side,
 	},
 	sound = "core:wood",
 })
@@ -78,7 +80,7 @@ registry.register_block("leaves", {
 	hardness = 0.2,
 	flammable = true,
 	color = "#356828",
-	textures = {all = "textures/leaves.png"},
+	textures = {all = looks.leaves},
 	sound = "core:grass",
 	leaves = true,
 	extra_drops = {{"core:oak_sapling", 1, 0.06}},
@@ -88,7 +90,7 @@ registry.register_block("leaves", {
 registry.register_block("coal_ore", {
 	hardness = 3.0,
 	color = "#3a3a40",
-	textures = {all = "textures/coal_ore.png"},
+	textures = {all = looks.coal_ore},
 	sound = "core:stone",
 	drops = "core:coal",
 	eater_weight = 0.4,
@@ -98,7 +100,7 @@ registry.register_block("coal_ore", {
 registry.register_block("iron_ore", {
 	hardness = 3.0,
 	color = "#9a8070",
-	textures = {all = "textures/iron_ore.png"},
+	textures = {all = looks.iron_ore},
 	sound = "core:stone",
 	eater_weight = 0.25,
 	random_rotation = true,
@@ -107,7 +109,7 @@ registry.register_block("iron_ore", {
 registry.register_block("gold_ore", {
 	hardness = 3.0,
 	color = "#b8a050",
-	textures = {all = "textures/gold_ore.png"},
+	textures = {all = looks.gold_ore},
 	sound = "core:stone",
 	eater_weight = 0.12,
 	random_rotation = true,
@@ -116,7 +118,7 @@ registry.register_block("gold_ore", {
 registry.register_block("crystal_ore", {
 	hardness = 3.0,
 	color = "#5aa8b0",
-	textures = {all = "textures/crystal_ore.png"},
+	textures = {all = looks.crystal_ore},
 	sound = "core:stone",
 	eater_weight = 0.06,
 	random_rotation = true,
@@ -128,7 +130,7 @@ registry.register_block("lamp", {
 	hardness = 0.3,
 	light = 14,
 	color = "#f2c25a",
-	textures = {all = "textures/lamp.png"},
+	textures = {all = "textures/lamp.ppm"},
 	sound = "core:stone",
 	eater_weight = 0.1,
 })
@@ -152,9 +154,9 @@ registry.register_block("furnace", {
 	sound = "core:stone",
 	color = "#6a6a6a",
 	textures = {
-		side = "textures/furnace_side.png",
-		top = "textures/furnace_top.png",
-		bottom = "textures/furnace_top.png",
+		side = "textures/furnace_side.ppm",
+		top = looks.stone,
+		bottom = looks.stone,
 	},
 	eater_weight = 0.15,
 })
@@ -165,9 +167,9 @@ registry.register_block("chest", {
 	color = "#9a7448",
 	block_entity = "chest",
 	textures = {
-		side = "textures/chest_side.png",
-		top = "textures/chest_top.png",
-		bottom = "textures/planks.png",
+		side = "textures/chest_side.ppm",
+		top = "textures/chest_top.ppm",
+		bottom = looks.planks,
 	},
 	eater_weight = 0.15,
 })
@@ -178,7 +180,7 @@ registry.register_block("torch", {
 	hardness = 0.1,
 	sound = "core:wood",
 	color = "#e0a040",
-	textures = {all = "textures/torch.png"},
+	textures = {all = "textures/torch.ppm"},
 	needs_support = true,
 })
 
@@ -188,7 +190,7 @@ registry.register_block("ladder", {
 	hardness = 0.6,
 	sound = "core:wood",
 	color = "#93683d",
-	textures = {all = "textures/ladder.png"},
+	textures = {all = "textures/ladder.ppm"},
 	needs_support = true,
 })
 
@@ -198,7 +200,7 @@ registry.register_block("glass", {
 	sound = "core:stone",
 	color = "#cfe3ec",
 	drops = "",
-	textures = {all = "textures/glass.png"},
+	textures = {all = "textures/glass.ppm"},
 })
 
 registry.register_block("wood_door", {
@@ -206,9 +208,9 @@ registry.register_block("wood_door", {
 	hardness = 1.5,
 	sound = "core:wood",
 	color = "#93683d",
-	textures = {all = "textures/door_lower.png"},
-	textures_upper = {all = "textures/door_upper.png"},
-	icon = "textures/door_upper.png",
+	textures = {all = "textures/door_lower.ppm"},
+	textures_upper = {all = "textures/door_upper.ppm"},
+	icon = "textures/door_upper.ppm",
 	needs_support = true,
 })
 
@@ -217,11 +219,11 @@ registry.register_block("planks_fence", {
 	hardness = 1.5,
 	sound = "core:wood",
 	color = "#a67748",
-	textures = {all = "textures/planks.png"},
+	textures = {all = looks.planks},
 })
 
 registry.register_block("stone_slab", {
-	textures = {all = "textures/stone.png"},
+	textures = {all = looks.stone},
 	color = "#7a7d83",
 	hardness = 1.5,
 	sound = "core:stone",
@@ -229,7 +231,7 @@ registry.register_block("stone_slab", {
 })
 
 registry.register_block("stone_stairs", {
-	textures = {all = "textures/stone.png"},
+	textures = {all = looks.stone},
 	color = "#7a7d83",
 	hardness = 1.5,
 	sound = "core:stone",
@@ -237,7 +239,7 @@ registry.register_block("stone_stairs", {
 })
 
 registry.register_block("cobblestone_slab", {
-	textures = {all = "textures/cobblestone.png"},
+	textures = {all = looks.cobblestone},
 	color = "#6a6a6a",
 	hardness = 1.5,
 	sound = "core:stone",
@@ -245,7 +247,7 @@ registry.register_block("cobblestone_slab", {
 })
 
 registry.register_block("cobblestone_stairs", {
-	textures = {all = "textures/cobblestone.png"},
+	textures = {all = looks.cobblestone},
 	color = "#6a6a6a",
 	hardness = 1.5,
 	sound = "core:stone",
@@ -253,7 +255,7 @@ registry.register_block("cobblestone_stairs", {
 })
 
 registry.register_block("planks_slab", {
-	textures = {all = "textures/planks.png"},
+	textures = {all = looks.planks},
 	color = "#a67748",
 	hardness = 1.0,
 	sound = "core:wood",
@@ -261,7 +263,7 @@ registry.register_block("planks_slab", {
 })
 
 registry.register_block("planks_stairs", {
-	textures = {all = "textures/planks.png"},
+	textures = {all = looks.planks},
 	color = "#a67748",
 	hardness = 1.0,
 	sound = "core:wood",
@@ -274,9 +276,9 @@ registry.register_block("farmland", {
 	color = "#5a3c22",
 	drops = "core:dirt",
 	textures = {
-		top = "textures/farmland_top.png",
-		side = "textures/dirt.png",
-		bottom = "textures/dirt.png",
+		top = looks.farmland,
+		side = looks.dirt,
+		bottom = looks.dirt,
 	},
 })
 
@@ -285,7 +287,7 @@ registry.register_block("wheat_0", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#6a8a30",
-	textures = {all = "textures/wheat_0.png"},
+	textures = {all = "textures/wheat_0.ppm"},
 	plant_on = {"core:farmland"},
 	drops = "core:seeds",
 	grows_into = "core:wheat_1",
@@ -298,7 +300,7 @@ registry.register_block("wheat_1", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#6a8a30",
-	textures = {all = "textures/wheat_1.png"},
+	textures = {all = "textures/wheat_1.ppm"},
 	plant_on = {"core:farmland"},
 	drops = "core:seeds",
 	grows_into = "core:wheat_2",
@@ -311,7 +313,7 @@ registry.register_block("wheat_2", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#6a8a30",
-	textures = {all = "textures/wheat_2.png"},
+	textures = {all = "textures/wheat_2.ppm"},
 	plant_on = {"core:farmland"},
 	drops = "core:seeds",
 	grows_into = "core:wheat_3",
@@ -324,7 +326,7 @@ registry.register_block("wheat_3", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#6a8a30",
-	textures = {all = "textures/wheat_3.png"},
+	textures = {all = "textures/wheat_3.ppm"},
 	plant_on = {"core:farmland"},
 	drops = "core:seeds",
 	grows_into = "core:wheat_4",
@@ -337,7 +339,7 @@ registry.register_block("wheat_4", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#6a8a30",
-	textures = {all = "textures/wheat_4.png"},
+	textures = {all = "textures/wheat_4.ppm"},
 	plant_on = {"core:farmland"},
 	drops = "core:seeds",
 	grows_into = "core:wheat_5",
@@ -350,7 +352,7 @@ registry.register_block("wheat_5", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#6a8a30",
-	textures = {all = "textures/wheat_5.png"},
+	textures = {all = "textures/wheat_5.ppm"},
 	plant_on = {"core:farmland"},
 	drops = "core:seeds",
 	grows_into = "core:wheat_6",
@@ -363,7 +365,7 @@ registry.register_block("wheat_6", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#6a8a30",
-	textures = {all = "textures/wheat_6.png"},
+	textures = {all = "textures/wheat_6.ppm"},
 	plant_on = {"core:farmland"},
 	drops = "core:seeds",
 	grows_into = "core:wheat_7",
@@ -376,7 +378,7 @@ registry.register_block("wheat_7", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#6a8a30",
-	textures = {all = "textures/wheat_7.png"},
+	textures = {all = "textures/wheat_7.ppm"},
 	plant_on = {"core:farmland"},
 	drops = "core:wheat",
 	extra_drops = {{"core:seeds", 1, 1.0}, {"core:seeds", 1, 0.5}},
@@ -388,7 +390,7 @@ registry.register_block("tall_grass", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#4f8a30",
-	textures = {all = "textures/tall_grass.png"},
+	textures = {all = "textures/tall_grass.ppm"},
 	drops = "",
 	extra_drops = {{"core:seeds", 1, 0.15}},
 	replaceable = true,
@@ -400,7 +402,7 @@ registry.register_block("bluebell", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#6080e2",
-	textures = {all = "textures/bluebell.png"},
+	textures = {all = "textures/bluebell.ppm"},
 	replaceable = true,
 	plant_on = {"core:grass", "core:dirt"},
 })
@@ -410,7 +412,7 @@ registry.register_block("sunpetal", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#f6ce3c",
-	textures = {all = "textures/sunpetal.png"},
+	textures = {all = "textures/sunpetal.ppm"},
 	replaceable = true,
 	plant_on = {"core:grass", "core:dirt"},
 })
@@ -419,7 +421,7 @@ registry.register_block("sandstone", {
 	hardness = 1.0,
 	sound = "core:stone",
 	color = "#cdb57a",
-	textures = {all = "textures/sandstone.png"},
+	textures = {all = looks.sandstone},
 	random_rotation = true,
 })
 
@@ -429,9 +431,9 @@ registry.register_block("snow_grass", {
 	color = "#e6eef5",
 	drops = "core:dirt",
 	textures = {
-		side = "textures/snow_grass_side.png",
-		top = "textures/snow_grass_top.png",
-		bottom = "textures/dirt.png",
+		side = looks.snow_side,
+		top = looks.snow,
+		bottom = looks.dirt,
 	},
 })
 
@@ -440,7 +442,7 @@ registry.register_block("ice", {
 	sound = "core:stone",
 	color = "#a9caeb",
 	drops = "",
-	textures = {all = "textures/ice.png"},
+	textures = {all = looks.ice},
 	random_rotation = true,
 })
 
@@ -450,9 +452,9 @@ registry.register_block("birch_log", {
 	color = "#ddd8cf",
 	flammable = true,
 	textures = {
-		side = "textures/birch_log_side.png",
-		top = "textures/birch_log_top.png",
-		bottom = "textures/birch_log_top.png",
+		side = looks.birch_log_side,
+		top = looks.birch_log_top,
+		bottom = looks.birch_log_top,
 	},
 })
 
@@ -462,7 +464,7 @@ registry.register_block("birch_leaves", {
 	sound = "core:grass",
 	color = "#5a9236",
 	flammable = true,
-	textures = {all = "textures/birch_leaves.png"},
+	textures = {all = looks.birch_leaves},
 	leaves = true,
 	extra_drops = {{"core:birch_sapling", 1, 0.06}},
 	sapling = "core:birch_sapling",
@@ -474,9 +476,9 @@ registry.register_block("spruce_log", {
 	color = "#432f20",
 	flammable = true,
 	textures = {
-		side = "textures/spruce_log_side.png",
-		top = "textures/spruce_log_top.png",
-		bottom = "textures/spruce_log_top.png",
+		side = looks.spruce_log_side,
+		top = looks.spruce_log_top,
+		bottom = looks.spruce_log_top,
 	},
 })
 
@@ -486,7 +488,7 @@ registry.register_block("spruce_leaves", {
 	sound = "core:grass",
 	color = "#25492f",
 	flammable = true,
-	textures = {all = "textures/spruce_leaves.png"},
+	textures = {all = looks.spruce_leaves},
 	leaves = true,
 	extra_drops = {{"core:spruce_sapling", 1, 0.06}},
 	sapling = "core:spruce_sapling",
@@ -499,9 +501,9 @@ registry.register_block("cactus", {
 	sound = "core:grass",
 	color = "#43832e",
 	textures = {
-		side = "textures/cactus_side.png",
-		top = "textures/cactus_top.png",
-		bottom = "textures/cactus_top.png",
+		side = looks.cactus_side,
+		top = looks.cactus_top,
+		bottom = looks.cactus_top,
 	},
 	plant_on = {"core:sand", "core:cactus"},
 })
@@ -512,7 +514,7 @@ registry.register_block("dead_bush", {
 	sound = "core:grass",
 	color = "#6e5030",
 	drops = "",
-	textures = {all = "textures/dead_bush.png"},
+	textures = {all = "textures/dead_bush.ppm"},
 	replaceable = true,
 	plant_on = {"core:sand"},
 })
@@ -525,7 +527,7 @@ registry.register_block("lava", {
 	color = "#e8641e",
 	flow_step = 2,
 	damage = 4,
-	textures = {all = "textures/lava.png"},
+	textures = {all = looks.lava},
 })
 
 registry.register_block("lava_1", {
@@ -537,7 +539,7 @@ registry.register_block("lava_1", {
 	color = "#e8641e",
 	flow_step = 2,
 	damage = 4,
-	textures = {all = "textures/lava.png"},
+	textures = {all = looks.lava},
 })
 
 registry.register_block("lava_2", {
@@ -549,7 +551,7 @@ registry.register_block("lava_2", {
 	color = "#e8641e",
 	flow_step = 2,
 	damage = 4,
-	textures = {all = "textures/lava.png"},
+	textures = {all = looks.lava},
 })
 
 registry.register_block("lava_3", {
@@ -561,7 +563,7 @@ registry.register_block("lava_3", {
 	color = "#e8641e",
 	flow_step = 2,
 	damage = 4,
-	textures = {all = "textures/lava.png"},
+	textures = {all = looks.lava},
 })
 
 registry.register_block("lava_4", {
@@ -573,7 +575,7 @@ registry.register_block("lava_4", {
 	color = "#e8641e",
 	flow_step = 2,
 	damage = 4,
-	textures = {all = "textures/lava.png"},
+	textures = {all = looks.lava},
 })
 
 registry.register_block("lava_5", {
@@ -585,7 +587,7 @@ registry.register_block("lava_5", {
 	color = "#e8641e",
 	flow_step = 2,
 	damage = 4,
-	textures = {all = "textures/lava.png"},
+	textures = {all = looks.lava},
 })
 
 registry.register_block("lava_6", {
@@ -597,7 +599,7 @@ registry.register_block("lava_6", {
 	color = "#e8641e",
 	flow_step = 2,
 	damage = 4,
-	textures = {all = "textures/lava.png"},
+	textures = {all = looks.lava},
 })
 
 registry.register_block("lava_7", {
@@ -609,7 +611,7 @@ registry.register_block("lava_7", {
 	color = "#e8641e",
 	flow_step = 2,
 	damage = 4,
-	textures = {all = "textures/lava.png"},
+	textures = {all = looks.lava},
 })
 
 registry.register_block("oak_sapling", {
@@ -617,7 +619,7 @@ registry.register_block("oak_sapling", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#356828",
-	textures = {all = "textures/oak_sapling.png"},
+	textures = {all = "textures/oak_sapling.ppm"},
 	plant_on = {"core:grass", "core:dirt", "core:snow_grass"},
 	grows_tree = {["core:oak"] = 9, ["core:big_oak"] = 1},
 	grow_seconds = 240,
@@ -628,7 +630,7 @@ registry.register_block("birch_sapling", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#5a9236",
-	textures = {all = "textures/birch_sapling.png"},
+	textures = {all = "textures/birch_sapling.ppm"},
 	plant_on = {"core:grass", "core:dirt", "core:snow_grass"},
 	grows_tree = "core:birch",
 	grow_seconds = 240,
@@ -639,7 +641,7 @@ registry.register_block("spruce_sapling", {
 	hardness = 0,
 	sound = "core:grass",
 	color = "#25492f",
-	textures = {all = "textures/spruce_sapling.png"},
+	textures = {all = "textures/spruce_sapling.ppm"},
 	plant_on = {"core:grass", "core:dirt", "core:snow_grass"},
 	grows_tree = "core:spruce",
 	grow_seconds = 240,
@@ -651,14 +653,14 @@ registry.register_block("bed", {
 	sound = "core:wood",
 	color = "#b43a36",
 	textures = {
-		top = "textures/bed_foot_top.png",
-		side = "textures/bed_side.png",
-		bottom = "textures/planks.png",
+		top = "textures/bed_foot_top.ppm",
+		side = "textures/bed_side.ppm",
+		bottom = looks.planks,
 	},
 	textures_head = {
-		top = "textures/bed_head_top.png",
-		side = "textures/bed_side.png",
-		bottom = "textures/planks.png",
+		top = "textures/bed_head_top.ppm",
+		side = "textures/bed_side.ppm",
+		bottom = looks.planks,
 	},
 	bed = true,
 	flammable = true,
@@ -670,7 +672,7 @@ registry.register_block("snow", {
 	hardness = 0.1,
 	sound = "core:grass",
 	color = "#f2f7fb",
-	textures = {all = "textures/snow_grass_top.png"},
+	textures = {all = looks.snow},
 	replaceable = true,
 	needs_support = true,
 	drops = "core:snowball",
