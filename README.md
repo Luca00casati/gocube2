@@ -183,5 +183,4 @@ In `thirdparty/` as source, pinned to releases and built with the game, linked
 statically (versions and licences: `thirdparty/README.md`):
 [Lua](https://www.lua.org) 5.4.8 (MIT),
 [Dear ImGui](https://github.com/ocornut/imgui) 1.93.0 (MIT),
-[zlib](https://github.com/madler/zlib) 1.3.2 (zlib licence, for mod packs),
 [doctest](https://github.com/doctest/doctest) 2.5.3 (MIT, tests only).

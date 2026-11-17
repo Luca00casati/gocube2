@@ -2,7 +2,7 @@
 
 #include "mods/mods.h"
 
-#include <zlib.h>
+#include "platform/compression.h"
 
 #include <cstring>
 #include <fstream>
@@ -84,14 +84,13 @@ std::vector<uint8_t> pack_mod(const fs::path &dir) {
 		put32(raw, uint32_t(bytes.size()));
 		raw.insert(raw.end(), bytes.begin(), bytes.end());
 	}
-	uLongf size = compressBound(uLong(raw.size()));
-	std::vector<uint8_t> out;
-	put32(out, uint32_t(raw.size()));
-	out.resize(4 + size);
-	if (compress2(out.data() + 4, &size, raw.data(), uLong(raw.size()), Z_BEST_COMPRESSION) != Z_OK) {
+	const std::vector<uint8_t> packed = compress_bytes(raw);
+	if (packed.empty()) {
 		return {};
 	}
-	out.resize(4 + size);
+	std::vector<uint8_t> out;
+	put32(out, uint32_t(raw.size()));
+	out.insert(out.end(), packed.begin(), packed.end());
 	return out;
 }
 
@@ -101,9 +100,8 @@ std::string unpack_mod(const std::vector<uint8_t> &pack, const fs::path &dir) {
 	if (!get32(pack, at, raw_size) || raw_size > MAX_MOD_PACK) {
 		return "it's too big, or not a mod";
 	}
-	std::vector<uint8_t> raw(raw_size);
-	uLongf got = raw_size;
-	if (uncompress(raw.data(), &got, pack.data() + 4, uLong(pack.size() - 4)) != Z_OK || got != raw_size) {
+	std::vector<uint8_t> raw;
+	if (!decompress_bytes(pack.data() + 4, pack.size() - 4, raw_size, raw)) {
 		return "it's damaged";
 	}
 	// Read it all first: nothing is written unless all of it is fine.

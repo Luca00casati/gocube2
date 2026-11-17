@@ -9,7 +9,7 @@
 
 #include "mods/mod_pack.h"
 
-#include <zlib.h>
+#include "platform/compression.h"
 
 #include <cstring>
 #include <fstream>
@@ -418,12 +418,11 @@ TEST_CASE("mod packs: only plain paths inside the folder, nothing written if one
 		raw.insert(raw.end(), path.begin(), path.end());
 		put(1);
 		raw.push_back('!');
-		uLongf size = compressBound(uLong(raw.size()));
-		std::vector<uint8_t> out(4 + size);
+		std::vector<uint8_t> out(4);
 		const uint32_t n = uint32_t(raw.size());
 		std::memcpy(out.data(), &n, 4);
-		compress2(out.data() + 4, &size, raw.data(), uLong(raw.size()), 9);
-		out.resize(4 + size);
+		const std::vector<uint8_t> packed = gc::compress_bytes(raw);
+		out.insert(out.end(), packed.begin(), packed.end());
 		return out;
 	};
 	for (const char *bad : {"../evil.txt", "sub/../../evil.txt", "C:/evil.txt", "/evil.txt", "a\\..\\evil.txt",
@@ -450,4 +449,24 @@ TEST_CASE("multiplayer: the host turns players away (a name taken, other mods)")
 	CHECK(why.find("mismatch") != std::string::npos);
 	CHECK(gc::Session::clean_name("  Bob\x01\xE2\x80\x8B Smith  ") == "Bob Smith");
 	CHECK(gc::Session::clean_name("a very long name that goes on") == "a very long name");
+}
+
+TEST_CASE("compression (Windows' MSZIP): both ways, and nothing but the exact size comes out") {
+	std::vector<uint8_t> raw;
+	for (int i = 0; i < 200000; i++) {
+		raw.push_back(uint8_t(i % 7 == 0 ? i * 31 : 'a' + i % 3));
+	}
+	const std::vector<uint8_t> packed = gc::compress_bytes(raw);
+	REQUIRE_FALSE(packed.empty());
+	CHECK(packed.size() < raw.size() / 4);
+	std::vector<uint8_t> out;
+	REQUIRE(gc::decompress_bytes(packed.data(), packed.size(), raw.size(), out));
+	CHECK(out == raw);
+	CHECK_FALSE(gc::decompress_bytes(packed.data(), packed.size(), raw.size() - 1, out)); // more than allowed
+	CHECK(out.empty());
+	CHECK_FALSE(gc::decompress_bytes(packed.data(), packed.size(), raw.size() + 1, out)); // less than said
+	CHECK_FALSE(gc::decompress_bytes(packed.data(), packed.size() / 2, raw.size(), out)); // cut short
+	std::vector<uint8_t> junk(1000, 0x5a);
+	CHECK_FALSE(gc::decompress_bytes(junk.data(), junk.size(), 5000, out));
+	CHECK_FALSE(gc::decompress_bytes(packed.data(), 0, raw.size(), out));
 }

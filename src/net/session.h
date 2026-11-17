@@ -78,7 +78,7 @@ struct Avatar {
 
 class Session : public Remote {
 public:
-	static constexpr int PROTOCOL = 1;
+	static constexpr int PROTOCOL = 2; // 2: mod packs compressed with MSZIP, not zlib
 	static constexpr int DEFAULT_PORT = 24680;
 	static constexpr int MAX_PLAYERS = 8;
 	static constexpr int HOST_ID = 1;

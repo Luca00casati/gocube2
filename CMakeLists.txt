@@ -14,12 +14,6 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # Every dependency is in thirdparty/, as source pinned to a release (see
 # thirdparty/README.md), built here: nothing is downloaded at build time.
 # Their warnings are theirs: /W0.
-file(GLOB ZLIB_SOURCES ${CMAKE_SOURCE_DIR}/thirdparty/zlib/*.c)
-add_library(zlib STATIC ${ZLIB_SOURCES})
-target_include_directories(zlib PUBLIC thirdparty/zlib)
-target_compile_options(zlib PRIVATE /W0 /MP)
-target_compile_definitions(zlib PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
-
 
 add_library(imgui STATIC
 	thirdparty/imgui/imgui.cpp
@@ -113,11 +107,13 @@ target_sources(gocube_core PRIVATE
 	src/net/session.h
 	src/net/transport.cpp
 	src/net/transport.h
+	src/platform/compression.cpp
+	src/platform/compression.h
 	src/platform/fine_sleep.h
 	src/net/wire.h
 )
 target_include_directories(gocube_core PUBLIC src)
-target_link_libraries(gocube_core PRIVATE lua zlib bcrypt ws2_32 PUBLIC winmm) # (winmm: platform/fine_sleep.h)
+target_link_libraries(gocube_core PRIVATE lua bcrypt ws2_32 PUBLIC winmm cabinet) # (winmm: platform/fine_sleep.h; cabinet: platform/compression.h)
 target_compile_definitions(gocube_core PUBLIC ${GOCUBE_DEFINES})
 target_compile_options(gocube_core PRIVATE ${GOCUBE_OPTIONS})
 # The voxel engine is the Godot version's, unchanged: quiet its warnings here
@@ -207,7 +203,7 @@ add_executable(gocube_tests
 	tests/test_transport.cpp
 	tests/test_worldgen.cpp
 )
-target_link_libraries(gocube_tests PRIVATE gocube_core doctest zlib bcrypt)
+target_link_libraries(gocube_tests PRIVATE gocube_core doctest bcrypt)
 target_compile_definitions(gocube_tests PRIVATE GOCUBE_SOURCE_DIR="${CMAKE_SOURCE_DIR}" _CRT_SECURE_NO_WARNINGS)
 target_compile_options(gocube_tests PRIVATE ${GOCUBE_OPTIONS})
 

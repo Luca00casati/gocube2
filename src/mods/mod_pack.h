@@ -1,12 +1,12 @@
 #pragma once
 // A mod folder packed for sending to another player (multiplayer: a host's
 // mods a joining player lacks): the files its fingerprint covers (mod_files),
-// each as a path and its bytes, compressed with zlib. Unpacking checks every
+// each as a path and its bytes, compressed (MSZIP, platform/compression.h). Unpacking checks every
 // path (inside the folder, no "..", no drive or absolute paths, nothing
 // hidden) and size before writing anything, so a pack can't write outside
 // its folder or fill the disk.
 //
-//   u32 raw size, then zlib(compress2) of:
+//   u32 raw size, then compressed:
 //   u32 file count, then per file: u32 path length, path (UTF-8, "/"), u32 size, bytes
 
 #include <cstdint>
