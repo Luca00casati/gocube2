@@ -1,4 +1,4 @@
--- Growing crops and blocks that need support. (The Godot version's PlantSim.)
+-- Growing saplings and blocks that need support. (The Godot version's PlantSim.)
 --
 -- Falling: blocks with "falls" (sand, gravel) drop while there's air or a
 -- fluid under them.

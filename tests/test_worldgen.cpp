@@ -1,7 +1,10 @@
 // Worlds generate exactly as in the Godot version: unedited chunks are
 // generated again each time a world is opened, so any change in what comes out
 // would shift caves, ores and light in worlds already played. The fingerprints
-// are the Godot version's (tests/test_worldgen.gd: test_generation_never_changes).
+// were the Godot version's (tests/test_worldgen.gd: test_generation_never_changes)
+// until the base game dropped its small plants, farming, birch, spruce and snow
+// grass: the same blocks come out where they did, except bluebells and
+// sunpetals (air now), but the block ids that remain were renumbered.
 
 #include "content/content.h"
 #include "helpers.h"
@@ -23,8 +26,8 @@ using namespace gocube;
 
 namespace {
 
-constexpr const char *NEW_WORLD_FINGERPRINT = "6965053e54ddd54a";    // seed 777, generator 3
-constexpr const char *LEGACY_WORLD_FINGERPRINT = "f62d6b1fb6791b17"; // seed 4242, generator 1 (before biomes)
+constexpr const char *NEW_WORLD_FINGERPRINT = "58a7a84f5b62e082";    // seed 777, generator 3
+constexpr const char *LEGACY_WORLD_FINGERPRINT = "f4c01545461df082"; // seed 4242, generator 1 (before biomes)
 constexpr int CHUNK_Y_MIN = -3, CHUNK_Y_MAX = 3;                    // the world's height
 
 struct Sha256 {

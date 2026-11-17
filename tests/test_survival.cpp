@@ -90,24 +90,27 @@ TEST_CASE("the core mod's rules: mining time and drops (by hand: there are no to
 	CHECK(p.game->mine_seconds("core:stone", "") == doctest::Approx(1.5 * 0.375)); // hardness x 0.375 s
 	CHECK(p.game->mine_seconds("core:dirt", "") == doctest::Approx(0.5 * 0.375));
 	CHECK(p.game->mine_seconds("core:stone", "core:torch") == doctest::Approx(1.5 * 0.375)); // whatever is held
-	CHECK(p.game->mine_seconds("core:tall_grass", "") == doctest::Approx(0.1)); // the least
+	CHECK(p.game->mine_seconds("core:torch", "") == doctest::Approx(0.1)); // the least
 	CHECK(p.game->drops_of("core:stone", "") == std::vector<std::string>{"core:cobblestone"});
 	CHECK(p.game->drops_of("core:iron_ore", "") == std::vector<std::string>{"core:iron_ore"});
 	CHECK(p.game->drops_of("core:coal_ore", "") == std::vector<std::string>{"core:coal"});
 	CHECK(p.game->drops_of("core:furnace", "") == std::vector<std::string>{"core:furnace"});
-	CHECK(p.game->drops_of("core:dead_bush", "").empty());
+	CHECK(p.game->drops_of("core:glass", "").empty());
 	CHECK(p.game->drops_of("core:grass", "") == std::vector<std::string>{"core:dirt"});
 	CHECK(p.game->drops_of("core:log", "") == std::vector<std::string>{"core:log"});
 	CHECK(p.game->drops_of("core:wood_door_n_upper", "") == std::vector<std::string>{"core:wood_door"}); // a variant
-	int seeds = 0;
-	for (int i = 0; i < 400; i++) { // tall grass: nothing, sometimes a seed (15%)
-		for (const std::string &d : p.game->drops_of("core:tall_grass", "")) {
-			CHECK(d == "core:seeds");
-			seeds++;
+	int saplings = 0;
+	for (int i = 0; i < 400; i++) { // leaves: themselves, sometimes a sapling too (6%)
+		const std::vector<std::string> d = p.game->drops_of("core:leaves", "");
+		REQUIRE(!d.empty());
+		CHECK(d[0] == "core:leaves");
+		for (size_t k = 1; k < d.size(); k++) {
+			CHECK(d[k] == "core:oak_sapling");
+			saplings++;
 		}
 	}
-	CHECK(seeds > 20);
-	CHECK(seeds < 110);
+	CHECK(saplings > 6);
+	CHECK(saplings < 50);
 }
 
 TEST_CASE("survival: a new player has the starting items; breaking drops items that get picked up") {
@@ -467,9 +470,9 @@ TEST_CASE("dying keeps the inventory; respawning is at the bed, or the world spa
 	CHECK(p.game->notice().find("bed was missing") != std::string::npos);
 }
 
-TEST_CASE("eating heals; food isn't eaten at full health") {
-	Play p;
-	p.game->inventory().slots[0] = {"core:bread", 2};
+TEST_CASE("eating (a mod's food: the base game has none) heals; food isn't eaten at full health") {
+	Play p(with_kit());
+	p.game->inventory().slots[0] = {"kit:bread", 2};
 	gc::GameInput in;
 	in.captured = true;
 	in.use_pressed = true;
@@ -600,11 +603,11 @@ TEST_CASE("plants: leaves without a log nearby decay") {
 	CHECK(p.block(1, 42, 1) == "core:leaves_placed");
 }
 
-TEST_CASE("plants: crops grow, and what's growing is saved") {
-	Play p;
+TEST_CASE("plants (a mod's crop): crops grow, and what's growing is saved") {
+	Play p(with_kit());
 	pool(p, "core:air");
-	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:farmland")));
-	REQUIRE(p.world->set_block({1, 41, 1}, p.id("core:wheat_0")));
+	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:dirt")));
+	REQUIRE(p.world->set_block({1, 41, 1}, p.id("kit:sprout")));
 	run_ticks(p, 0.2f);
 	const Data saved = p.game->save_plants();
 	REQUIRE(saved.size() == 1);
@@ -613,14 +616,14 @@ TEST_CASE("plants: crops grow, and what's growing is saved") {
 	CHECK(saved[0][3].get<double>() > 50 * 0.6 - 1); // 50 s, give or take 40%
 	CHECK(saved[0][3].get<double>() < 50 * 1.4);
 	// Loaded with 2 seconds left, it grows into the next stage.
-	Play q;
+	Play q(with_kit());
 	pool(q, "core:air");
-	REQUIRE(q.world->set_block({1, 40, 1}, q.id("core:farmland")));
-	REQUIRE(q.world->set_block({1, 41, 1}, q.id("core:wheat_0")));
+	REQUIRE(q.world->set_block({1, 40, 1}, q.id("core:dirt")));
+	REQUIRE(q.world->set_block({1, 41, 1}, q.id("kit:sprout")));
 	run_ticks(q, 0.2f); // (it's tracked with a fresh timer: replaced below)
 	q.game->load_plants(Data::array({Data::array({1, 41, 1, 2.0})}));
 	run_ticks(q, 3.5f);
-	CHECK(q.block(1, 41, 1) == "core:wheat_1");
+	CHECK(q.block(1, 41, 1) == "kit:crop");
 }
 
 TEST_CASE("a sapling grows into a tree: the generator's shape, where there's room") {
@@ -744,20 +747,34 @@ void use_down(Play &p, const std::string &item) {
 
 } // namespace
 
-TEST_CASE("farming (the core mod's Lua): seeds are planted on farmland, and grow") {
+TEST_CASE("the base game has no farming, food or small plants; one grass, one wood") {
 	Play p;
+	for (const char *gone : {"core:seeds", "core:wheat", "core:bread"}) {
+		CHECK_FALSE(p.content.items.count(gone));
+	}
+	for (const char *gone : {"core:farmland", "core:wheat_0", "core:tall_grass", "core:bluebell", "core:sunpetal",
+				"core:dead_bush", "core:snow_grass", "core:birch_log", "core:spruce_leaves"}) {
+		CHECK_FALSE(p.content.blocks.count(gone));
+	}
+	for (const auto &[id, def] : p.content.items) {
+		CAPTURE(id);
+		CHECK_FALSE(def.contains("food"));
+		CHECK_FALSE(def.contains("plants"));
+	}
+	CHECK(p.content.trees.count("core:oak"));
+	CHECK_FALSE(p.content.trees.count("core:birch"));
+}
+
+TEST_CASE("farming (a mod's rule): seeds are planted on dirt, and grow") {
+	Play p(with_kit());
 	pool(p, "core:air");
 	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:stone")));
-	use_down(p, "core:seeds");
+	use_down(p, "kit:seeds");
 	CHECK(p.block(1, 41, 1) == "core:air"); // not on stone
 	CHECK(p.game->inventory().slots[0].count == 1);
 	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:dirt")));
-	use_down(p, "core:seeds");
-	CHECK(p.block(1, 41, 1) == "core:air"); // nor on dirt (there are no hoes to till it)
-	CHECK(p.block(1, 40, 1) == "core:dirt");
-	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:farmland")));
-	use_down(p, "core:seeds");
-	CHECK(p.block(1, 41, 1) == "core:wheat_0");
+	use_down(p, "kit:seeds");
+	CHECK(p.block(1, 41, 1) == "kit:sprout");
 	CHECK(p.game->inventory().slots[0].count == 0);
 	run_ticks(p, 0.2f);
 	CHECK(p.game->save_plants().size() == 1); // growing

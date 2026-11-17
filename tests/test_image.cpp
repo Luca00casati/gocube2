@@ -121,13 +121,15 @@ TEST_CASE("the base game's atlas: painted faces and PPM images, no missing ones"
 	CHECK(info("core:stone").tiles[0] == info("core:stone_slab").tiles[0]);
 	CHECK(info("core:grass").tiles[2] != info("core:grass").tiles[0]); // top, side
 	CHECK(info("core:grass").tiles[3] == info("core:dirt").tiles[0]);  // bottom
+	// A bed's two halves look the same.
+	CHECK(info("core:bed").tiles[2] == info("core:bed_n_head").tiles[2]); // (core:bed: the foot, facing n)
 	CHECK_FALSE(info("core:stone").cutout);
 	CHECK_FALSE(info("core:leaves").cutout);
 	// Drawn (PPM): plants, torches and glass are see-through in places.
-	CHECK(info("core:tall_grass").cutout);
+	CHECK(info("core:oak_sapling").cutout);
 	CHECK(info("core:torch").cutout);
 	CHECK(info("core:glass").cutout);
-	CHECK_FALSE(opaque(table.icon("core:seeds")));
+	CHECK_FALSE(opaque(table.icon("core:snowball")));
 	// Nothing fell back to magenta (an image not found).
 	for (size_t t = 0; t < tiles.size(); t++) {
 		CAPTURE(t);

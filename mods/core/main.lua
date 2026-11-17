@@ -18,7 +18,6 @@ registry.register_block("planks", {hardness = 2.0, flammable = true, color = "#b
 require("rules.mining")
 require("rules.health")
 require("rules.plants")
-require("rules.farming")
 require("rules.fluids")
 require("rules.creatures")
 

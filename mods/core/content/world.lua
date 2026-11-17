@@ -1,5 +1,6 @@
 -- The base game's content (it was the Godot version's content/base.json).
--- What the world generator makes: ore veins, trees, and the biome.
+-- What the world generator makes: ore veins, trees, and the biome (no small
+-- plants: bare grass).
 -- A biome's "trees" and "plants" are lists of {id, value} pairs: their order
 -- reaches the generator, and Lua tables keyed by id have none.
 
@@ -15,22 +16,6 @@ registry.register_tree("oak", {log = "core:log", leaves = "core:leaves", trunk =
 
 registry.register_tree("big_oak", {log = "core:log", leaves = "core:leaves", trunk = {6, 9}, chance = 0, style = "big_oak"})
 
-registry.register_tree("birch", {
-	log = "core:birch_log",
-	leaves = "core:birch_leaves",
-	trunk = {5, 7},
-	chance = 0,
-	style = "birch",
-})
-
-registry.register_tree("spruce", {
-	log = "core:spruce_log",
-	leaves = "core:spruce_leaves",
-	trunk = {7, 11},
-	chance = 0,
-	style = "spruce",
-})
-
 registry.register_tree("cactus", {log = "core:cactus", leaves = "", trunk = {1, 3}, chance = 0, style = "cactus"})
 
 registry.register_biome("vanilla", {
@@ -41,7 +26,6 @@ registry.register_biome("vanilla", {
 	surface = "core:grass",
 	filler = "core:dirt",
 	trees = {{"core:oak", 7}, {"core:big_oak", 1}},
-	plants = {{"core:bluebell", 7}, {"core:sunpetal", 7}},
 	lakes = 30,
 	mountains = 34,
 	rock = "core:stone",

@@ -1,4 +1,4 @@
--- Crafting, smelting, a tool and armour, as a mod would add them (the base
+-- Crafting, smelting, a tool, armour, farming and food, as a mod would add them (the base
 -- game had these before; tests/test_survival.cpp plays with them).
 
 registry.register_item("stick", {color = "#8a6a40"})
@@ -135,4 +135,29 @@ events.on("tick", function(dt)
 			end
 		end
 	end
+end)
+
+-- Farming and food, as a mod would add them (the base game has none): seeds
+-- planted on dirt grow into a crop; bread heals.
+registry.register_item("bread", {color = "#c08a40", food = 5})
+registry.register_item("seeds", {color = "#c8b040", plants = "kit:sprout", plant_on = {"core:dirt"}})
+registry.register_block("sprout", {shape = "cross", hardness = 0, color = "#5a9a30", plant_on = {"core:dirt"},
+	drops = "kit:seeds", grows_into = "kit:crop", grow_seconds = 50})
+registry.register_block("crop", {shape = "cross", hardness = 0, color = "#c8b040", plant_on = {"core:dirt"},
+	drops = "kit:bread"})
+
+game.set_rule("use_item", function(item, x, y, z, nx, ny, nz)
+	local def = registry.get_item(item) or {}
+	if not def.plants or ny ~= 1 or world.get_block(x, y + 1, z) ~= "core:air" then
+		return nil
+	end
+	local ok = false
+	for _, b in ipairs(def.plant_on or {}) do
+		ok = ok or b == world.get_block(x, y, z)
+	end
+	if not ok then
+		return nil
+	end
+	world.set_block(x, y + 1, z, def.plants)
+	return {take = 1, placed = {x, y + 1, z}}
 end)
