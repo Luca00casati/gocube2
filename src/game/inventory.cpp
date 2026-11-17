@@ -4,7 +4,7 @@
 
 namespace gc {
 
-const Json *Inventory::item_def(const std::string &id) const {
+const Data *Inventory::item_def(const std::string &id) const {
 	if (auto it = content_->items.find(id); it != content_->items.end()) {
 		return &it->second;
 	}
@@ -15,7 +15,7 @@ const Json *Inventory::item_def(const std::string &id) const {
 }
 
 int Inventory::max_stack(const std::string &id) const {
-	const Json *def = item_def(id);
+	const Data *def = item_def(id);
 	if (def && def->contains("max_stack") && (*def)["max_stack"].is_number()) {
 		return std::max(1, int((*def)["max_stack"].get<double>()));
 	}
@@ -112,8 +112,8 @@ Stack Inventory::put_armor(int slot, const Stack &held) {
 		return held;
 	}
 	if (!held.empty()) {
-		const Json *def = item_def(held.id);
-		const Json worn = def ? def->value("armor", Json::object()) : Json::object();
+		const Data *def = item_def(held.id);
+		const Data worn = def ? def->value("armor", Data::object()) : Data::object();
 		if (!worn.is_object() || worn.value("slot", "") != ARMOR_SLOTS[slot]) {
 			return held; // doesn't go there
 		}
@@ -130,8 +130,8 @@ int Inventory::armor_points() const {
 	int total = 0;
 	for (const Stack &s : armor) {
 		if (!s.empty()) {
-			const Json *def = item_def(s.id);
-			const Json a = def ? def->value("armor", Json::object()) : Json::object();
+			const Data *def = item_def(s.id);
+			const Data a = def ? def->value("armor", Data::object()) : Data::object();
 			if (a.is_object() && a.contains("points") && a["points"].is_number()) {
 				total += int(a["points"].get<double>());
 			}
@@ -147,12 +147,12 @@ Stack Inventory::close_cursor() {
 	return left == 0 ? Stack{} : Stack{held.id, left};
 }
 
-Json Inventory::serialize() const {
-	Json out = Json::array();
+Data Inventory::serialize() const {
+	Data out = Data::array();
 	for (const Stack &s : slots) {
-		out.push_back(s.empty() ? Json(false) : Json::array({s.id, s.count}));
+		out.push_back(s.empty() ? Data(false) : Data::array({s.id, s.count}));
 	}
-	Json worn = Json::array();
+	Data worn = Data::array();
 	for (const Stack &s : armor) {
 		worn.push_back(s.empty() ? "" : s.id);
 	}
@@ -160,7 +160,7 @@ Json Inventory::serialize() const {
 	return out;
 }
 
-void Inventory::deserialize(const Json &data) {
+void Inventory::deserialize(const Data &data) {
 	slots.fill({});
 	armor.fill({});
 	cursor = {};
@@ -169,7 +169,7 @@ void Inventory::deserialize(const Json &data) {
 	}
 	size_t n = data.size();
 	if (n > 0 && data.back().is_object()) {
-		const Json worn = data.back().value("armor", Json::array());
+		const Data worn = data.back().value("armor", Data::array());
 		for (size_t i = 0; i < worn.size() && i < 4; i++) {
 			if (worn[i].is_string() && content_->items.count(worn[i].get<std::string>())) {
 				armor[i] = {worn[i].get<std::string>(), 1};
@@ -178,7 +178,7 @@ void Inventory::deserialize(const Json &data) {
 		n--;
 	}
 	for (size_t i = 0; i < n && i < SIZE; i++) {
-		const Json &s = data[i];
+		const Data &s = data[i];
 		// Items whose mod is gone are dropped; everything else comes back.
 		if (s.is_array() && s.size() == 2 && s[0].is_string() && s[1].is_number() && item_def(s[0].get<std::string>())) {
 			slots[i] = {s[0].get<std::string>(), int(s[1].get<double>())};

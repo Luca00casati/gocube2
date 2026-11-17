@@ -96,10 +96,10 @@ public:
 
 	// For the mods: a creature as data ({id, kind, variant, x, y, z, yaw,
 	// heading, speed, on_floor, hit_wall, walking}); reading it clears hit_wall.
-	Json describe(Creature &c) const;
+	Data describe(Creature &c) const;
 	// From the mods: heading, speed, variant, yaw (at once), push {x, y, z}
 	// (its velocity: a knock back), hurt (a squash), flash (red), attack (a strike).
-	void apply(Creature &c, const Json &fields);
+	void apply(Creature &c, const Data &fields);
 
 private:
 	std::vector<Creature> list_;

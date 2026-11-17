@@ -65,7 +65,7 @@ bool read_file(const fs::path &p, std::string &out) {
 }
 
 // A path inside the mod folder to an existing file with this extension, or what's wrong.
-std::string file_problem(const Json &rel, const fs::path &root, const char *extension) {
+std::string file_problem(const Data &rel, const fs::path &root, const char *extension) {
 	if (!rel.is_string() || rel.get<std::string>().empty()) {
 		return "path must be a string";
 	}
@@ -90,7 +90,7 @@ std::string file_problem(const Json &rel, const fs::path &root, const char *exte
 
 // What is wrong with a mod.lua for a mod in `root`, or "" (checked before
 // anything of the mod loads, so a broken mod is skipped as a whole).
-std::string manifest_problem(const Json &m, const fs::path &root) {
+std::string manifest_problem(const Data &m, const fs::path &root) {
 	if (!m.is_object()) {
 		return "it must return a table of named fields";
 	}
@@ -105,11 +105,11 @@ std::string manifest_problem(const Json &m, const fs::path &root) {
 	if (m.contains("api_version") && !m["api_version"].is_number()) {
 		return "\"api_version\" must be a number";
 	}
-	const Json deps = m.value("dependencies", Json::array());
+	const Data deps = m.value("dependencies", Data::array());
 	if (!deps.is_array() && !(deps.is_object() && deps.empty())) { // ({} reads as an empty object)
 		return "\"dependencies\" must be a list";
 	}
-	for (const Json &d : deps) {
+	for (const Data &d : deps) {
 		if (!d.is_string() || !valid_id(d.get<std::string>())) {
 			return "\"dependencies\" must list mod ids";
 		}
@@ -402,7 +402,7 @@ struct Mods::Lua {
 		}
 		const std::string id = luaL_checkstring(L, 1);
 		luaL_checktype(L, 2, LUA_TTABLE);
-		Json def = lua_to_data(L, 2, 0);
+		Data def = lua_to_data(L, 2, 0);
 		if (!def.is_object()) {
 			return luaL_error(L, "a definition must be a table with named fields");
 		}
@@ -431,7 +431,7 @@ struct Mods::Lua {
 	// registry.all(section): a copy of a whole section, {[id] = def}.
 	static int registry_all(lua_State *L) {
 		Lua *h = of(L);
-		const std::map<std::string, Json> *t = h->content.table(luaL_checkstring(L, 1));
+		const std::map<std::string, Data> *t = h->content.table(luaL_checkstring(L, 1));
 		if (!t) {
 			return luaL_error(L, "no section '%s' (blocks, items, recipes, ores, trees, biomes, sound_sets, creatures)", lua_tostring(L, 1));
 		}
@@ -592,7 +592,7 @@ struct Mods::Lua {
 			lua_pushnil(L);
 			return 1;
 		}
-		push_data(L, Json{{"x", hit.position.x}, {"y", hit.position.y}, {"z", hit.position.z},
+		push_data(L, Data{{"x", hit.position.x}, {"y", hit.position.y}, {"z", hit.position.z},
 							 {"id", of(L)->rules->id_of(hit.block)}, {"distance", hit.distance}});
 		return 1;
 	}
@@ -655,7 +655,7 @@ struct Mods::Lua {
 	static int creatures_get(lua_State *L) {
 		need_world(L);
 		Lua *h = of(L);
-		const Json c = h->hooks.creature_get ? h->hooks.creature_get(int(luaL_checkinteger(L, 1))) : Json();
+		const Data c = h->hooks.creature_get ? h->hooks.creature_get(int(luaL_checkinteger(L, 1))) : Data();
 		push_data(L, c);
 		return 1;
 	}
@@ -667,7 +667,7 @@ struct Mods::Lua {
 		Lua *h = of(L);
 		const int id = int(luaL_checkinteger(L, 1));
 		luaL_checktype(L, 2, LUA_TTABLE);
-		const Json fields = lua_to_data(L, 2);
+		const Data fields = lua_to_data(L, 2);
 		lua_pushboolean(L, h->hooks.creature_set && h->hooks.creature_set(id, fields));
 		return 1;
 	}
@@ -678,7 +678,7 @@ struct Mods::Lua {
 	static int game_players(lua_State *L) {
 		need_world(L);
 		Lua *h = of(L);
-		push_data(L, h->hooks.players ? h->hooks.players() : Json::array());
+		push_data(L, h->hooks.players ? h->hooks.players() : Data::array());
 		return 1;
 	}
 
@@ -965,7 +965,7 @@ size_t Mods::memory_in_use() const {
 
 void Mods::load_all(const std::vector<fs::path> &dirs, const std::vector<std::string> *only) {
 	struct Found {
-		Json manifest;
+		Data manifest;
 		fs::path dir;
 	};
 	std::map<std::string, Found> found;
@@ -982,7 +982,7 @@ void Mods::load_all(const std::vector<fs::path> &dirs, const std::vector<std::st
 				}
 				continue;
 			}
-			Json m;
+			Data m;
 			std::string why;
 			if (!read_lua_data(dir / "mod.lua", m, why)) {
 				why = "it can't be read: " + why;
@@ -1046,7 +1046,7 @@ void Mods::load_all(const std::vector<fs::path> &dirs, const std::vector<std::st
 		if (id != "core") {
 			deps.push_back("core");
 		}
-		for (const Json &d : found[id].manifest.value("dependencies", Json::array())) {
+		for (const Data &d : found[id].manifest.value("dependencies", Data::array())) {
 			deps.push_back(d.get<std::string>());
 		}
 		for (const std::string &dep : deps) {
@@ -1070,7 +1070,7 @@ void Mods::load_all(const std::vector<fs::path> &dirs, const std::vector<std::st
 	for (const std::string &id : order) {
 		const Found &f = found[id];
 		bool skip = false;
-		for (const Json &d : f.manifest.value("dependencies", Json::array())) {
+		for (const Data &d : f.manifest.value("dependencies", Data::array())) {
 			if (failed.count(d.get<std::string>())) {
 				fail(id, "skipped: dependency '" + d.get<std::string>() + "' failed to load");
 				skip = true;
@@ -1108,7 +1108,7 @@ void Mods::load_all(const std::vector<fs::path> &dirs, const std::vector<std::st
 	lua_->registry_open = false;
 }
 
-std::optional<Json> Mods::rule(const std::string &name, const Json &args) {
+std::optional<Data> Mods::rule(const std::string &name, const Data &args) {
 	Lua &h = *lua_;
 	auto it = h.game_rules.find(name);
 	if (it == h.game_rules.end() || h.mods[it->second.mod].disabled) {
@@ -1118,7 +1118,7 @@ std::optional<Json> Mods::rule(const std::string &name, const Json &args) {
 	lua_State *L = h.L;
 	const int top = lua_gettop(L);
 	lua_rawgeti(L, LUA_REGISTRYINDEX, it->second.ref);
-	for (const Json &a : args) {
+	for (const Data &a : args) {
 		push_data(L, a);
 	}
 	const std::string error = h.call(mod, int(args.size()), h.limits.callback_ms, 1);
@@ -1127,10 +1127,10 @@ std::optional<Json> Mods::rule(const std::string &name, const Json &args) {
 		lua_settop(L, top);
 		return std::nullopt;
 	}
-	std::optional<Json> out;
+	std::optional<Data> out;
 	// (Converting can raise a Lua error for a value that can't be data: protected.)
 	lua_pushcfunction(L, [](lua_State *L) -> int {
-		auto *result = static_cast<std::optional<Json> *>(lua_touserdata(L, 2));
+		auto *result = static_cast<std::optional<Data> *>(lua_touserdata(L, 2));
 		*result = lua_to_data(L, 1, 0);
 		return 0;
 	});
@@ -1240,7 +1240,7 @@ std::map<std::string, fs::path> mod_copies(const std::vector<fs::path> &dirs) {
 	std::map<std::string, fs::path> out;
 	for (const fs::path &root : dirs) {
 		for (const fs::path &dir : visible_subdirs(root)) {
-			Json m;
+			Data m;
 			std::string why;
 			if (!fs::exists(dir / "mod.lua") || !read_lua_data(dir / "mod.lua", m, why) || !m.is_object() ||
 					!m.contains("id") || !m["id"].is_string()) {

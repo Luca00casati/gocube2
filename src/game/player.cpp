@@ -218,7 +218,7 @@ bool Player::use_or_place(World &world, const BlockRules &rules, const std::stri
 		if (!on_lower && !rules.supported(world, id, cell)) {
 			return false;
 		}
-		const Json &def = rules.def(id);
+		const Data &def = rules.def(id);
 		const bool solid = !def.contains("solid") || !def["solid"].is_boolean() || def["solid"].get<bool>();
 		if (solid && (overlaps_block(position, cell) || (occupied && occupied(cell)))) {
 			return false; // it would be inside you, or someone else

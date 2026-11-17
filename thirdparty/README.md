@@ -12,7 +12,6 @@ Only the files the build needs were copied, unchanged, with each project's licen
 | `zlib/` | [zlib](https://github.com/madler/zlib) (for libpng) | 1.3.2 | tag `v1.3.2`, without the gz* file functions | zlib (`LICENSE`) |
 | `miniaudio/` | [miniaudio](https://github.com/mackron/miniaudio) (sound) | 0.11.26 | tag `0.11.26`: `miniaudio.h`, `miniaudio.c` (built with WAV decoding only) | MIT-0 or public domain (`LICENSE`) |
 | `enet/` | [ENet](https://github.com/lsalzman/enet) (multiplayer) | 1.3.18 | tag `v1.3.18`: the `.c` files but `unix.c`, `include/enet/` but `unix.h` | MIT (`LICENSE`) |
-| `nlohmann_json/` | [nlohmann/json](https://github.com/nlohmann/json) (the game's in-memory data values; no JSON files are read or written) | 3.12.0 | tag `v3.12.0`, `single_include/` | MIT (`LICENSE.MIT`) |
 | `doctest/` | [doctest](https://github.com/doctest/doctest) (tests only) | 2.5.3 | tag `v2.5.3` | MIT (`LICENSE.txt`) |
 
 To update one: take the new release's same files from its tag, replace the

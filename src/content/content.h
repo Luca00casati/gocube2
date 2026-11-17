@@ -10,7 +10,7 @@
 #include "voxel/generator.h"
 #include "voxel/mesher.h"
 
-#include <nlohmann/json.hpp>
+#include "data/data.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -21,25 +21,21 @@
 
 namespace gc {
 
-// Object keys keep the order they have in the file (biomes list their trees
-// and plants as objects, and that order reaches the generator).
-using Json = nlohmann::ordered_json;
-
 constexpr int GENERATOR_VERSION = 3; // the newest; older worlds keep theirs
 
 class Content {
 public:
 	// Definitions by qualified id ("core:stone"), sorted by id. Each has "id"
 	// and "mod" added, as the Godot registry does.
-	std::map<std::string, Json> blocks, items, recipes, ores, trees, biomes, sound_sets, creatures;
+	std::map<std::string, Data> blocks, items, recipes, ores, trees, biomes, sound_sets, creatures;
 	std::map<std::string, std::filesystem::path> mod_dirs; // mod id -> folder
 
 	// One entry (mods' registry.register_* calls): `id` gets "mod:" in front
 	// unless it has a ":".
-	void register_entry(std::map<std::string, Json> &table, const std::string &mod, const std::string &id,
-			const Json &def);
+	void register_entry(std::map<std::string, Data> &table, const std::string &mod, const std::string &id,
+			const Data &def);
 	// The table for a section name ("blocks", "items", ...), or nullptr.
-	std::map<std::string, Json> *table(const std::string &section);
+	std::map<std::string, Data> *table(const std::string &section);
 	// After every mod: adds shaped blocks' variants, assigns block ids.
 	void freeze(const std::vector<std::string> &saved_block_ids = {});
 
@@ -49,7 +45,7 @@ public:
 	const std::vector<std::string> &block_ids() const { return block_ids_; }
 	int block_index(const std::string &id) const; // -1 if unknown
 
-	std::filesystem::path asset_path(const Json &def, const std::string &relative) const;
+	std::filesystem::path asset_path(const Data &def, const std::string &relative) const;
 
 private:
 	std::vector<std::string> block_ids_;

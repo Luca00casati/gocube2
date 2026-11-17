@@ -1,6 +1,6 @@
 #pragma once
 // Messages on the wire: little-endian numbers, strings and byte strings with
-// a length in front, and data values (Json) as Lua data tables
+// a length in front, and data values (Data) as Lua data tables
 // (data/lua_data.h: read with a step and memory limit, and Lua's own nesting
 // limit, whatever a peer sends). A Reader never reads past
 // its end: what isn't there reads as zero or empty and marks it bad (`ok()`),
@@ -42,7 +42,7 @@ public:
 		u32(uint32_t(b.size()));
 		return raw(b.data(), b.size());
 	}
-	Writer &data(const Json &j) { return str(write_lua_data(j)); } // (no null in a list)
+	Writer &data(const Data &j) { return str(write_lua_data(j)); } // (no null in a list)
 
 private:
 	Writer &raw(const void *p, size_t n) {
@@ -126,13 +126,13 @@ public:
 		return b;
 	}
 	// A data value (null and a bad message if it isn't one).
-	Json data(size_t max = 1 << 20) {
+	Data data(size_t max = 1 << 20) {
 		const std::string text = str(max);
-		Json j;
+		Data j;
 		std::string error;
 		if (!ok_ || !parse_lua_data(text, "message", j, error)) {
 			ok_ = false;
-			return Json();
+			return Data();
 		}
 		return j;
 	}

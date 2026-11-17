@@ -46,30 +46,30 @@ int engine_shape(const std::string &shape) {
 	return -1;
 }
 
-std::string str(const Json &j, const char *key, const std::string &fallback = "") {
+std::string str(const Data &j, const char *key, const std::string &fallback = "") {
 	auto it = j.find(key);
 	return it != j.end() && it->is_string() ? it->get<std::string>() : fallback;
 }
 
-double num(const Json &j, const char *key, double fallback) {
+double num(const Data &j, const char *key, double fallback) {
 	auto it = j.find(key);
 	return it != j.end() && it->is_number() ? it->get<double>() : fallback;
 }
 
-bool flag(const Json &j, const char *key, bool fallback = false) {
+bool flag(const Data &j, const char *key, bool fallback = false) {
 	auto it = j.find(key);
 	return it != j.end() && it->is_boolean() ? it->get<bool>() : fallback;
 }
 
 // Godot's int() of a JSON number (a float): truncates.
-int inum(const Json &j, const char *key, int fallback) {
+int inum(const Data &j, const char *key, int fallback) {
 	return static_cast<int>(num(j, key, fallback));
 }
 
 // The variant blocks of a shaped block, in the Godot version's order:
 // (suffix, state); the base block itself is suffix "".
-std::vector<std::pair<std::string, Json>> variants(const Json &def) {
-	std::vector<std::pair<std::string, Json>> out;
+std::vector<std::pair<std::string, Data>> variants(const Data &def) {
+	std::vector<std::pair<std::string, Data>> out;
 	const std::string shape = str(def, "shape", "cube");
 	if (shape == "slab") {
 		out.push_back({"", {{"half", "bottom"}}});
@@ -104,21 +104,21 @@ std::vector<std::pair<std::string, Json>> variants(const Json &def) {
 			}
 		}
 	} else {
-		out.push_back({"", Json::object()});
+		out.push_back({"", Data::object()});
 	}
 	return out;
 }
 
 // Adds every shaped block's variants (and placed leaves) to `blocks`.
-void expand(std::map<std::string, Json> &blocks) {
+void expand(std::map<std::string, Data> &blocks) {
 	std::vector<std::string> ids;
 	for (const auto &[id, def] : blocks) {
 		ids.push_back(id);
 	}
 	for (const std::string &id : ids) {
-		Json &def = blocks[id];
+		Data &def = blocks[id];
 		if (flag(def, "leaves") && !def.contains("variant_of")) {
-			Json placed = def;
+			Data placed = def;
 			placed["id"] = id + "_placed";
 			placed["variant_of"] = id;
 			placed["leaves"] = false; // placed by a player: never decays
@@ -141,7 +141,7 @@ void expand(std::map<std::string, Json> &blocks) {
 			if (suffix.empty()) {
 				continue;
 			}
-			Json v = def;
+			Data v = def;
 			v["id"] = id + suffix;
 			v["variant_of"] = id;
 			v["state"] = state;
@@ -173,7 +173,7 @@ Box16 rotate(Box16 b, int turns) {
 	return b;
 }
 
-std::vector<Box16> model_boxes(const std::string &shape, const Json &state) {
+std::vector<Box16> model_boxes(const std::string &shape, const Data &state) {
 	std::vector<Box16> boxes;
 	int turns = facing_index(str(state, "facing", "n"));
 	if (shape == "slab") {
@@ -273,7 +273,7 @@ uint32_t godot_string_hash(const std::string &s) {
 
 // --- Content ---------------------------------------------------------------------
 
-std::map<std::string, Json> *Content::table(const std::string &section) {
+std::map<std::string, Data> *Content::table(const std::string &section) {
 	if (section == "blocks") return &blocks;
 	if (section == "items") return &items;
 	if (section == "recipes") return &recipes;
@@ -285,10 +285,10 @@ std::map<std::string, Json> *Content::table(const std::string &section) {
 	return nullptr;
 }
 
-void Content::register_entry(std::map<std::string, Json> &table, const std::string &mod, const std::string &id,
-		const Json &def) {
+void Content::register_entry(std::map<std::string, Data> &table, const std::string &mod, const std::string &id,
+		const Data &def) {
 	const std::string full = id.find(':') != std::string::npos ? id : mod + ":" + id;
-	Json entry = def;
+	Data entry = def;
 	entry["id"] = full;
 	entry["mod"] = mod;
 	table[full] = std::move(entry);
@@ -318,7 +318,7 @@ int Content::block_index(const std::string &id) const {
 	return it == block_index_.end() ? -1 : it->second;
 }
 
-std::filesystem::path Content::asset_path(const Json &def, const std::string &relative) const {
+std::filesystem::path Content::asset_path(const Data &def, const std::string &relative) const {
 	std::string mod = str(def, "mod"), rel = relative;
 	if (const size_t colon = rel.find(':'); colon != std::string::npos) { // "othermod:textures/x.png"
 		mod = rel.substr(0, colon);
@@ -345,10 +345,10 @@ namespace {
 // A biome's "trees" or "plants": a list of {id, value} pairs, in their order
 // (it reaches the generator); a table keyed by id has no order in Lua, so
 // that form is taken in id order.
-std::vector<std::pair<std::string, double>> id_values(const Json &j) {
+std::vector<std::pair<std::string, double>> id_values(const Data &j) {
 	std::vector<std::pair<std::string, double>> out;
 	if (j.is_array()) {
-		for (const Json &e : j) {
+		for (const Data &e : j) {
 			if (e.is_array() && e.size() == 2 && e[0].is_string() && e[1].is_number()) {
 				out.push_back({e[0].get<std::string>(), e[1].get<double>()});
 			}
@@ -393,7 +393,7 @@ GeneratorConfig generator_config(const Content &content, int generator_version) 
 		k.min_y = inum(def, "min_y", -96);
 		k.max_y = inum(def, "max_y", 0);
 		k.veins_per_chunk = std::clamp(inum(def, "veins_per_chunk", 4), 0, 256);
-		const Json size = def.value("size", Json::array({3, 6}));
+		const Data size = def.value("size", Data::array({3, 6}));
 		k.min_size = std::max(1, size.empty() ? 3 : int(size.front().get<double>()));
 		k.max_size = std::max(k.min_size, size.empty() ? 6 : int(size.back().get<double>()));
 		k.salt = godot_string_hash(id) & 0x7fffffffu;
@@ -405,11 +405,11 @@ GeneratorConfig generator_config(const Content &content, int generator_version) 
 	static const char *const STYLES[] = {"oak", "big_oak", "birch", "spruce", "cactus", "round_oak"};
 	const std::vector<std::string> tree_order = gc::tree_order(content);
 	for (const std::string &id : tree_order) {
-		const Json &def = content.trees.at(id);
+		const Data &def = content.trees.at(id);
 		gocube::TreeKind t;
 		t.log = block(str(def, "log"));
 		t.leaves = block(str(def, "leaves"));
-		const Json trunk = def.value("trunk", Json::array({4, 6}));
+		const Data trunk = def.value("trunk", Data::array({4, 6}));
 		t.min_trunk = std::clamp(trunk.empty() ? 4 : int(trunk.front().get<double>()), 2, 20);
 		t.max_trunk = std::clamp(trunk.empty() ? 6 : int(trunk.back().get<double>()), t.min_trunk, 20);
 		t.chance = std::clamp(inum(def, "chance", 30), 0, 100);
@@ -450,13 +450,13 @@ GeneratorConfig generator_config(const Content &content, int generator_version) 
 		b.cap_above = inum(def, "cap_above", 1 << 20);
 		b.cover = block(str(def, "cover"));
 		b.cover_above = inum(def, "cover_above", 1 << 20);
-		for (const auto &[tree, percent] : id_values(def.value("trees", Json()))) {
+		for (const auto &[tree, percent] : id_values(def.value("trees", Data()))) {
 			auto it = std::find(tree_order.begin(), tree_order.end(), tree);
 			if (it != tree_order.end()) {
 				b.trees.push_back({int(it - tree_order.begin()), int(percent)});
 			}
 		}
-		for (const auto &[plant, per_mille] : id_values(def.value("plants", Json()))) {
+		for (const auto &[plant, per_mille] : id_values(def.value("plants", Data()))) {
 			if (content.block_index(plant) > 0) {
 				b.plants.push_back({block(plant), int(per_mille)});
 			}
@@ -556,7 +556,7 @@ struct AtlasBuilder {
 	}
 
 	// A tile from an image of the mod (key: its path), or -1 if it can't be read.
-	int image_tile(const Json &def, const std::string &rel) {
+	int image_tile(const Data &def, const std::string &rel) {
 		const std::filesystem::path full = content.asset_path(def, rel);
 		const std::string key = full.string();
 		if (auto it = index.find(key); it != index.end()) {
@@ -571,7 +571,7 @@ struct AtlasBuilder {
 	}
 
 	// A flat tile of the definition's "color" (else `fallback`).
-	int color_tile(const Json &def, const char *fallback) {
+	int color_tile(const Data &def, const char *fallback) {
 		uint8_t c[4] = {255, 0, 255, 255};
 		parse_html_color(def.contains("color") ? str(def, "color") : fallback, c);
 		char key[16];
@@ -584,9 +584,9 @@ struct AtlasBuilder {
 
 	// One face's tile: its texture ("side"/"top"/"bottom", else "all"), else the
 	// block's colour, else magenta.
-	int face_tile(const Json &def, const char *face, int turns) {
-		const Json textures = def.value("textures", Json::object());
-		const Json *rel = textures.contains(face) ? &textures[face] : (textures.contains("all") ? &textures["all"] : nullptr);
+	int face_tile(const Data &def, const char *face, int turns) {
+		const Data textures = def.value("textures", Data::object());
+		const Data *rel = textures.contains(face) ? &textures[face] : (textures.contains("all") ? &textures["all"] : nullptr);
 		if (rel && rel->is_string()) {
 			const std::filesystem::path full = content.asset_path(def, rel->get<std::string>());
 			const std::string key = full.string() + (turns % 4 ? "@" + std::to_string(turns % 4) : "");
@@ -659,10 +659,10 @@ bool has_alpha(const std::vector<uint8_t> &px) {
 BlockTable build_block_table(const Content &content) {
 	BlockTable table;
 	AtlasBuilder atlas{content, table.atlas, {}};
-	const Json empty = Json::object();
+	const Data empty = Data::object();
 	for (const std::string &id : content.block_ids()) {
 		auto it = content.blocks.find(id);
-		const Json &def = it != content.blocks.end() ? it->second : empty;
+		const Data &def = it != content.blocks.end() ? it->second : empty;
 		BlockInfo b;
 		b.fluid = def.contains("fluid");
 		b.solid = flag(def, "solid", true) && !b.fluid;
@@ -687,7 +687,7 @@ BlockTable build_block_table(const Content &content) {
 		if (es == gocube::SHAPE_BOXES) {
 			std::vector<Box16> boxes;
 			if (shape == "boxes") {
-				for (const Json &bx : def.value("boxes", Json::array())) {
+				for (const Data &bx : def.value("boxes", Data::array())) {
 					Box16 box{};
 					for (size_t k = 0; k < 6 && k < bx.size(); k++) {
 						box[k] = bx[k].get<double>();
@@ -695,7 +695,7 @@ BlockTable build_block_table(const Content &content) {
 					boxes.push_back(box);
 				}
 			} else {
-				boxes = model_boxes(shape, def.value("state", Json::object()));
+				boxes = model_boxes(shape, def.value("state", Data::object()));
 			}
 			b.shape = gocube::SHAPE_BOXES;
 			b.model = to_boxes(boxes);

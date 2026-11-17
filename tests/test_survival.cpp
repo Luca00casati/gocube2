@@ -18,7 +18,7 @@
 #include <thread>
 
 using gc::BlockPos;
-using gc::Json;
+using gc::Data;
 using gc::Stack;
 
 namespace {
@@ -55,10 +55,10 @@ TEST_CASE("inventory: its save format, both ways (false for an empty slot)") {
 	mods.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"});
 	// As Inventory.serialize writes it (the Godot version's layout, with false
 	// for an empty slot: a Lua list can't hold nil).
-	Json saved = Json::array();
-	saved.push_back(Json::array({"core:torch", 5}));
+	Data saved = Data::array();
+	saved.push_back(Data::array({"core:torch", 5}));
 	saved.push_back(false);
-	saved.push_back(Json::array({"gone:item", 3})); // its mod isn't here: dropped
+	saved.push_back(Data::array({"gone:item", 3})); // its mod isn't here: dropped
 	for (int i = 3; i < 36; i++) {
 		saved.push_back(false);
 	}
@@ -68,9 +68,9 @@ TEST_CASE("inventory: its save format, both ways (false for an empty slot)") {
 	CHECK(inv.slots[0] == Stack{"core:torch", 5});
 	CHECK(inv.slots[2].empty());
 	CHECK(inv.armor[0] == Stack{"core:iron_helmet", 1});
-	const Json again = inv.serialize();
+	const Data again = inv.serialize();
 	CHECK(again.size() == 37);
-	CHECK(again[0] == Json::array({"core:torch", 5}));
+	CHECK(again[0] == Data::array({"core:torch", 5}));
 	CHECK(again[2] == false);
 	CHECK(again[36]["armor"][0] == "core:iron_helmet");
 }
@@ -166,9 +166,9 @@ TEST_CASE("the player's inventory and hotbar slot are saved in world.json's play
 	in.captured = true;
 	in.number_key = 5;
 	p.game->update(0.016f, in);
-	const Json saved = p.game->save_player();
+	const Data saved = p.game->save_player();
 	CHECK(saved["selected"] == 4);
-	CHECK(saved["inventory"][4] == Json::array({"core:coal", 7}));
+	CHECK(saved["inventory"][4] == Data::array({"core:coal", 7}));
 	Play q;
 	q.game->load_player(saved);
 	CHECK(q.game->selected() == 4);
@@ -259,9 +259,9 @@ TEST_CASE("a chest: made with its block, holds items, saved (false for an empty 
 	CHECK(be.at(at)->slots[0] == Stack{"core:coal", 8});
 	CHECK(be.click(at, 4, {"core:dirt", 2}).empty());
 
-	const Json saved = be.serialize();
+	const Data saved = be.serialize();
 	CHECK(saved["3,60,3"]["type"] == "chest");
-	CHECK(saved["3,60,3"]["slots"][0] == Json::array({"core:coal", 8}));
+	CHECK(saved["3,60,3"]["slots"][0] == Data::array({"core:coal", 8}));
 	CHECK(saved["3,60,3"]["slots"][1] == false);
 	gc::BlockEntities copy(p.content, p.mods);
 	copy.deserialize(saved);
@@ -401,7 +401,7 @@ TEST_CASE("dying keeps the inventory; respawning is at the bed, or the world spa
 	Play p;
 	pool(p, "core:air");
 	p.game->inventory().slots[3] = {"core:coal", 9};
-	p.game->set_world_spawn(Json::array({1.5, 40.0, 1.5}));
+	p.game->set_world_spawn(Data::array({1.5, 40.0, 1.5}));
 	// A bed on the pool's floor, set as the respawn point by right-clicking it.
 	REQUIRE(p.world->set_block({1, 40, 0}, p.id("core:bed")));          // foot (facing north: head at z - 1)
 	REQUIRE(p.world->set_block({1, 40, -1}, p.id("core:bed_n_head")));
@@ -571,7 +571,7 @@ TEST_CASE("plants: crops grow, and what's growing is saved") {
 	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:farmland")));
 	REQUIRE(p.world->set_block({1, 41, 1}, p.id("core:wheat_0")));
 	run_ticks(p, 0.2f);
-	const Json saved = p.game->save_plants();
+	const Data saved = p.game->save_plants();
 	REQUIRE(saved.size() == 1);
 	CHECK(saved[0][0] == 1);
 	CHECK(saved[0][1] == 41);
@@ -583,7 +583,7 @@ TEST_CASE("plants: crops grow, and what's growing is saved") {
 	REQUIRE(q.world->set_block({1, 40, 1}, q.id("core:farmland")));
 	REQUIRE(q.world->set_block({1, 41, 1}, q.id("core:wheat_0")));
 	run_ticks(q, 0.2f); // (it's tracked with a fresh timer: replaced below)
-	q.game->load_plants(Json::array({Json::array({1, 41, 1, 2.0})}));
+	q.game->load_plants(Data::array({Data::array({1, 41, 1, 2.0})}));
 	run_ticks(q, 3.5f);
 	CHECK(q.block(1, 41, 1) == "core:wheat_1");
 }
@@ -761,7 +761,7 @@ TEST_CASE("fluids (the core mod's Lua): water spreads one level lower a block, a
 			CHECK(p.block(x, 40, z) == "core:air");
 		}
 	}
-	gc::Json pending = p.mods.rule("fluids_pending", Json::array()).value_or(Json());
+	gc::Data pending = p.mods.rule("fluids_pending", Data::array()).value_or(Data());
 	CHECK(pending == 0);
 }
 
@@ -888,7 +888,7 @@ TEST_CASE("creatures: they fall to the ground, walk where they head, notice wall
 	}
 	c = cs.find(id);
 	CHECK(c->pos[0] == doctest::Approx(0.45f).epsilon(0.01));
-	const gc::Json seen = cs.describe(*c);
+	const gc::Data seen = cs.describe(*c);
 	CHECK(seen["hit_wall"] == true);
 	CHECK(cs.describe(*c)["hit_wall"] == false); // (cleared once seen)
 	CHECK(c->yaw == doctest::Approx(3.14159265f / 2).epsilon(0.01)); // turned to its heading

@@ -54,7 +54,7 @@ bool Settings::load(const std::filesystem::path &path, std::string *error) {
 	if (!std::filesystem::exists(path, ec)) {
 		return true; // (defaults)
 	}
-	Json d;
+	Data d;
 	std::string why;
 	if (!read_lua_data(path, d, why) || !d.is_object()) {
 		if (error) {
@@ -101,7 +101,7 @@ bool Settings::load(const std::filesystem::path &path, std::string *error) {
 	}
 	if (auto it = d.find("disabled_mods"); it != d.end() && it->is_array()) {
 		disabled_mods.clear();
-		for (const Json &id : *it) {
+		for (const Data &id : *it) {
 			if (id.is_string()) {
 				disabled_mods.push_back(id.get<std::string>());
 			}
@@ -113,11 +113,11 @@ bool Settings::load(const std::filesystem::path &path, std::string *error) {
 }
 
 bool Settings::save(const std::filesystem::path &path) const {
-	Json keys_data = Json::object();
+	Data keys_data = Data::object();
 	for (const auto &[action, k] : keys) {
 		keys_data[action] = k;
 	}
-	const Json d = {{"view_distance", view_distance}, {"mouse_sensitivity", mouse_sensitivity}, {"max_fps", max_fps},
+	const Data d = {{"view_distance", view_distance}, {"mouse_sensitivity", mouse_sensitivity}, {"max_fps", max_fps},
 			{"vsync", vsync}, {"smooth_lighting", smooth_lighting}, {"shadow_mode", shadow_mode},
 			{"render_scale", render_scale}, {"clock_24h", clock_24h}, {"worker_threads", worker_threads},
 			{"master_volume", master_volume}, {"effects_volume", effects_volume}, {"ambience_volume", ambience_volume},

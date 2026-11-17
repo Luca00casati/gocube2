@@ -55,11 +55,11 @@ public:
 	// A screen closed: what the mouse held goes back in; returns what didn't fit.
 	Stack close_cursor();
 
-	Json serialize() const;
-	void deserialize(const Json &data); // unknown items (their mod is gone) are dropped
+	Data serialize() const;
+	void deserialize(const Data &data); // unknown items (their mod is gone) are dropped
 
 private:
-	const Json *item_def(const std::string &id) const; // the item's, else the block's definition
+	const Data *item_def(const std::string &id) const; // the item's, else the block's definition
 	const Content *content_;
 };
 

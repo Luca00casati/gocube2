@@ -40,9 +40,9 @@ Game::Game(Content &content, const BlockTable &table, const BlockRules &rules, W
 	};
 	hooks.creature_get = [this](int id) {
 		Creature *c = creatures_.find(id);
-		return c ? creatures_.describe(*c) : Json();
+		return c ? creatures_.describe(*c) : Data();
 	};
-	hooks.creature_set = [this](int id, const Json &fields) {
+	hooks.creature_set = [this](int id, const Data &fields) {
 		Creature *c = creatures_.find(id);
 		if (c) {
 			creatures_.apply(*c, fields);
@@ -50,7 +50,7 @@ Game::Game(Content &content, const BlockTable &table, const BlockRules &rules, W
 		return c != nullptr;
 	};
 	hooks.players = [this] {
-		Json list = Json::array({Json{{"peer", 0}, {"x", player_.position[0]}, {"y", player_.position[1]},
+		Data list = Data::array({Data{{"peer", 0}, {"x", player_.position[0]}, {"y", player_.position[1]},
 				{"z", player_.position[2]}, {"survival", !creative_}, {"alive", !dead_}}});
 		for (const OtherPlayer &o : others_) {
 			list.push_back({{"peer", o.peer}, {"x", o.feet[0]}, {"y", o.feet[1]}, {"z", o.feet[2]},
@@ -114,7 +114,7 @@ bool Game::grow_tree(const BlockPos &pos, const std::string &tree_id) {
 	}
 	// Plants and leaves give way to a growing trunk.
 	auto makes_room = [&](int block) {
-		const Json &d = rules_.def(block);
+		const Data &d = rules_.def(block);
 		return d.value("replaceable", false) || d.value("leaves", false) || d.value("shape", "") == "cross";
 	};
 	for (const gocube::TreeBlock &b : blocks) {
@@ -135,14 +135,14 @@ bool Game::grow_tree(const BlockPos &pos, const std::string &tree_id) {
 	return true;
 }
 
-Json Game::save_plants() {
-	const std::optional<Json> r = mods_.rule("save_plants", Json::array());
-	return r && r->is_array() ? *r : Json::array();
+Data Game::save_plants() {
+	const std::optional<Data> r = mods_.rule("save_plants", Data::array());
+	return r && r->is_array() ? *r : Data::array();
 }
 
-void Game::load_plants(const Json &data) {
+void Game::load_plants(const Data &data) {
 	if (data.is_array() && !data.empty()) {
-		mods_.rule("load_plants", Json::array({data}));
+		mods_.rule("load_plants", Data::array({data}));
 	}
 }
 
@@ -165,10 +165,10 @@ void Game::start_new_player() {
 }
 
 void Game::give_starting_items(Inventory &inv) {
-	const std::optional<Json> items = mods_.rule("starting_items", Json::array());
+	const std::optional<Data> items = mods_.rule("starting_items", Data::array());
 	if (items && items->is_array()) {
 		int slot = 0;
-		for (const Json &s : *items) {
+		for (const Data &s : *items) {
 			if (slot < Inventory::SIZE && s.is_object() && s.value("id", "") != "") {
 				inv.slots[slot++] = {s["id"].get<std::string>(), std::max(1, int(s.value("count", 1.0)))};
 			}
@@ -176,7 +176,7 @@ void Game::give_starting_items(Inventory &inv) {
 	}
 }
 
-void Game::load_player(const Json &saved) {
+void Game::load_player(const Data &saved) {
 	if (!saved.contains("inventory")) {
 		start_new_player(); // a player who never played here
 		return;
@@ -184,7 +184,7 @@ void Game::load_player(const Json &saved) {
 	inventory_.deserialize(saved["inventory"]);
 	selected_ = std::clamp(int(saved.value("selected", 0.0)), 0, Inventory::HOTBAR - 1);
 	health_ = std::clamp(int(saved.value("health", double(MAX_HEALTH))), 1, MAX_HEALTH);
-	const Json bed = saved.value("bed", Json());
+	const Data bed = saved.value("bed", Data());
 	if (bed.is_array() && bed.size() == 3 && bed[0].is_number()) {
 		bed_ = BlockPos{int(bed[0].get<double>()), int(bed[1].get<double>()), int(bed[2].get<double>())};
 	}
@@ -193,8 +193,8 @@ void Game::load_player(const Json &saved) {
 	}
 }
 
-Json Game::save_player() const {
-	Json s = Json::object();
+Data Game::save_player() const {
+	Data s = Data::object();
 	s["inventory"] = inventory_.serialize();
 	s["selected"] = selected_;
 	if (!creative_) {
@@ -209,9 +209,9 @@ Json Game::save_player() const {
 const std::vector<Recipe> &Game::hand_recipes() {
 	if (!recipes_) {
 		recipes_.emplace();
-		const std::optional<Json> list = mods_.rule("hand_recipes", Json::array());
+		const std::optional<Data> list = mods_.rule("hand_recipes", Data::array());
 		if (list && list->is_array()) {
-			for (const Json &r : *list) {
+			for (const Data &r : *list) {
 				if (!r.is_object() || !r.contains("output") || !r["output"].is_string()) {
 					continue;
 				}
@@ -219,7 +219,7 @@ const std::vector<Recipe> &Game::hand_recipes() {
 				recipe.id = r.value("id", "");
 				recipe.output = r["output"].get<std::string>();
 				recipe.count = std::max(1, int(r.value("count", 1.0)));
-				const Json ingredients = r.value("ingredients", Json::object()); // (a local: items() of a temporary dangles)
+				const Data ingredients = r.value("ingredients", Data::object()); // (a local: items() of a temporary dangles)
 				for (const auto &[item, n] : ingredients.items()) {
 					if (n.is_number()) {
 						recipe.ingredients.push_back({item, std::max(1, int(n.get<double>()))});
@@ -266,14 +266,14 @@ bool Game::craft(Inventory &inv, const Recipe &r) {
 	return true;
 }
 
-void Game::inventory_action(const Json &action) {
+void Game::inventory_action(const Data &action) {
 	const float at[3] = {player_.position[0], player_.position[1], player_.position[2]};
 	if (apply_inventory_action(inventory_, action, at) && remote_ && !creative_) {
 		remote_->inventory_action(action); // (the host keeps a survival player's inventory)
 	}
 }
 
-bool Game::apply_inventory_action(Inventory &inv, const Json &a, const float feet[3]) {
+bool Game::apply_inventory_action(Inventory &inv, const Data &a, const float feet[3]) {
 	if (!a.is_array() || a.empty() || !a[0].is_string()) {
 		return false;
 	}
@@ -369,14 +369,14 @@ bool Game::use(const Actor &who, bool sneak) {
 	}
 	// Hoes, seeds: the use_item rule.
 	if (!who.item.empty()) {
-		const std::optional<Json> r = mods_.rule("use_item", Json::array({who.item, hit.position.x, hit.position.y,
+		const std::optional<Data> r = mods_.rule("use_item", Data::array({who.item, hit.position.x, hit.position.y,
 				hit.position.z, hit.normal.x, hit.normal.y, hit.normal.z}));
 		if (r && r->is_object()) {
 			const int take = int(r->value("take", 0.0));
 			for (int i = 0; i < take && !creative_ && who.inventory; i++) {
 				who.inventory->take_one(who.selected);
 			}
-			const Json placed = r->value("placed", Json());
+			const Data placed = r->value("placed", Data());
 			if (placed.is_array() && placed.size() == 3 && placed[0].is_number() && placed[1].is_number() &&
 					placed[2].is_number()) {
 				const BlockPos p{int(placed[0].get<double>()), int(placed[1].get<double>()), int(placed[2].get<double>())};
@@ -424,19 +424,19 @@ bool Game::use(const Actor &who, bool sneak) {
 }
 
 float Game::mine_seconds(const std::string &block, const std::string &tool) {
-	const std::optional<Json> r = mods_.rule("mine_seconds", Json::array({block, tool}));
+	const std::optional<Data> r = mods_.rule("mine_seconds", Data::array({block, tool}));
 	if (r && r->is_number()) {
 		return std::max(0.05f, float(r->get<double>()));
 	}
-	const Json &def = rules_.def(block); // default: hardness x 0.75 s
+	const Data &def = rules_.def(block); // default: hardness x 0.75 s
 	return std::max(0.1f, float(def.value("hardness", 1.0)) * 0.75f);
 }
 
 std::vector<std::string> Game::drops_of(const std::string &block, const std::string &tool) {
 	std::vector<std::string> out;
-	const std::optional<Json> r = mods_.rule("drops", Json::array({block, tool}));
+	const std::optional<Data> r = mods_.rule("drops", Data::array({block, tool}));
 	if (r && r->is_array()) {
-		for (const Json &d : *r) {
+		for (const Data &d : *r) {
 			if (d.is_string() && !d.get<std::string>().empty()) {
 				out.push_back(d.get<std::string>());
 			}
@@ -463,7 +463,7 @@ void Game::play_block_sound(const std::string &block, const std::string &kind, c
 	if (index < 0) {
 		return;
 	}
-	const Json &def = rules_.def(gocube::BlockId(index));
+	const Data &def = rules_.def(gocube::BlockId(index));
 	if (auto it = def.find("sound"); it != def.end() && it->is_string()) {
 		play_sound(it->get<std::string>(), kind, at, volume_db);
 	}
@@ -523,7 +523,7 @@ void Game::update(float dt, const GameInput &in) {
 			if (remote_) {
 				remote_->hit_creature(creature);
 			} else {
-				const Json &item = content_.items.count(tool) ? content_.items.at(tool) : Json::object();
+				const Data &item = content_.items.count(tool) ? content_.items.at(tool) : Data::object();
 				const int damage = int(item.value("damage", 2.0)); // bare hand: 2
 				mods_.creature_hit(creature, damage, player_.position, 0);
 			}
@@ -568,10 +568,10 @@ void Game::update(float dt, const GameInput &in) {
 
 	// Right click: a container opens, a bed becomes the respawn point (sneak
 	// to place against them instead), food is eaten; else placing.
-	const Json &target_def = hit.hit ? rules_.def(hit.block) : Json::object();
+	const Data &target_def = hit.hit ? rules_.def(hit.block) : Data::object();
 	int food = 0;
 	if (in.use_pressed && !selected_item().empty()) {
-		const std::optional<Json> r = mods_.rule("food", Json::array({selected_item()}));
+		const std::optional<Data> r = mods_.rule("food", Data::array({selected_item()}));
 		food = r && r->is_number() ? int(r->get<double>()) : 0;
 	}
 	if (in.use_pressed && hit.hit && !in.sneak && remote_ && !entities_.at(hit.position) &&
@@ -585,7 +585,7 @@ void Game::update(float dt, const GameInput &in) {
 	} else if (in.use_pressed && hit.hit && !in.sneak && target_def.value("bed", false)) {
 		// The head part is the one you lie on.
 		BlockPos head = hit.position;
-		const Json st = target_def.value("state", Json::object());
+		const Data st = target_def.value("state", Data::object());
 		if (st.value("part", "") == "foot") {
 			if (auto other = rules_.other_part(rules_.id_of(hit.block), hit.position)) {
 				head = *other;

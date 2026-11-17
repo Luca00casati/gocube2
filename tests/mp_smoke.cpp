@@ -171,8 +171,8 @@ int run_client(int port) {
 		};
 		check("the chest's contents come from the host",
 				opened && run_until(me, [&] { return slot(0) == gc::Stack{"core:coal", 4}; }, 5));
-		c.game().inventory_action(gc::Json::array({"container", CHEST.x, CHEST.y, CHEST.z, 0}));
-		c.game().inventory_action(gc::Json::array({"container", CHEST.x, CHEST.y, CHEST.z, 1}));
+		c.game().inventory_action(gc::Data::array({"container", CHEST.x, CHEST.y, CHEST.z, 0}));
+		c.game().inventory_action(gc::Data::array({"container", CHEST.x, CHEST.y, CHEST.z, 1}));
 		check("move the coal in it", run_until(me, [&] { return slot(1) == gc::Stack{"core:coal", 4} && slot(0).empty(); }, 5));
 		c.session.close_container(CHEST);
 		run_for(me, 1.0f);

@@ -23,7 +23,7 @@
 
 namespace fs = std::filesystem;
 using gc::BlockPos;
-using gc::Json;
+using gc::Data;
 
 namespace {
 
@@ -34,8 +34,8 @@ fs::path fresh_dir(const char *name) {
 	return dir;
 }
 
-Json read_world(const fs::path &dir) {
-	Json meta;
+Data read_world(const fs::path &dir) {
+	Data meta;
 	std::string why;
 	REQUIRE_MESSAGE(gc::read_lua_data(dir / "world.lua", meta, why), why);
 	return meta;
@@ -90,9 +90,9 @@ TEST_CASE("a world is made, edited and saved, and opens again with its edits and
 	const fs::path dir = fresh_dir("edit");
 	// Everything the game keeps, including lists with empty slots (false: a Lua
 	// list can't hold nil) and an empty table.
-	const Json inventory = Json::array({Json::array({"core:torch", 1}), false, Json::array({"core:dirt", 64}),
-			Json::object({{"armor", Json::array({"", "", "", ""})}})});
-	const Json chests = {{"1,2,3", {{"type", "chest"}, {"slots", Json::array({false, Json::array({"core:stick", 4})})}}}};
+	const Data inventory = Data::array({Data::array({"core:torch", 1}), false, Data::array({"core:dirt", 64}),
+			Data::object({{"armor", Data::array({"", "", "", ""})}})});
+	const Data chests = {{"1,2,3", {{"type", "chest"}, {"slots", Data::array({false, Data::array({"core:stick", 4})})}}}};
 	std::vector<std::string> ids;
 	{
 		OpenWorld w(dir);
@@ -102,10 +102,10 @@ TEST_CASE("a world is made, edited and saved, and opens again with its edits and
 		CHECK(w.world->set_block({-40, 0, 3}, w.id("core:planks"))); // another chunk
 		CHECK(w.world->save_modified() == 2);
 		w.save.set_field("block_entities", chests);
-		w.save.set_field("plants", Json::array({Json::array({1, 41, 1, 12.5})}));
+		w.save.set_field("plants", Data::array({Data::array({1, 41, 1, 12.5})}));
 		w.save.set_field("time", 0.375);
-		w.save.set_field("from_a_newer_mod", {{"keep", "me"}, {"empty", Json::object()}});
-		Json player = Json::object();
+		w.save.set_field("from_a_newer_mod", {{"keep", "me"}, {"empty", Data::object()}});
+		Data player = Data::object();
 		player["position"] = {1.5, 3.0, 1.5};
 		player["rotation"] = {0.1, -1.0};
 		player["flying"] = true;
@@ -124,12 +124,12 @@ TEST_CASE("a world is made, edited and saved, and opens again with its edits and
 	CHECK(w.block(3, 5, 3) == "core:air");
 	CHECK(w.block(1, 2, 1) == "core:glass");
 	CHECK(w.block(-40, 0, 3) == "core:planks");
-	const Json meta = read_world(dir);
+	const Data meta = read_world(dir);
 	CHECK(meta["player"]["position"][0].get<double>() == doctest::Approx(1.5));
 	CHECK(meta["player"]["flying"] == true);
 	CHECK(meta["player"]["health"] == 17);
 	CHECK(meta["player"]["inventory"] == inventory);
-	CHECK(nlohmann::json::parse(meta["block_entities"].dump()) == nlohmann::json::parse(chests.dump())); // (order-free)
+	CHECK(meta["block_entities"] == chests); // (order-free)
 	CHECK(meta["plants"][0][3].get<double>() == doctest::Approx(12.5));
 	CHECK(meta["time"].is_number_float());
 	CHECK(meta["from_a_newer_mod"]["keep"] == "me");
@@ -143,7 +143,7 @@ TEST_CASE("worlds that can't be read safely are left alone") {
 		REQUIRE(save.open(dir, 7) == "");
 		REQUIRE(save.save());
 	}
-	Json meta = read_world(dir);
+	Data meta = read_world(dir);
 	meta["format"] = gc::WorldSave::FORMAT_VERSION + 1;
 	write(dir / "world.lua", gc::write_lua_data(meta));
 	gc::WorldSave save;
@@ -171,32 +171,81 @@ TEST_CASE("a new world gets a seed, the newest generator and the block table") {
 	CHECK(save.generator() == gc::GENERATOR_VERSION);
 	CHECK(save.block_ids().empty());
 	save.set_block_ids({"core:air", "core:stone"});
-	const Json meta = read_world(dir);
-	CHECK(meta["block_ids"] == Json::array({"core:air", "core:stone"}));
+	const Data meta = read_world(dir);
+	CHECK(meta["block_ids"] == Data::array({"core:air", "core:stone"}));
 	CHECK(meta["format"] == gc::WorldSave::FORMAT_VERSION);
 	CHECK(fs::is_directory(dir / "chunks"));
 }
 
+TEST_CASE("data values: brace lists, fields in order, equality, fallbacks") {
+	// Pairs with a string first make an object; anything else a list.
+	const Data obj = {{"b", 1}, {"a", "x"}};
+	CHECK(obj.is_object());
+	CHECK(Data{"core:torch", 5}.is_array());
+	CHECK(Data::array({{"a", 1}})[0].is_array());
+	CHECK(Data{}.is_null());
+	// Fields keep the order they were added in; equality ignores it.
+	REQUIRE(obj.items().size() == 2);
+	CHECK(obj.items()[0].first == "b");
+	CHECK(obj == Data{{"a", "x"}, {"b", 1}});
+	CHECK(obj != Data{{"a", "x"}, {"b", 2}});
+	CHECK(Data(1) == Data(1.0));
+	CHECK(Data::array({1, 2}) != Data::array({2, 1}));
+	// Reading: a missing field, the wrong type or not an object gives the fallback.
+	CHECK(obj.value("b", 0) == 1);
+	CHECK(obj.value("b", 0.5) == 1.0);
+	CHECK(obj.value("a", 3) == 3);
+	CHECK(obj.value("missing", "none") == "none");
+	CHECK(Data(5).value("b", 7) == 7);
+	CHECK(obj["missing"].is_null());
+	CHECK(obj.contains("a"));
+	CHECK_FALSE(obj.contains("c"));
+	CHECK_THROWS_AS(obj.at("c"), std::out_of_range);
+	CHECK_THROWS(obj["a"].get<int>());
+	CHECK(Data(2.9).get<int>() == 2);
+	// Changing: null becomes what's asked of it; update overwrites fields.
+	Data d;
+	d["x"]["y"] = 1;
+	d["list"].push_back("first");
+	d["list"][2] = true; // (grows, with null between)
+	CHECK(d["list"].size() == 3);
+	CHECK(d["list"][1].is_null());
+	d.update({{"x", 2}, {"z", false}});
+	CHECK(d["x"] == 2);
+	CHECK(d.erase("z") == 1);
+	CHECK(d.erase("z") == 0);
+	CHECK(d.size() == 2);
+	// Iterating goes through values; a number has none.
+	int n = 0;
+	for (const Data &v : Data::array({1, 2, 3})) {
+		n += v.get<int>();
+	}
+	CHECK(n == 6);
+	const Data five = 5;
+	CHECK(five.begin() == five.end());
+	CHECK(Data(std::vector<std::string>{"a", "b"}) == Data::array({"a", "b"}));
+}
+
 TEST_CASE("Lua data files: written and read back the same; only data") {
-	const Json data = {
+	const Data data = {
 			{"int", 42}, {"negative", -7}, {"float", 0.1}, {"whole_float", 2.0}, {"big", 4294967295LL},
 			{"text", "quote \" backslash \\ newline \n tab \t bell \a café"}, {"yes", true}, {"no", false},
-			{"list", Json::array({1, "two", Json::array({3.5, false})})},
+			{"list", Data::array({1, "two", Data::array({3.5, false})})},
 			{"needs brackets", 1}, {"end", "a keyword as a key"}, {"9lives", 9},
-			{"nested", {{"deeper", {{"deepest", Json::array({"x"})}}}}},
+			{"nested", {{"deeper", {{"deepest", Data::array({"x"})}}}}},
 	};
 	const std::string text = gc::write_lua_data(data);
 	CHECK(text.rfind("return {", 0) == 0);
-	Json back;
+	Data back;
 	std::string why;
 	REQUIRE_MESSAGE(gc::parse_lua_data(text, "test", back, why), why);
 	// (Order-free: a Lua table's keys come back in its own order.)
-	CHECK(nlohmann::json::parse(back.dump()) == nlohmann::json::parse(data.dump()));
+	CHECK(back == data);
 	CHECK(back["float"].is_number_float());
 	CHECK(back["whole_float"].is_number_float());
 	CHECK(back["int"].is_number_integer());
 	// A list can't hold nil.
-	CHECK_THROWS(gc::write_lua_data(Json::array({1, nullptr, 3})));
+	CHECK_THROWS(gc::write_lua_data(Data::array({1, nullptr, 3})));
 	// Not data: functions, code that calls anything, a script that never ends.
 	CHECK_FALSE(gc::parse_lua_data("return {f = function() end}", "t", back, why));
 	CHECK_FALSE(gc::parse_lua_data("print('hi') return {}", "t", back, why));

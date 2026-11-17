@@ -14,7 +14,7 @@ std::string kind_of(const Content &content, const std::string &block) {
 	if (it == content.blocks.end()) {
 		return "";
 	}
-	const Json &def = it->second;
+	const Data &def = it->second;
 	auto k = def.find("block_entity");
 	return k != def.end() && k->is_string() ? k->get<std::string>() : "";
 }
@@ -56,7 +56,7 @@ double BlockEntities::fuel_seconds(const std::string &item) {
 	if (item.empty()) {
 		return 0;
 	}
-	const std::optional<Json> r = mods_.rule("fuel_seconds", Json::array({item}));
+	const std::optional<Data> r = mods_.rule("fuel_seconds", Data::array({item}));
 	return r && r->is_number() ? std::max(0.0, r->get<double>()) : 0.0;
 }
 
@@ -64,7 +64,7 @@ std::optional<Stack> BlockEntities::smelting(const std::string &input) {
 	if (input.empty()) {
 		return std::nullopt;
 	}
-	const std::optional<Json> r = mods_.rule("smelting", Json::array({input}));
+	const std::optional<Data> r = mods_.rule("smelting", Data::array({input}));
 	if (!r || !r->is_object() || !r->contains("item") || !(*r)["item"].is_string()) {
 		return std::nullopt;
 	}
@@ -156,13 +156,13 @@ void BlockEntities::furnace_status(const BlockEntity &e, float &burn, float &pro
 	progress = float(e.progress / SMELT_SECONDS);
 }
 
-Json BlockEntities::serialize() const {
-	Json out = Json::object();
+Data BlockEntities::serialize() const {
+	Data out = Data::object();
 	for (const auto &[key, e] : entities_) {
 		const auto &[x, y, z] = key;
-		Json slots = Json::array();
+		Data slots = Data::array();
 		for (const Stack &s : e.slots) {
-			slots.push_back(s.empty() ? Json(false) : Json::array({s.id, s.count}));
+			slots.push_back(s.empty() ? Data(false) : Data::array({s.id, s.count}));
 		}
 		out[std::to_string(x) + "," + std::to_string(y) + "," + std::to_string(z)] = {
 				{"type", e.type}, {"slots", slots}, {"burn", e.burn}, {"burn_total", e.burn_total}, {"progress", e.progress}};
@@ -170,25 +170,25 @@ Json BlockEntities::serialize() const {
 	return out;
 }
 
-Json BlockEntities::entity_data(const BlockPos &p) const {
+Data BlockEntities::entity_data(const BlockPos &p) const {
 	auto it = entities_.find({p.x, p.y, p.z});
 	if (it == entities_.end()) {
-		return Json();
+		return Data();
 	}
-	Json slots = Json::array();
+	Data slots = Data::array();
 	for (const Stack &s : it->second.slots) {
-		slots.push_back(s.empty() ? Json(false) : Json::array({s.id, s.count}));
+		slots.push_back(s.empty() ? Data(false) : Data::array({s.id, s.count}));
 	}
 	return {{"type", it->second.type}, {"slots", slots}, {"burn", it->second.burn},
 			{"burn_total", it->second.burn_total}, {"progress", it->second.progress}};
 }
 
-void BlockEntities::set_entity_data(const BlockPos &p, const Json &d) {
+void BlockEntities::set_entity_data(const BlockPos &p, const Data &d) {
 	if (!d.is_object()) {
 		entities_.erase({p.x, p.y, p.z});
 		return;
 	}
-	Json one = Json::object();
+	Data one = Data::object();
 	one["0,0,0"] = d;
 	const auto saved = std::move(entities_);
 	deserialize(one);
@@ -203,7 +203,7 @@ void BlockEntities::set_entity_data(const BlockPos &p, const Json &d) {
 	}
 }
 
-void BlockEntities::deserialize(const Json &data) {
+void BlockEntities::deserialize(const Data &data) {
 	entities_.clear();
 	if (!data.is_object()) {
 		return;
@@ -218,9 +218,9 @@ void BlockEntities::deserialize(const Json &data) {
 			continue;
 		}
 		BlockEntity e = make(type);
-		const Json saved = d.value("slots", Json::array());
+		const Data saved = d.value("slots", Data::array());
 		for (size_t i = 0; i < saved.size() && i < e.slots.size(); i++) {
-			const Json &s = saved[i];
+			const Data &s = saved[i];
 			if (s.is_array() && s.size() == 2 && s[0].is_string() && s[1].is_number() &&
 					(content_.items.count(s[0].get<std::string>()) || content_.blocks.count(s[0].get<std::string>()))) {
 				e.slots[i] = {s[0].get<std::string>(), int(s[1].get<double>())};

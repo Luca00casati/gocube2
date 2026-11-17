@@ -8,12 +8,12 @@ namespace {
 
 const std::string EMPTY_STRING;
 
-std::string str(const Json &j, const char *key, const std::string &fallback = "") {
+std::string str(const Data &j, const char *key, const std::string &fallback = "") {
 	auto it = j.find(key);
 	return it != j.end() && it->is_string() ? it->get<std::string>() : fallback;
 }
 
-bool flag(const Json &j, const char *key, bool fallback = false) {
+bool flag(const Data &j, const char *key, bool fallback = false) {
 	auto it = j.find(key);
 	return it != j.end() && it->is_boolean() ? it->get<bool>() : fallback;
 }
@@ -56,8 +56,8 @@ const std::string &BlockRules::id_of(int block) const {
 	return block >= 0 && block < int(ids.size()) ? ids[block] : EMPTY_STRING;
 }
 
-const Json &BlockRules::def(const std::string &id) const {
-	static const Json empty = Json::object();
+const Data &BlockRules::def(const std::string &id) const {
+	static const Data empty = Data::object();
 	auto it = content_.blocks.find(id);
 	return it != content_.blocks.end() ? it->second : empty;
 }
@@ -96,7 +96,7 @@ std::string BlockRules::door_id(const std::string &base, const std::string &faci
 }
 
 BlockRules::Placement BlockRules::placement(const std::string &base, const RayHit &hit, const float look[3], float hit_y) const {
-	const Json &d = def(base);
+	const Data &d = def(base);
 	const BlockPos pos = hit.previous, n = hit.normal;
 	if (flag(d, "leaves")) {
 		return {{pos, base + "_placed"}}; // placed leaves never decay
@@ -139,8 +139,8 @@ BlockRules::Placement BlockRules::placement(const std::string &base, const RayHi
 }
 
 std::optional<BlockPos> BlockRules::other_part(const std::string &id, const BlockPos &pos) const {
-	const Json &d = def(id);
-	const Json st = d.value("state", Json::object());
+	const Data &d = def(id);
+	const Data st = d.value("state", Data::object());
 	const std::string shape = str(d, "shape");
 	if (shape == "door") {
 		return pos + BlockPos{0, str(st, "half") == "lower" ? 1 : -1, 0};
@@ -153,12 +153,12 @@ std::optional<BlockPos> BlockRules::other_part(const std::string &id, const Bloc
 }
 
 BlockRules::Placement BlockRules::toggle_door(const std::string &id, const BlockPos &pos) const {
-	const Json &d = def(id);
+	const Data &d = def(id);
 	if (str(d, "shape") != "door") {
 		return {};
 	}
 	const std::string base = base_of(id);
-	const Json st = d.value("state", Json::object());
+	const Data st = d.value("state", Data::object());
 	const bool open = !flag(st, "open");
 	const std::string half = str(st, "half"), facing = str(st, "facing");
 	const std::string other_half = half == "lower" ? "upper" : "lower";
@@ -168,17 +168,17 @@ BlockRules::Placement BlockRules::toggle_door(const std::string &id, const Block
 
 bool BlockRules::solid_support(const World &world, const BlockPos &pos) const {
 	const std::string &id = id_of(world.block_at(pos.x, pos.y, pos.z));
-	const Json &d = def(id);
+	const Data &d = def(id);
 	const std::string shape = str(d, "shape", "cube");
 	return !d.empty() && flag(d, "solid", true) && !d.contains("fluid") && id != "core:air" &&
 			(shape == "cube" || shape == "slab" || shape == "stairs");
 }
 
 bool BlockRules::supported(const World &world, const std::string &id, const BlockPos &pos) const {
-	const Json &d = def(id);
+	const Data &d = def(id);
 	const std::string &below = id_of(world.block_at(pos.x, pos.y - 1, pos.z));
 	if (auto it = d.find("plant_on"); it != d.end() && it->is_array()) {
-		for (const Json &b : *it) {
+		for (const Data &b : *it) {
 			if (b.is_string() && b.get<std::string>() == below) {
 				return true;
 			}
@@ -188,7 +188,7 @@ bool BlockRules::supported(const World &world, const std::string &id, const Bloc
 	if (!flag(d, "needs_support")) {
 		return true;
 	}
-	const Json st = d.value("state", Json::object());
+	const Data st = d.value("state", Data::object());
 	if (str(d, "shape") == "door") { // stands on the floor whichever way it faces
 		if (str(st, "half") == "upper") {
 			return base_of(below) == base_of(id);

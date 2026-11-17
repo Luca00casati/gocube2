@@ -21,7 +21,7 @@ ModelVertex vertex(V3 p, V3 n, float u, float v) {
 
 // The single box (in 0..1 of the cell) a slab, a one-box "boxes" block or a
 // bed fills; the whole cell for everything else (ItemDrop._model_bounds).
-void model_bounds(const Json &def, float mn[3], float mx[3]) {
+void model_bounds(const Data &def, float mn[3], float mx[3]) {
 	mn[0] = mn[1] = mn[2] = 0;
 	mx[0] = mx[1] = mx[2] = 1;
 	const std::string shape = def.value("shape", "cube");
@@ -30,7 +30,7 @@ void model_bounds(const Json &def, float mn[3], float mx[3]) {
 	} else if (shape == "bed") {
 		mx[1] = 9.0f / 16.0f;
 	} else if (shape == "boxes") {
-		const Json boxes = def.value("boxes", Json::array());
+		const Data boxes = def.value("boxes", Data::array());
 		if (boxes.is_array() && boxes.size() == 1 && boxes[0].is_array() && boxes[0].size() >= 6) {
 			for (int k = 0; k < 3; k++) {
 				mn[k] = float(boxes[0][k].get<double>() / 16.0);
@@ -54,7 +54,7 @@ const std::vector<ModelVertex> &ItemModels::model(const std::string &item) {
 	}
 	std::vector<ModelVertex> out;
 	const int index = content_.block_index(item);
-	const Json *def = index > 0 ? &content_.blocks.at(item) : nullptr;
+	const Data *def = index > 0 ? &content_.blocks.at(item) : nullptr;
 	if (def && def->value("shape", "") == "bed") {
 		// A whole bed in one cell: the head half (pillow) towards -Z, the foot
 		// half towards +Z, each squeezed to half its length; without the two

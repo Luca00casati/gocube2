@@ -76,7 +76,7 @@ public:
 	virtual void request_eat(int slot) = 0;
 	virtual void hit_creature(int id) = 0;
 	// Survival: a click in a screen (Game::inventory_action), done here too.
-	virtual void inventory_action(const Json &action) = 0;
+	virtual void inventory_action(const Data &action) = 0;
 	virtual void set_bed(const BlockPos &head) = 0;
 	virtual void respawned() = 0;
 };
@@ -142,8 +142,8 @@ public:
 	// placeable blocks.
 	void start_new_player();
 	void give_starting_items(Inventory &inv); // (the starting_items rule)
-	void load_player(const Json &saved); // world.lua's player
-	Json save_player() const;            // the fields this adds to it
+	void load_player(const Data &saved); // world.lua's player
+	Data save_player() const;            // the fields this adds to it
 
 	// Once a frame: hotbar, mining, breaking, placing, picking.
 	void update(float dt, const GameInput &input);
@@ -156,8 +156,8 @@ public:
 	bool grow_tree(const BlockPos &pos, const std::string &tree_id);
 	// Growing crops and saplings (the mods' save_plants/load_plants rules),
 	// for world.lua's "plants".
-	Json save_plants();
-	void load_plants(const Json &data);
+	Data save_plants();
+	void load_plants(const Data &data);
 
 	// --- Health (survival) ---
 	static constexpr int MAX_HEALTH = 20;
@@ -185,7 +185,7 @@ public:
 	// loaded (that becomes the world spawn).
 	void spawn_on_ground() { spawn_pending_ = true; }
 	const std::optional<std::array<float, 3>> &world_spawn() const { return world_spawn_; }
-	void set_world_spawn(const Json &saved); // world.lua's "spawn"
+	void set_world_spawn(const Data &saved); // world.lua's "spawn"
 	// Once a physics step: dropped items.
 	void physics_step(float dt);
 	void drop_item(const std::string &item, int count, const float at[3]) { drops_.spawn(item, count, at); }
@@ -205,10 +205,10 @@ public:
 	// too): ["click", slot], ["armor", k], ["craft", recipe id], ["pick", item]
 	// (creative: take one from the palette), ["container", x, y, z, slot],
 	// ["close"] (what the mouse holds goes back, the rest is dropped).
-	void inventory_action(const Json &action);
+	void inventory_action(const Data &action);
 	// The same on any inventory (the host: a joined player's copy, standing
 	// at `feet`); false if the action isn't a valid one.
-	bool apply_inventory_action(Inventory &inv, const Json &action, const float feet[3]);
+	bool apply_inventory_action(Inventory &inv, const Data &action, const float feet[3]);
 
 	// --- Multiplayer ---
 	// A client: the world's changes go through the host.

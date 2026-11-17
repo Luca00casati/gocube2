@@ -19,7 +19,7 @@
 #include <string>
 
 namespace fs = std::filesystem;
-using gc::Json;
+using gc::Data;
 
 namespace {
 
@@ -36,8 +36,8 @@ void write(const fs::path &p, const std::string &text) {
 }
 
 // A mod folder `id` in `root` with main.lua (unless empty) and these extra mod.lua fields.
-void make_mod(const fs::path &root, const std::string &id, const std::string &main_lua, Json extra = Json::object()) {
-	Json m = {{"id", id}, {"version", "1.0"}};
+void make_mod(const fs::path &root, const std::string &id, const std::string &main_lua, Data extra = Data::object()) {
+	Data m = {{"id", id}, {"version", "1.0"}};
 	if (!main_lua.empty()) {
 		m["entry"] = "main.lua";
 		write(root / id / "main.lua", main_lua);
@@ -88,13 +88,13 @@ TEST_CASE("the base game's main.lua registers its planks and recipe") {
 	gc::Content content;
 	load_base_game(content);
 	REQUIRE(content.blocks.count("core:planks"));
-	const Json &planks = content.blocks["core:planks"];
+	const Data &planks = content.blocks["core:planks"];
 	CHECK(planks["color"] == "#b8945f");
 	CHECK(planks["textures"]["all"] == "textures/planks.png");
 	CHECK(planks["hardness"].get<double>() == 2.0);
 	CHECK(planks["mod"] == "core");
 	REQUIRE(content.recipes.count("core:planks_to_sticks"));
-	CHECK(content.recipes["core:planks_to_sticks"]["pattern"] == Json::array({"P", "P"}));
+	CHECK(content.recipes["core:planks_to_sticks"]["pattern"] == Data::array({"P", "P"}));
 	CHECK(content.recipes["core:planks_to_sticks"]["output"]["count"] == 4);
 }
 
@@ -256,7 +256,11 @@ registry.register_block('walk', {order = table.concat(order, ','), data = t})
 	for (int run = 0; run < 3; run++) {
 		Loaded l(root, quick());
 		REQUIRE(l.content.blocks.count("orderly:walk"));
-		const std::string dump = l.content.blocks["orderly:walk"].dump();
+		const Data &walk = l.content.blocks["orderly:walk"];
+		std::string dump = walk["order"].str() + ";"; // pairs' order, then the fields' order as read
+		for (const auto &[k, v] : walk["data"].items()) {
+			dump += k + "=" + std::to_string(v.get<int64_t>()) + ",";
+		}
 		if (run == 0) {
 			first = dump;
 		}

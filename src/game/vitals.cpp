@@ -12,7 +12,7 @@ namespace {
 constexpr float REGEN_DELAY = 4.0f, REGEN_INTERVAL = 2.5f; // as Game's
 constexpr int DROWN_DAMAGE = 2;
 
-const Json &def_at(const World &world, const BlockRules &rules, float x, float y, float z) {
+const Data &def_at(const World &world, const BlockRules &rules, float x, float y, float z) {
 	return rules.def(world.block_at(int(std::floor(x)), int(std::floor(y)), int(std::floor(z))));
 }
 
@@ -61,7 +61,7 @@ void Vitals::moved(const World &world, const BlockRules &rules, Mods &mods, cons
 	} else if (!world.is_box_free(below, body)) { // on the ground
 		const float fall = *fall_peak_ - feet[1];
 		if (fall > 0.6f) {
-			const std::optional<Json> r = mods.rule("fall_damage", Json::array({fall}));
+			const std::optional<Data> r = mods.rule("fall_damage", Data::array({fall}));
 			hurt(r && r->is_number() ? int(r->get<double>()) : int(std::floor(std::max(0.0f, fall - 3.0f))));
 		}
 		fall_peak_ = feet[1];
@@ -74,7 +74,7 @@ void Vitals::tick(const World &world, const BlockRules &rules, const float feet[
 	if (dead) {
 		return;
 	}
-	const Json &body = in_bed ? Json::object() : def_at(world, rules, feet[0], feet[1] + 0.4f, feet[2]);
+	const Data &body = in_bed ? Data::object() : def_at(world, rules, feet[0], feet[1] + 0.4f, feet[2]);
 	if (body.contains("damage") && body["damage"].is_number()) {
 		burn_timer_ += dt;
 		if (burn_timer_ >= 0.5f) {

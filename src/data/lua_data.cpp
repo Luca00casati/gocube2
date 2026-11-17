@@ -28,7 +28,7 @@ constexpr int MAX_HOOKS = 5000; // 50 million VM steps: a data file needs a few 
 struct Reader {
 	size_t used = 0;
 	int hooks = 0;
-	Json result;
+	Data result;
 };
 
 void *alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
@@ -134,8 +134,8 @@ void put_number(std::string &out, double d) {
 }
 
 // Keys in order, null fields left out.
-std::vector<std::pair<std::string, const Json *>> fields(const Json &o) {
-	std::vector<std::pair<std::string, const Json *>> f;
+std::vector<std::pair<std::string, const Data *>> fields(const Data &o) {
+	std::vector<std::pair<std::string, const Data *>> f;
 	for (const auto &[k, v] : o.items()) {
 		if (!v.is_null()) {
 			f.push_back({k, &v});
@@ -145,10 +145,10 @@ std::vector<std::pair<std::string, const Json *>> fields(const Json &o) {
 	return f;
 }
 
-void put(std::string &out, const Json &v, int depth);
+void put(std::string &out, const Data &v, int depth);
 
 // The whole value on one line, if it's short and holds no tables of tables.
-bool put_inline(std::string &out, const Json &v, int depth) {
+bool put_inline(std::string &out, const Data &v, int depth) {
 	if (!v.is_structured()) {
 		put(out, v, depth);
 		return true;
@@ -156,9 +156,9 @@ bool put_inline(std::string &out, const Json &v, int depth) {
 	std::string line = "{";
 	bool first = true;
 	if (v.is_array()) {
-		for (const Json &e : v) {
+		for (const Data &e : v) {
 			if (e.is_structured() && !e.empty()) {
-				if (e.is_object() || std::any_of(e.begin(), e.end(), [](const Json &x) { return x.is_structured(); })) {
+				if (e.is_object() || std::any_of(e.begin(), e.end(), [](const Data &x) { return x.is_structured(); })) {
 					return false;
 				}
 			}
@@ -186,18 +186,18 @@ bool put_inline(std::string &out, const Json &v, int depth) {
 	return true;
 }
 
-void put(std::string &out, const Json &v, int depth) {
+void put(std::string &out, const Data &v, int depth) {
 	if (v.is_null()) {
 		throw std::invalid_argument("a list can't hold null in a Lua data file");
 	}
 	if (v.is_boolean()) {
 		out += v.get<bool>() ? "true" : "false";
-	} else if (v.is_number_integer() || v.is_number_unsigned()) {
+	} else if (v.is_number_integer()) {
 		out += std::to_string(v.get<int64_t>());
 	} else if (v.is_number()) {
 		put_number(out, v.get<double>());
 	} else if (v.is_string()) {
-		put_string(out, v.get_ref<const std::string &>());
+		put_string(out, v.str());
 	} else if (v.empty()) {
 		out += "{}";
 	} else {
@@ -209,7 +209,7 @@ void put(std::string &out, const Json &v, int depth) {
 		const std::string pad(size_t(depth) + 1, '\t');
 		out += "{\n";
 		if (v.is_array()) {
-			for (const Json &e : v) {
+			for (const Data &e : v) {
 				out += pad;
 				put(out, e, depth + 1);
 				out += ",\n";
@@ -229,7 +229,7 @@ void put(std::string &out, const Json &v, int depth) {
 
 } // namespace
 
-Json lua_to_data(lua_State *L, int idx, int depth) {
+Data lua_to_data(lua_State *L, int idx, int depth) {
 	idx = lua_absindex(L, idx);
 	switch (lua_type(L, idx)) {
 		case LUA_TNIL:
@@ -265,7 +265,7 @@ Json lua_to_data(lua_State *L, int idx, int depth) {
 				lua_pop(L, 1);
 			}
 			if (n > 0 && count == n) {
-				Json a = Json::array();
+				Data a = Data::array();
 				for (lua_Integer i = 1; i <= n; i++) {
 					lua_rawgeti(L, idx, i);
 					a.push_back(lua_to_data(L, -1, depth + 1));
@@ -273,13 +273,13 @@ Json lua_to_data(lua_State *L, int idx, int depth) {
 				}
 				return a;
 			}
-			Json o = Json::object();
+			Data o = Data::object();
 			lua_pushnil(L);
 			while (lua_next(L, idx)) {
 				if (lua_type(L, -2) != LUA_TSTRING) {
 					luaL_error(L, "keys must be strings (or a list 1..n)");
 				}
-				o[lua_tostring(L, -2)] = lua_to_data(L, -1, depth + 1);
+				o.add_member(lua_tostring(L, -2), lua_to_data(L, -1, depth + 1)); // (keys are unique)
 				lua_pop(L, 1);
 			}
 			return o;
@@ -290,18 +290,18 @@ Json lua_to_data(lua_State *L, int idx, int depth) {
 	}
 }
 
-void push_data(lua_State *L, const Json &j) {
+void push_data(lua_State *L, const Data &j) {
 	luaL_checkstack(L, 4, "data nested too deeply");
 	if (j.is_null()) {
 		lua_pushnil(L);
 	} else if (j.is_boolean()) {
 		lua_pushboolean(L, j.get<bool>());
-	} else if (j.is_number_integer() || j.is_number_unsigned()) {
+	} else if (j.is_number_integer()) {
 		lua_pushinteger(L, j.get<int64_t>());
 	} else if (j.is_number()) {
 		lua_pushnumber(L, j.get<double>());
 	} else if (j.is_string()) {
-		const std::string &s = j.get_ref<const std::string &>();
+		const std::string &s = j.str();
 		lua_pushlstring(L, s.data(), s.size());
 	} else if (j.is_array()) {
 		lua_createtable(L, int(j.size()), 0);
@@ -318,7 +318,7 @@ void push_data(lua_State *L, const Json &j) {
 	}
 }
 
-bool parse_lua_data(std::string_view text, const std::string &name, Json &out, std::string &error) {
+bool parse_lua_data(std::string_view text, const std::string &name, Data &out, std::string &error) {
 	Reader r;
 	lua_State *L = lua_newstate(&alloc, &r);
 	if (!L) {
@@ -348,7 +348,7 @@ bool parse_lua_data(std::string_view text, const std::string &name, Json &out, s
 	return true;
 }
 
-bool read_lua_data(const std::filesystem::path &path, Json &out, std::string &error) {
+bool read_lua_data(const std::filesystem::path &path, Data &out, std::string &error) {
 	std::ifstream f(path, std::ios::binary);
 	if (!f) {
 		error = "can't read it";
@@ -359,14 +359,14 @@ bool read_lua_data(const std::filesystem::path &path, Json &out, std::string &er
 	return parse_lua_data(ss.str(), path.filename().string(), out, error);
 }
 
-std::string write_lua_data(const Json &data) {
+std::string write_lua_data(const Data &data) {
 	std::string out = "return ";
 	put(out, data, 0);
 	out += "\n";
 	return out;
 }
 
-bool save_lua_data(const std::filesystem::path &path, const Json &data) {
+bool save_lua_data(const std::filesystem::path &path, const Data &data) {
 	std::string text;
 	try {
 		text = write_lua_data(data);

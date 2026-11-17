@@ -19,7 +19,7 @@ float lerp_angle(float from, float to, float w) {
 	return from + d * w;
 }
 
-float number(const Json &def, const char *key, float fallback) {
+float number(const Data &def, const char *key, float fallback) {
 	auto it = def.find(key);
 	return it != def.end() && it->is_number() ? float(it->get<double>()) : fallback;
 }
@@ -31,7 +31,7 @@ int Creatures::spawn(const Content &content, const std::string &kind, const floa
 	if (it == content.creatures.end() || int(list_.size()) >= MAX) {
 		return 0;
 	}
-	const Json &def = it->second;
+	const Data &def = it->second;
 	Creature c;
 	c.id = next_id_++;
 	c.kind = kind;
@@ -39,7 +39,7 @@ int Creatures::spawn(const Content &content, const std::string &kind, const floa
 	c.variant = variant;
 	std::copy(at, at + 3, c.pos);
 	std::copy(at, at + 3, c.prev);
-	const Json box = def.value("box", Json::array());
+	const Data box = def.value("box", Data::array());
 	if (box.is_array() && box.size() == 3) {
 		for (int k = 0; k < 3; k++) {
 			c.box[k] = box[k].is_number() ? float(box[k].get<double>()) : c.box[k];
@@ -218,15 +218,15 @@ int Creatures::pick(const float origin[3], const float dir[3], float max_distanc
 	return best;
 }
 
-Json Creatures::describe(Creature &c) const {
-	Json j = {{"id", c.id}, {"kind", c.kind}, {"variant", c.variant}, {"x", c.pos[0]}, {"y", c.pos[1]},
+Data Creatures::describe(Creature &c) const {
+	Data j = {{"id", c.id}, {"kind", c.kind}, {"variant", c.variant}, {"x", c.pos[0]}, {"y", c.pos[1]},
 			{"z", c.pos[2]}, {"yaw", c.yaw}, {"heading", c.heading}, {"speed", c.speed}, {"on_floor", c.on_floor},
 			{"hit_wall", c.hit_wall}, {"walking", c.walking}};
 	c.hit_wall = false;
 	return j;
 }
 
-void Creatures::apply(Creature &c, const Json &f) {
+void Creatures::apply(Creature &c, const Data &f) {
 	if (!f.is_object()) {
 		return;
 	}

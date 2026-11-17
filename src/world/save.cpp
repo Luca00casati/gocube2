@@ -24,7 +24,7 @@ std::string now_string() {
 	return buf;
 }
 
-double number(const Json &j, const char *key, double fallback) {
+double number(const Data &j, const char *key, double fallback) {
 	auto it = j.find(key);
 	return it != j.end() && it->is_number() ? it->get<double>() : fallback;
 }
@@ -53,7 +53,7 @@ std::string WorldSave::open(const std::filesystem::path &dir, uint32_t new_seed,
 		return "it was saved as world.json (by the Godot version, or before worlds were Lua), which this "
 			   "version doesn't read.";
 	} else {
-		meta_ = Json::object();
+		meta_ = Data::object();
 		meta_["seed"] = new_seed;
 		meta_["mode"] = new_mode;
 		meta_["first_night"] = "ahead"; // no ninjas until it's over
@@ -83,7 +83,7 @@ std::string WorldSave::mode() const {
 
 std::vector<std::string> WorldSave::block_ids() const {
 	std::vector<std::string> ids;
-	for (const Json &id : meta_.value("block_ids", Json::array())) {
+	for (const Data &id : meta_.value("block_ids", Data::array())) {
 		if (id.is_string()) {
 			ids.push_back(id.get<std::string>());
 		}
@@ -96,23 +96,23 @@ void WorldSave::set_block_ids(const std::vector<std::string> &ids) {
 	write_meta(); // before any chunk can be saved with these numbers
 }
 
-const Json &WorldSave::player() const {
-	static const Json empty = Json::object();
+const Data &WorldSave::player() const {
+	static const Data empty = Data::object();
 	auto it = meta_.find("player");
 	return it != meta_.end() && it->is_object() ? *it : empty;
 }
 
-const Json &WorldSave::field(const std::string &key) const {
-	static const Json none = nullptr;
+const Data &WorldSave::field(const std::string &key) const {
+	static const Data none = nullptr;
 	auto it = meta_.find(key);
 	return it != meta_.end() ? *it : none;
 }
 
-bool WorldSave::save(const Json &player) {
+bool WorldSave::save(const Data &player) {
 	if (!player.empty()) {
-		Json &saved = meta_["player"];
+		Data &saved = meta_["player"];
 		if (!saved.is_object()) {
-			saved = Json::object();
+			saved = Data::object();
 		}
 		for (const auto &[k, v] : player.items()) {
 			saved[k] = v;

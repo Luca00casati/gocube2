@@ -134,7 +134,7 @@ public:
 	// A client: the host took us in; the world to build (block_ids, seed,
 	// generator, mode, time, day_length, spawn, world_spawn, first_night, id).
 	bool welcomed() const { return welcomed_; }
-	const Json &welcome() const { return welcome_; }
+	const Data &welcome() const { return welcome_; }
 	// Why it ended (a client: refused, lost, timed out); "" while it goes on.
 	const std::string &ended() const { return ended_; }
 
@@ -151,7 +151,7 @@ public:
 	};
 	void attach(const Attach &a);
 	// The host: what a client needs to build the world: seed, generator, block_ids.
-	void set_world_info(Json info) { world_info_ = std::move(info); }
+	void set_world_info(Data info) { world_info_ = std::move(info); }
 	void detach();
 	// Each frame, after the game's update: states out, the host's checks,
 	// avatars smoothed.
@@ -174,8 +174,8 @@ public:
 
 	// The host: joined players' inventories and health, kept by name in the
 	// world (world.lua's "players"): {name = {inventory, health}}.
-	void set_saved_players(const Json &players);
-	Json saved_players();
+	void set_saved_players(const Data &players);
+	Data saved_players();
 
 	// Remote (a client's game asks through these).
 	void start_mining(const BlockPos &p) override;
@@ -183,7 +183,7 @@ public:
 	void request_use(const float eye[3], const float dir[3], int slot, const std::string &item, bool sneak) override;
 	void request_eat(int slot) override;
 	void hit_creature(int id) override;
-	void inventory_action(const Json &action) override;
+	void inventory_action(const Data &action) override;
 	void set_bed(const BlockPos &head) override;
 	void respawned() override;
 	// A client: a container screen opened or closed (its contents come from the host).
@@ -246,7 +246,7 @@ private:
 	std::vector<std::string> mods_;
 	int my_id_ = 0;
 	bool connected_ = false, welcomed_ = false;
-	Json welcome_;
+	Data welcome_;
 	std::string ended_;
 	double started_ = 0;
 	Attach a_;
@@ -256,12 +256,12 @@ private:
 	int player_count_ = 1;
 	float state_timer_ = 0, world_timer_ = 0, time_timer_ = 0;
 	LocalPose last_pose_;
-	Json saved_players_ = Json::object();
+	Data saved_players_ = Data::object();
 	std::string last_first_night_;
 	bool woken_ = false;
 	std::optional<std::array<float, 3>> correction_, push_;
 	uint32_t inventory_seq_ = 0; // a client: inventory actions sent
-	Json world_info_ = Json::object();
+	Data world_info_ = Data::object();
 	std::map<std::string, std::filesystem::path> mod_folders_, local_mods_;
 	std::map<std::string, std::vector<uint8_t>> packs_; // the host: mods packed to send (made once)
 	std::vector<std::string> host_mods_, restarted_with_;

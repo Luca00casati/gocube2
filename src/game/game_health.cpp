@@ -55,7 +55,7 @@ void Game::after_move(float dt) {
 			const float fall = fall_peak_ - y;
 			if (fall > 0.6f) {
 				play_block_sound(below, "step", player_.position); // landing
-				const std::optional<Json> r = mods_.rule("fall_damage", Json::array({fall}));
+				const std::optional<Data> r = mods_.rule("fall_damage", Data::array({fall}));
 				damage(r && r->is_number() ? int(r->get<double>()) : int(std::floor(std::max(0.0f, fall - 3.0f))));
 			}
 		}
@@ -87,11 +87,11 @@ void Game::after_move(float dt) {
 	if (creative_ || dead_ || remote_) { // (a client: the host keeps our health)
 		return;
 	}
-	auto block_def = [&](float bx, float by, float bz) -> const Json & {
+	auto block_def = [&](float bx, float by, float bz) -> const Data & {
 		return rules_.def(world_.block_at(floor_i(bx), floor_i(by), floor_i(bz)));
 	};
 	// Fluids that hurt ("damage": lava) burn every half second; the first touch at once.
-	const Json &body = block_def(player_.position[0], y + 0.4f, player_.position[2]);
+	const Data &body = block_def(player_.position[0], y + 0.4f, player_.position[2]);
 	if (body.contains("damage") && body["damage"].is_number()) {
 		burn_timer_ += dt;
 		if (burn_timer_ >= 0.5f) {
@@ -102,7 +102,7 @@ void Game::after_move(float dt) {
 		burn_timer_ = 0.5f;
 	}
 	// Breath: lost with the head in water, then drowning; back three times as fast.
-	const Json &head = block_def(player_.position[0], y + Player::EYE_HEIGHT, player_.position[2]);
+	const Data &head = block_def(player_.position[0], y + Player::EYE_HEIGHT, player_.position[2]);
 	if (head.contains("fluid")) {
 		breath_ = std::max(0.0f, breath_ - dt);
 		if (breath_ <= 0) {
@@ -167,7 +167,7 @@ void Game::respawn() {
 	}
 }
 
-void Game::set_world_spawn(const Json &saved) {
+void Game::set_world_spawn(const Data &saved) {
 	if (saved.is_array() && saved.size() == 3 && saved[0].is_number()) {
 		world_spawn_ = std::array<float, 3>{saved[0].get<float>(), saved[1].get<float>(), saved[2].get<float>()};
 	}

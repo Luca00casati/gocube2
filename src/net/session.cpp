@@ -607,7 +607,7 @@ void Session::hello(Peer &p, const uint8_t *data, size_t size) {
 	if (!a_.game->creative()) {
 		// Survival: we keep its inventory and health (back from last time).
 		p.inv = std::make_unique<Inventory>(*a_.content);
-		const Json saved = saved_players_.value(name, Json::object());
+		const Data saved = saved_players_.value(name, Data::object());
 		if (saved.is_object() && saved.contains("inventory")) {
 			p.inv->deserialize(saved["inventory"]);
 		} else {
@@ -618,7 +618,7 @@ void Session::hello(Peer &p, const uint8_t *data, size_t size) {
 		}
 		p.inv_changed = true;
 	}
-	Json info = world_info_;
+	Data info = world_info_;
 	info["id"] = p.id;
 	info["mode"] = a_.game->creative() ? "creative" : "survival";
 	info["time"] = a_.day ? a_.day->time : 0.3;
@@ -916,7 +916,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 			}
 			p.inv_changed = true;
 			const std::string item = p.inv->slots[size_t(slot)].id;
-			const std::optional<Json> food = item.empty() ? std::nullopt : a_.mods->rule("food", Json::array({item}));
+			const std::optional<Data> food = item.empty() ? std::nullopt : a_.mods->rule("food", Data::array({item}));
 			if (food && food->is_number() && food->get<double>() > 0 && !p.vitals.dead &&
 					p.vitals.health < Vitals::MAX_HEALTH) {
 				p.vitals.heal(int(food->get<double>()));
@@ -947,7 +947,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 		}
 		case C_INVENTORY: {
 			const uint32_t seq = r.u32();
-			const Json action = r.data(512);
+			const Data action = r.data(512);
 			if (!r.ok() || !p.inv) {
 				return;
 			}
@@ -1095,7 +1095,7 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 		std::string problem = unpack_mod(d.data, dir);
 		if (problem.empty()) {
 			ModInfo info;
-			Json m;
+			Data m;
 			std::string why;
 			if (!read_lua_data(dir / "mod.lua", m, why) || !m.is_object()) {
 				problem = "its mod.lua can't be read";
@@ -1125,7 +1125,7 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 		if (welcomed_) {
 			return;
 		}
-		Json info = r.data(4 << 20);
+		Data info = r.data(4 << 20);
 		const uint32_t count = r.u32();
 		std::vector<std::pair<ChunkPos, std::vector<uint8_t>>> chunks;
 		for (uint32_t i = 0; i < count && r.ok(); i++) {
@@ -1225,13 +1225,13 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 		}
 		case H_INVENTORY: {
 			const uint32_t done = r.u32();
-			const Json got = r.data();
+			const Data got = r.data();
 			// Shown only when no action of ours is still on its way (it would
 			// be undone for a moment).
 			if (r.ok() && got.is_object() && done >= inventory_seq_) {
 				Inventory &inv = game.inventory();
-				inv.deserialize(got.value("inventory", Json::array()));
-				const Json cursor = got.value("cursor", Json());
+				inv.deserialize(got.value("inventory", Data::array()));
+				const Data cursor = got.value("cursor", Data());
 				if (cursor.is_array() && cursor.size() == 2 && cursor[0].is_string() && cursor[1].is_number()) {
 					inv.cursor = {cursor[0].get<std::string>(), int(cursor[1].get<double>())};
 				}
@@ -1297,7 +1297,7 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 		}
 		case H_CONTAINER: {
 			const BlockPos pos = read_block(r);
-			const Json got = r.data();
+			const Data got = r.data();
 			if (r.ok()) {
 				game.block_entities().set_entity_data(pos, got);
 			}
@@ -1421,8 +1421,8 @@ void Session::host_update(float dt) {
 			}
 			if (p->inv_changed) {
 				p->inv_changed = false;
-				Json data = {{"inventory", p->inv->serialize()}};
-				data["cursor"] = p->inv->cursor.empty() ? Json(false) : Json::array({p->inv->cursor.id, p->inv->cursor.count});
+				Data data = {{"inventory", p->inv->serialize()}};
+				data["cursor"] = p->inv->cursor.empty() ? Data(false) : Data::array({p->inv->cursor.id, p->inv->cursor.count});
 				Writer w(H_INVENTORY);
 				w.u32(p->done).data(data);
 				send(p->enet, w.bytes);
@@ -1468,12 +1468,12 @@ void Session::host_update(float dt) {
 		for (auto &p : peers_) {
 			for (auto &[key, sent] : p->viewing) {
 				const BlockPos pos{std::get<0>(key), std::get<1>(key), std::get<2>(key)};
-				const Json data = game.block_entities().entity_data(pos);
-				const std::string text = data.dump();
+				const Data data = game.block_entities().entity_data(pos);
+				const std::string text = data.is_null() ? std::string() : write_lua_data(data);
 				if (text != sent) {
 					sent = text;
 					Writer w(H_CONTAINER);
-					block_pos(w, pos).data(data.is_null() ? Json(false) : data);
+					block_pos(w, pos).data(data.is_null() ? Data(false) : data);
 					send(p->enet, w.bytes);
 				}
 			}
@@ -1616,11 +1616,11 @@ void Session::night_skipped() {
 
 // --- Saved players ------------------------------------------------------------------
 
-void Session::set_saved_players(const Json &players) {
-	saved_players_ = players.is_object() ? players : Json::object();
+void Session::set_saved_players(const Data &players) {
+	saved_players_ = players.is_object() ? players : Data::object();
 }
 
-Json Session::saved_players() {
+Data Session::saved_players() {
 	for (const auto &p : peers_) {
 		if (p->joined && p->inv) {
 			// What the mouse holds goes back in first.
@@ -1629,7 +1629,7 @@ Json Session::saved_players() {
 				copy.add(copy.cursor.id, copy.cursor.count);
 				copy.cursor = {};
 			}
-			Json entry = {{"inventory", copy.serialize()}};
+			Data entry = {{"inventory", copy.serialize()}};
 			if (!p->vitals.dead) {
 				entry["health"] = p->vitals.health;
 			}
@@ -1704,7 +1704,7 @@ void Session::hit_creature(int id) {
 	send_host(w.bytes);
 }
 
-void Session::inventory_action(const Json &action) {
+void Session::inventory_action(const Data &action) {
 	Writer w(C_INVENTORY);
 	w.u32(++inventory_seq_).data(action);
 	send_host(w.bytes);

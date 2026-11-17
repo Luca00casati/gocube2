@@ -21,8 +21,8 @@ public:
 	const Content &content() const { return content_; }
 	const std::string &id_of(int block) const; // "" if unknown
 	int index_of(const std::string &id) const { return content_.block_index(id); }
-	const Json &def(const std::string &id) const; // {} if unknown
-	const Json &def(int block) const { return def(id_of(block)); }
+	const Data &def(const std::string &id) const; // {} if unknown
+	const Data &def(int block) const { return def(id_of(block)); }
 
 	// Blocks a player can place (not air, fluids, variants or hidden ones), by id.
 	const std::vector<std::string> &placeable() const { return placeable_; }

@@ -527,15 +527,15 @@ void apply_day(const gc::DayCycle &day, float view, gc::SkyParams &sky) {
 	sky.cloud_offset[1] = day.cloud_offset[1];
 }
 
-gc::Json player_state(const gc::Player &p) {
-	gc::Json s = gc::Json::object();
+gc::Data player_state(const gc::Player &p) {
+	gc::Data s = gc::Data::object();
 	s["position"] = {p.position[0], p.position[1], p.position[2]};
 	s["rotation"] = {p.pitch, p.yaw};
 	s["flying"] = p.flying;
 	return s;
 }
 
-void restore_player(gc::Player &p, const gc::Json &s) {
+void restore_player(gc::Player &p, const gc::Data &s) {
 	auto pos = s.find("position");
 	if (pos != s.end() && pos->is_array() && pos->size() == 3) {
 		for (int i = 0; i < 3; i++) {
@@ -631,7 +631,7 @@ std::vector<WorldEntry> find_worlds() {
 		WorldEntry w;
 		w.dir = e.path();
 		w.name = utf8_string(e.path().filename());
-		gc::Json meta;
+		gc::Data meta;
 		std::string why;
 		if (std::filesystem::exists(e.path() / "world.lua", ec)) {
 			if (gc::read_lua_data(e.path() / "world.lua", meta, why) && meta.is_object()) {
@@ -954,7 +954,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			return cancelled ? End::MENU : End::FAILED;
 		}
 	}
-	const gc::Json &welcome = session.welcome();
+	const gc::Data &welcome = session.welcome();
 
 	// The world: its folder decides the seed, generator and block ids.
 	std::optional<gc::WorldSave> save;
@@ -965,7 +965,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		seed = uint32_t(welcome.value("seed", 0.0));
 		generator_version = int(welcome.value("generator", double(gc::GENERATOR_VERSION)));
 		std::vector<std::string> ids;
-		for (const gc::Json &id : welcome.value("block_ids", gc::Json::array())) {
+		for (const gc::Data &id : welcome.value("block_ids", gc::Data::array())) {
 			ids.push_back(id.is_string() ? id.get<std::string>() : "");
 		}
 		content.freeze(ids); // (the host's block ids)
@@ -1015,7 +1015,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		restore_player(player, save->player());
 	}
 	if (joining) { // where the host put us
-		const gc::Json spawn = welcome.value("spawn", gc::Json::array());
+		const gc::Data spawn = welcome.value("spawn", gc::Data::array());
 		if (spawn.is_array() && spawn.size() == 3 && spawn[0].is_number()) {
 			player.position[0] = spawn[0].get<float>();
 			player.position[1] = spawn[1].get<float>() - gc::Player::EYE_HEIGHT;
@@ -1043,13 +1043,13 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		game.block_entities().deserialize(save->field("block_entities"));
 		game.set_world_spawn(save->field("spawn"));
 		game.load_plants(save->field("plants"));
-		const gc::Json &first_night = save->field("first_night");
+		const gc::Data &first_night = save->field("first_night");
 		game.set_first_night(first_night.is_string() ? first_night.get<std::string>() : "over");
 	} else {
 		game.start_new_player();
 	}
 	if (joining) {
-		game.set_world_spawn(welcome.value("world_spawn", gc::Json()));
+		game.set_world_spawn(welcome.value("world_spawn", gc::Data()));
 		game.set_first_night(welcome.value("first_night", "over"));
 	}
 	if (!options.has_pos && !joining && !(save && save->player().contains("position"))) {
@@ -1110,10 +1110,10 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	gc::DayCycle day;
 	day.time = gc::DayCycle::system_time(); // a new world starts at the computer's clock
 	if (save) {
-		if (const gc::Json &t = save->field("time"); t.is_number()) {
+		if (const gc::Data &t = save->field("time"); t.is_number()) {
 			day.time = std::fmod(t.get<double>(), 1.0);
 		}
-		if (const gc::Json &l = save->field("day_length"); l.is_number()) {
+		if (const gc::Data &l = save->field("day_length"); l.is_number()) {
 			day.day_length = std::max(10.0, l.get<double>());
 		}
 	}
@@ -1157,7 +1157,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	auto save_all = [&] {
 		if (save) {
 			const int chunks_saved = world->save_modified();
-			gc::Json state = player_state(player);
+			gc::Data state = player_state(player);
 			state.update(game.save_player());
 			save->set_field("block_entities", game.block_entities().serialize());
 			save->set_field("time", day.time);
@@ -1209,7 +1209,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		const bool key_e = controls.pressed(window, settings.key("inventory"));
 		const bool key_esc = controls.pressed(window, VK_ESCAPE);
 		auto close_screen = [&] {
-			game.inventory_action(gc::Json::array({"close"})); // (what the mouse held goes back in, or is dropped)
+			game.inventory_action(gc::Data::array({"close"})); // (what the mouse held goes back in, or is dropped)
 			if (screen == Screen::CONTAINER && joining) {
 				session.close_container(container);
 			}
@@ -1404,7 +1404,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 
 		// Sounds: heard from the camera; muffled with the head in a fluid, which
 		// also tints the view (blue in water, orange in lava).
-		const gc::Json &eye_block = rules.def(world->block_at(int(std::floor(eye[0])), int(std::floor(eye[1])),
+		const gc::Data &eye_block = rules.def(world->block_at(int(std::floor(eye[0])), int(std::floor(eye[1])),
 				int(std::floor(eye[2]))));
 		const bool in_fluid = eye_block.contains("fluid");
 		const bool in_lava = in_fluid && eye_block.value("fluid", "") == "lava";

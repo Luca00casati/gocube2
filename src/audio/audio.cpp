@@ -70,11 +70,11 @@ std::filesystem::path Audio::pick(const std::string &set, const std::string &kin
 	if (it == content_->sound_sets.end()) {
 		return {};
 	}
-	const Json files = it->second.value(kind, Json::array());
+	const Data files = it->second.value(kind, Data::array());
 	if (!files.is_array() || files.empty()) {
 		return {};
 	}
-	const Json &file = files[std::uniform_int_distribution<size_t>(0, files.size() - 1)(random_)];
+	const Data &file = files[std::uniform_int_distribution<size_t>(0, files.size() - 1)(random_)];
 	return file.is_string() ? content_->asset_path(it->second, file.get<std::string>()) : std::filesystem::path();
 }
 

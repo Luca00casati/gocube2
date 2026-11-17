@@ -48,7 +48,7 @@ struct NetPlay {
 		p.player.position[0] = 0.5f;
 		p.player.position[1] = FLOOR_Y;
 		p.player.position[2] = 0.5f;
-		p.game->set_world_spawn(gc::Json::array({0.5, FLOOR_Y, 0.5}));
+		p.game->set_world_spawn(gc::Data::array({0.5, FLOOR_Y, 0.5}));
 		n->day.time = 0.4; // day
 		const std::string e = n->session.host(port, name, gc::Session::mod_list(p.mods.loaded()));
 		PLAY_REQUIRE(e.empty());
@@ -91,7 +91,7 @@ struct NetPlay {
 			}
 			return nullptr;
 		}
-		const gc::Json &w = n->session.welcome();
+		const gc::Data &w = n->session.welcome();
 		Play::Setup s;
 		s.more_mods = std::move(more_mods);
 		if (chosen) {
@@ -100,10 +100,10 @@ struct NetPlay {
 		s.creative = w.value("mode", "survival") == "creative";
 		s.seed = uint32_t(w.value("seed", 0.0));
 		s.generator = int(w.value("generator", 1.0));
-		for (const gc::Json &id : w["block_ids"]) {
+		for (const gc::Data &id : w["block_ids"]) {
 			s.block_ids.push_back(id.get<std::string>());
 		}
-		const gc::Json spawn = w["spawn"];
+		const gc::Data spawn = w["spawn"];
 		s.x = spawn[0].get<float>();
 		s.z = spawn[2].get<float>();
 		// (The host keeps running while this world loads.)
@@ -118,7 +118,7 @@ struct NetPlay {
 		p.player.position[0] = spawn[0].get<float>();
 		p.player.position[1] = spawn[1].get<float>() - gc::Player::EYE_HEIGHT;
 		p.player.position[2] = spawn[2].get<float>();
-		p.game->set_world_spawn(w.value("world_spawn", gc::Json()));
+		p.game->set_world_spawn(w.value("world_spawn", gc::Data()));
 		n->day.time = w.value("time", 0.4);
 		n->attach();
 		return n;

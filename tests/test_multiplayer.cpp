@@ -16,7 +16,7 @@
 #include <process.h>
 
 using gc::BlockPos;
-using gc::Json;
+using gc::Data;
 
 namespace {
 
@@ -30,7 +30,7 @@ bool both(NetPlay &a, NetPlay &b, const BlockPos &p, const std::string &id) {
 }
 
 // A survival inventory as the host keeps it for a player who played before.
-Json saved_inventory(const gc::Content &content, const std::vector<gc::Stack> &stacks) {
+Data saved_inventory(const gc::Content &content, const std::vector<gc::Stack> &stacks) {
 	gc::Inventory inv(content);
 	for (size_t i = 0; i < stacks.size(); i++) {
 		inv.slots[i] = stacks[i];
@@ -239,7 +239,7 @@ TEST_CASE("multiplayer: a survival client's inventory, placing, mining time, dro
 	// The host keeps what we have when we leave.
 	client.reset();
 	REQUIRE(run_until({&h}, [&] { return h.session.avatars().empty(); }, 5));
-	const Json saved = h.session.saved_players();
+	const Data saved = h.session.saved_players();
 	gc::Inventory kept(content);
 	kept.deserialize(saved["Client"]["inventory"]);
 	CHECK(kept.count_of("core:planks") == 4); // (placed one, mined it back)
@@ -267,9 +267,9 @@ TEST_CASE("multiplayer: chests through the host") {
 		return e && e->slots[0] == gc::Stack{"core:coal", 4};
 	}, 5));
 	// Take the coal, put it in slot 1: the host does the same.
-	c.game().inventory_action(Json::array({"container", chest.x, chest.y, chest.z, 0}));
+	c.game().inventory_action(Data::array({"container", chest.x, chest.y, chest.z, 0}));
 	CHECK(c.game().inventory().cursor == gc::Stack{"core:coal", 4});
-	c.game().inventory_action(Json::array({"container", chest.x, chest.y, chest.z, 1}));
+	c.game().inventory_action(Data::array({"container", chest.x, chest.y, chest.z, 1}));
 	CHECK(run_until(both_sides, [&] {
 		const gc::BlockEntity *e = h.game().block_entities().at(chest);
 		return e && e->slots[1] == gc::Stack{"core:coal", 4} && e->slots[0].empty();
@@ -277,7 +277,7 @@ TEST_CASE("multiplayer: chests through the host") {
 	CHECK(c.game().inventory().cursor.empty());
 	// What we hold is the host's say: nothing to put in now.
 	c.game().inventory().cursor = {"core:diamond", 64};
-	c.game().inventory_action(Json::array({"container", chest.x, chest.y, chest.z, 2}));
+	c.game().inventory_action(Data::array({"container", chest.x, chest.y, chest.z, 2}));
 	run_for(both_sides, 0.5f);
 	CHECK(h.game().block_entities().at(chest)->slots[2].empty());
 	CHECK(c.game().inventory().cursor.empty()); // (the host's copy came back)

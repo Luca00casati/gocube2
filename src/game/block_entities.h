@@ -48,12 +48,12 @@ public:
 	// 0..1: how much fuel is left, how far the smelting is.
 	static void furnace_status(const BlockEntity &e, float &burn, float &progress);
 
-	Json serialize() const;
-	void deserialize(const Json &data);
+	Data serialize() const;
+	void deserialize(const Data &data);
 	// One entity in the same form (null: none there); setting null removes it.
 	// (A client's copies of the host's.)
-	Json entity_data(const BlockPos &p) const;
-	void set_entity_data(const BlockPos &p, const Json &data);
+	Data entity_data(const BlockPos &p) const;
+	void set_entity_data(const BlockPos &p, const Data &data);
 	size_t size() const { return entities_.size(); }
 
 	double fuel_seconds(const std::string &item);

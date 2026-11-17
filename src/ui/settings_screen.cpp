@@ -118,7 +118,7 @@ void SettingsScreen::open(const ModFolders &folders, const Mods &mods, bool serv
 	}
 	std::vector<std::string> seen = {"core"};
 	for (const auto &[entry, dir] : mod_copies({folders.builtin, folders.user})) {
-		Json manifest;
+		Data manifest;
 		std::string why;
 		read_lua_data(dir / "mod.lua", manifest, why);
 		ModRow r;

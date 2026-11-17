@@ -129,10 +129,10 @@ public:
 		std::function<int(const std::string &kind, const float at[3], const std::string &variant)> creature_spawn;
 		std::function<bool(int)> creature_remove;
 		std::function<std::vector<int>()> creature_ids;
-		std::function<Json(int)> creature_get;
-		std::function<bool(int, const Json &)> creature_set;
+		std::function<Data(int)> creature_get;
+		std::function<bool(int, const Data &)> creature_set;
 		// Players: [{peer, x, y, z (feet), survival, alive}].
-		std::function<Json()> players;
+		std::function<Data()> players;
 		std::function<float()> day; // 0 at night .. 1 in full day
 		std::function<std::string()> first_night; // "ahead", "now", "over" (Game::first_night)
 		std::function<void(int peer, int amount, const std::string &source, const float push[3])> damage_player;
@@ -163,7 +163,7 @@ public:
 	//   use_item(item, x, y, z, nx, ny, nz) -> right click with item on that block's
 	//     side (nx, ny, nz): nil if nothing was done (the item is placed), else
 	//     {take = how many to use up, placed = {x, y, z} of a block put down}
-	std::optional<Json> rule(const std::string &name, const Json &args);
+	std::optional<Data> rule(const std::string &name, const Data &args);
 
 	// The sandbox's state, for the tests.
 	size_t memory_in_use() const;

@@ -51,8 +51,6 @@ target_compile_definitions(enet PRIVATE _WINSOCK_DEPRECATED_NO_WARNINGS _CRT_SEC
 target_compile_options(enet PRIVATE /W0)
 target_link_libraries(enet PUBLIC ws2_32 winmm)
 
-add_library(nlohmann_json INTERFACE)
-target_include_directories(nlohmann_json INTERFACE thirdparty/nlohmann_json)
 add_library(doctest INTERFACE)
 target_include_directories(doctest INTERFACE thirdparty/doctest)
 
@@ -75,6 +73,8 @@ add_library(gocube_core STATIC
 	src/content/content.h
 	src/content/item_models.cpp
 	src/content/item_models.h
+	src/data/data.cpp
+	src/data/data.h
 	src/data/lua_data.cpp
 	src/data/lua_data.h
 	src/voxel/chunk.h
@@ -127,7 +127,7 @@ target_sources(gocube_core PRIVATE
 	src/net/wire.h
 )
 target_include_directories(gocube_core PUBLIC src)
-target_link_libraries(gocube_core PUBLIC nlohmann_json PRIVATE lua png zlib bcrypt enet)
+target_link_libraries(gocube_core PRIVATE lua png zlib bcrypt enet)
 target_compile_definitions(gocube_core PUBLIC ${GOCUBE_DEFINES})
 target_compile_options(gocube_core PRIVATE ${GOCUBE_OPTIONS})
 # The voxel engine is the Godot version's, unchanged: quiet its warnings here
