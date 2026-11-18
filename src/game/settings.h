@@ -1,5 +1,5 @@
 #pragma once
-// The player's settings (the Godot version's Settings): view distance, mouse
+// The player's settings: view distance, mouse
 // sensitivity, frame rate limit, vsync, smooth lighting, sun shadows, render
 // scale, the clock, volumes, key bindings, mods turned off, and the title
 // menu's name and last address. Saved in %APPDATA%\GoCube\settings.lua (a Lua
@@ -21,8 +21,7 @@ struct Settings {
 	// stretched over it (menus and the HUD stay sharp): less uses less GPU.
 	static constexpr float RENDER_SCALES[] = {1.0f, 0.85f, 0.75f, 0.5f};
 	// Sun shadows: "blocks" (each block face in sun or shadow, worked out as
-	// the sun moves) or "off". (The Godot version's "smooth", its shadow map,
-	// isn't here.)
+	// the sun moves) or "off".
 	static constexpr const char *SHADOW_MODES[] = {"blocks", "off"};
 
 	// A rebindable action: its id (saved), what the screen calls it, its

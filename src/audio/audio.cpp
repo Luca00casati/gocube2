@@ -19,7 +19,7 @@ namespace gc {
 
 namespace {
 
-constexpr float MUFFLE_HZ = 700.0f; // the Godot version's underwater low-pass
+constexpr float MUFFLE_HZ = 700.0f; // the underwater low-pass
 
 float db_to_linear(float db) {
 	return std::pow(10.0f, db / 20.0f);

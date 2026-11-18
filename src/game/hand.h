@@ -1,5 +1,5 @@
 #pragma once
-// The first-person arm and held item (the Godot version's Hand): a sleeve, a
+// The first-person arm and held item: a sleeve, a
 // hand coming out of its cuff and the item in it, off the bottom right of the
 // view. Swings when you hit, place, use or mine (a swing asked for during
 // another plays right after it, whole), bobs while walking.
@@ -9,6 +9,7 @@
 // world, the item over the arm.
 
 #include "content/item_models.h"
+#include "game/creature_models.h"
 #include "world/world.h"
 
 #include <array>
@@ -17,8 +18,7 @@
 
 namespace gc {
 
-// Torches held in hand light the blocks around them like placed ones (the
-// Godot version's World.set_hand_lights): spread by World::held_light in a
+// Torches held in hand light the blocks around them like placed ones: spread by World::held_light in a
 // cube of SIZE blocks around the viewer, moved in steps of STEP blocks (so
 // walking doesn't spread it again every block); spread again only when a
 // light moves to another block, the cube moves or the world changes. The
@@ -41,8 +41,7 @@ private:
 };
 
 // Light for what isn't terrain (dropped and held items, the hand), worked out
-// like the terrain shader does (the Godot version's World.light_for): sky
-// light times `sky_light` (the day's: white by day, moonlight at night),
+// like the terrain shader does: sky light times `sky_light` (the day's: white by day, moonlight at night),
 // placed light and held torches in the block light's colour, the brighter of
 // the two, never below `least`. Linear rgb.
 void light_for(const World &world, const HandLights &hand_lights, const float sky_light[3], const float at[3],
@@ -55,13 +54,16 @@ public:
 	void swing();
 	// Each frame: `mining` keeps it swinging; `walking`: on the floor and moving.
 	void update(float dt, bool mining, bool walking);
-	// The sleeve and hand (untextured: the colour is their tint times the
-	// light) and the item (textured: the colour is the light). `light`: linear.
+	// The arm and the item (textured: the colour is the light). `light`:
+	// linear. The arm is the player's right arm in its skin (`skin`: the
+	// renderer's slot, for draw_creatures) into `skinned`; without one
+	// (null), a sleeve and hand into `arm` (untextured: the colour is their
+	// tint times the light).
 	void build(ItemModels &models, const std::string &item, const float light[3], std::vector<WorldVertex> &arm,
-			std::vector<WorldVertex> &held) const;
+			std::vector<WorldVertex> &held, std::vector<CreatureVertex> *skinned = nullptr, int skin = -1) const;
 
 	// The pose at `t` (0..1 of a swing): rotation about the shoulder, push
-	// (camera space) and the held item's tilt, as Euler angles (Godot's YXZ order).
+	// (camera space) and the held item's tilt, as Euler angles.
 	struct Pose {
 		float rotation[3], push[3], tilt[3];
 	};

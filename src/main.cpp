@@ -14,17 +14,23 @@
 //   --world=NAME     play the saved world NAME (in %APPDATA%\GoCube\worlds;
 //                    a new one is made if it doesn't exist)
 // Mods are found in mods\ next to the game (built-in, the base game first) and
-// in %APPDATA%\GoCube\mods (one folder per mod).
+// in %APPDATA%\GoCube\mods (one folder per mod). Your skin, as others see you:
+// %APPDATA%\GoCube\skin.ppm (the usual 64x64 or 64x32 skin layout as a PPM,
+// magenta see-through), else the base game's (mods\core\textures\player.ppm).
 //
 //   --world-dir=DIR  play the world in this folder
 //                    Without either, the world isn't saved.
 //   --seed=N         seed for a new world (default 777)
-//   --generator=N    world generator version for an unsaved world (default: the newest)
 //   --view=N         view distance in blocks (default 128)
 //   --pos=X,Y,Z      start flying at this position (feet)
 //   --look=YAW,PITCH start view direction in degrees (0, 0: towards -z)
 //   --spawn=KIND[=BLOCK],...  creatures in front of the player, e.g.
 //                    block_eater=core:stone (for trying things out)
+//   --mannequin      your own figure, in your skin, in front of you
+//                    (screenshots: what others see)
+//   --details        start with the details screen (F3) open: frame times
+//   --profile        write the frame times to the log when the world ends
+//                    (with --frames, --no-vsync: what's slow, measured)
 //   --warp           render on WARP, Windows' software adapter (no GPU needed)
 //   --hidden         don't show the window (tests)
 //   --frames=N       quit after N frames; the exit code is 1 if the debug layer
@@ -32,7 +38,7 @@
 //                    from when the world around has finished loading.
 //   --screenshot=F   save the last frame as a PNG
 //   --render-scale=F draw the world at this part of the window's resolution
-//                    (0.25..1, stretched over it; the Godot version offers
+//                    (0.25..1, stretched over it; the settings offer
 //                    1, 0.85, 0.75 and 0.5). --view and --render-scale win
 //                    over the settings (%APPDATA%\GoCube\settings.lua, which
 //                    --hidden doesn't read: tests play with the defaults)
@@ -49,6 +55,7 @@
 
 #include "audio/audio.h"
 #include "content/content.h"
+#include "content/skin.h"
 #include "data/lua_data.h"
 #include "game/blocks.h"
 #include "game/creature_models.h"
@@ -58,6 +65,7 @@
 #include "game/player.h"
 #include "game/settings.h"
 #include "log.h"
+#include "profiler.h"
 #include "mods/mods.h"
 #include "net/session.h"
 #include "platform/fine_sleep.h"
@@ -104,7 +112,6 @@ struct Options {
 	std::string world_name;
 	std::filesystem::path world_dir;
 	uint32_t seed = 777;
-	int generator = gc::GENERATOR_VERSION;
 	int view = 0;              // --view (0: the settings')
 	float render_scale = 0.0f; // --render-scale (0: the settings')
 	bool no_vsync = false;
@@ -116,6 +123,9 @@ struct Options {
 	std::vector<std::string> drop; // items dropped in front of the player at the start
 	std::vector<std::string> spawn; // creatures ("kind" or "kind:variant") put in front of the player
 	std::string screen;            // a screen open at the start ("inventory")
+	bool mannequin = false;        // our figure in front of us (screenshots)
+	bool details = false;          // --details: the F3 screen open
+	bool profile = false;          // --profile: the frame times in the log at the end
 	double time = -1;              // time of day to start at (0..1; -1: the world's)
 	bool menu = false;             // the title menu even with testing options (--frames, --screenshot: of it)
 	int host_port = 0;             // --host: open to others on this port (0: not)
@@ -160,8 +170,6 @@ Options parse(int argc, char **argv) {
 			o.world_dir = utf8_path(v);
 		} else if ((v = value("--seed="))) {
 			o.seed = uint32_t(strtoll(v, nullptr, 10));
-		} else if ((v = value("--generator="))) {
-			o.generator = int(strtol(v, nullptr, 10));
 		} else if ((v = value("--spawn="))) {
 			std::string list = v;
 			for (size_t from = 0, to; from <= list.size(); from = to + 1) {
@@ -180,6 +188,12 @@ Options parse(int argc, char **argv) {
 					o.drop.push_back(list.substr(from, to - from));
 				}
 			}
+		} else if (!strcmp(a, "--details")) {
+			o.details = true;
+		} else if (!strcmp(a, "--profile")) {
+			o.profile = true;
+		} else if (!strcmp(a, "--mannequin")) {
+			o.mannequin = true;
 		} else if (!strcmp(a, "--menu")) {
 			o.menu = true;
 		} else if ((v = value("--time="))) {
@@ -388,12 +402,12 @@ bool death_screen() {
 	return respawn;
 }
 
-// Text with a black outline, as the Godot version's HUD draws it.
+// Text with a black outline (the HUD's).
 void outlined_text(gc::ui::DrawList &dl, gc::ui::Vec2 at, gc::ui::Color col, const std::string &text) {
 	dl.outlined_text(at, col, text, gui().theme.font);
 }
 
-// A bar with its text on it (the Godot version's Hotbar._bar).
+// A bar with its text on it.
 void status_bar(gc::ui::DrawList &dl, gc::ui::Vec2 a, gc::ui::Vec2 size, float fraction, gc::ui::Color fill,
 		gc::ui::Color highlight, const char *text) {
 	const gc::ui::Rect r{a.x, a.y, a.x + size.x, a.y + size.y};
@@ -437,7 +451,7 @@ void draw_wounds(gc::ui::DrawList &dl, gc::ui::Vec2 size, float health) {
 	dl.gradient({size.x - band, 0, size.x, size.y}, clear, red, false);
 }
 
-// The HUD, as the Godot version's: the crosshair, the mining progress under
+// The HUD: the crosshair, the mining progress under
 // it, the 9 hotbar slots, breath (and armour) bars above them in survival, the
 // held item's name, notices. Health has no bar: the screen reddens instead.
 void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::BlockRules &rules, bool captured) {
@@ -530,8 +544,8 @@ gc::PlayerInput read_input(const gc::Window &window) {
 	return in;
 }
 
-// Top left: the Godot version's status line (frame rate, the time, mode,
-// flying), and with F3 the details (its debug screen); problems with mods
+// Top left: the status line (frame rate, the time, mode, flying), and with
+// F3 the details (the debug screen and the profiler); problems with mods
 // always.
 void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::World &world,
 		const gc::ChunkRenderer &chunks, const gc::WorldSave *save, uint32_t seed, const gc::Game &game,
@@ -582,13 +596,43 @@ void draw_ui(const gc::Renderer &renderer, const gc::Player &player, const gc::W
 		names += (names.empty() ? "" : ", ") + m.id + " " + m.version;
 	}
 	g.text("Mods: " + names);
+	// The profiler's timers (what's slow): ms a frame, on average and at worst lately.
+	g.separator();
+	g.text_dim("Frame times");
+	g.same_line(330);
+	g.text_dim("average");
+	g.same_line(410);
+	g.text_dim("worst (2 s)");
+	for (const gc::Profiler::Entry &e : gc::profiler().entries()) {
+		g.text(std::string(size_t(std::max(0, e.depth - 1)) * 4, ' ') + e.name);
+		g.same_line(330);
+		g.text(format("%6.2f ms", e.average));
+		g.same_line(410);
+		g.text(format("%6.2f ms", e.worst), e.worst > 1000.0 / 30 ? gc::ui::rgba(255, 150, 110) : g.theme.text);
+	}
+	{
+		static gc::WorldStats last;
+		static auto last_time = std::chrono::steady_clock::now();
+		static double busy = 0;
+		const auto t = std::chrono::steady_clock::now();
+		const double span = std::chrono::duration<double, std::milli>(t - last_time).count();
+		if (span >= 1000.0) {
+			const double work = (ws.generate_ms + ws.light_ms + ws.mesh_ms) - (last.generate_ms + last.light_ms + last.mesh_ms);
+			busy = ws.workers > 0 ? work / (span * ws.workers) : 0;
+			last = ws;
+			last_time = t;
+		}
+		g.text(format("World threads (%d, %.0f%% busy): generating %.2f ms a chunk, light %.2f + meshing %.2f ms a chunk",
+				ws.workers, busy * 100.0, ws.generated ? ws.generate_ms / double(ws.generated) : 0.0,
+				ws.meshed_jobs ? ws.light_ms / double(ws.meshed_jobs) : 0.0,
+				ws.meshed_jobs ? ws.mesh_ms / double(ws.meshed_jobs) : 0.0));
+	}
+	g.text_dim("(GPU times are a few frames late; \"present\" is the CPU waiting for the GPU and vsync)");
 	g.end_window();
 }
 
-// sRGB (as colours are written, and as the Godot version gave them to its
-// shaders) to linear.
+// sRGB to linear (the shaders' curve: shaders/color.hlsli).
 DirectX::XMFLOAT3 linear(const gc::Rgb &c) {
-	// (Godot's fast approximation of the curve, as its renderer uses: shaders/godot_color.hlsli.)
 	auto f = [](float v) { return v * (v * (v * 0.305306011f + 0.682171111f) + 0.012522878f); };
 	return {f(c.r), f(c.g), f(c.b)};
 }
@@ -734,8 +778,6 @@ std::vector<WorldEntry> find_worlds() {
 			} else {
 				w.mode = "(damaged)";
 			}
-		} else if (std::filesystem::exists(e.path() / "world.json", ec)) {
-			w.mode = "(old world.json: not read)"; // (opening it says why)
 		} else {
 			continue;
 		}
@@ -957,6 +999,25 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 	return false;
 }
 
+// Our skin (RGBA, SKIN_BYTES): %APPDATA%\GoCube\skin.ppm if it's one (not
+// with --hidden: tests play with the defaults), else the base game's.
+std::vector<uint8_t> load_skin(const Options &options, const std::filesystem::path &builtin_mods) {
+	gc::Image image, skin;
+	const std::filesystem::path mine = user_dir() / "skin.ppm";
+	std::error_code ec;
+	if (!options.hidden && std::filesystem::exists(mine, ec)) {
+		if (gc::read_ppm(mine, image) && gc::to_skin(image, skin)) {
+			return skin.rgba;
+		}
+		gc::log("%%APPDATA%%\\GoCube\\skin.ppm isn't a skin (a 64x64 or 64x32 PPM): the default one instead");
+	}
+	if (gc::read_ppm(builtin_mods / "core" / "textures" / "player.ppm", image) && gc::to_skin(image, skin)) {
+		return skin.rgba;
+	}
+	gc::log("The base game's skin (textures\\player.ppm) is missing");
+	return std::vector<uint8_t>(gc::SKIN_BYTES, 255); // (white)
+}
+
 // Plays a world until the player quits (to the title menu, or the game).
 End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window &window,
 		gc::Renderer &renderer, std::string &problem) {
@@ -983,6 +1044,14 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 
 	// Multiplayer: someone else's world comes from its host (after a welcome).
 	gc::Session session;
+	const std::vector<uint8_t> my_skin = load_skin(options, builtin_mods);
+	session.set_skin(my_skin);
+	Options defaults;
+	defaults.hidden = true;
+	const std::vector<uint8_t> default_skin = load_skin(defaults, builtin_mods); // (those who sent none)
+	std::array<int, gc::ChunkRenderer::SKIN_SLOTS> skin_slots; // the player id each slot shows (0: ours)
+	skin_slots.fill(-1);
+	int skins_seen = -1;
 	const bool joining = !choice.join.empty();
 	if (joining) {
 		if (std::string e = session.join(choice.join, choice.join_port, choice.name, gc::Session::mod_list(mods.loaded()));
@@ -1051,14 +1120,12 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	}
 	const gc::Data &welcome = session.welcome();
 
-	// The world: its folder decides the seed, generator and block ids.
+	// The world: its folder decides the seed and block ids.
 	std::optional<gc::WorldSave> save;
 	const std::filesystem::path &dir = choice.dir;
 	uint32_t seed = choice.seed;
-	int generator_version = options.generator;
 	if (joining) {
 		seed = uint32_t(welcome.value("seed", 0.0));
-		generator_version = int(welcome.value("generator", double(gc::GENERATOR_VERSION)));
 		std::vector<std::string> ids;
 		for (const gc::Data &id : welcome.value("block_ids", gc::Data::array())) {
 			ids.push_back(id.is_string() ? id.get<std::string>() : "");
@@ -1068,7 +1135,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			problem = "The server's blocks differ from ours.";
 			return End::FAILED;
 		}
-		gc::log("Joined %s: seed %u, generator %d", choice.join.c_str(), seed, generator_version);
+		gc::log("Joined %s: seed %u", choice.join.c_str(), seed);
 	} else if (!dir.empty()) {
 		save.emplace();
 		if (std::string e = save->open(dir, choice.seed, choice.mode); !e.empty()) {
@@ -1077,18 +1144,16 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			return End::FAILED;
 		}
 		seed = save->seed();
-		generator_version = save->generator();
 		content.freeze(save->block_ids());
 		save->set_block_ids(content.block_ids());
-		gc::log("World %s: seed %u, generator %d, %s", utf8_string(dir).c_str(), seed, generator_version,
-				save->mode().c_str());
+		gc::log("World %s: seed %u, %s", utf8_string(dir).c_str(), seed, save->mode().c_str());
 	} else {
 		content.freeze();
 	}
 	const gc::BlockTable table = gc::build_block_table(content);
 	const gc::BlockRules rules(content);
 	gocube::Generator generator;
-	gc::configure_generator(generator, content, seed, generator_version);
+	gc::configure_generator(generator, content, seed);
 	gc::log("%zu blocks, %zu atlas tiles", table.blocks.size(), table.atlas.tiles.size());
 
 	gc::ChunkRenderer chunks;
@@ -1129,6 +1194,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	float previous_position[3];
 	std::copy(player.position, player.position + 3, previous_position);
 	Controls controls;
+	controls.details = options.details;
 	Screen screen = options.screen == "inventory" ? Screen::INVENTORY : Screen::NONE;
 	gc::BlockPos container; // (Screen::CONTAINER)
 	const bool creative = (joining ? welcome.value("mode", "survival") : save ? save->mode() : choice.mode) == "creative";
@@ -1139,14 +1205,11 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		game.block_entities().deserialize(save->field("block_entities"));
 		game.set_world_spawn(save->field("spawn"));
 		game.load_plants(save->field("plants"));
-		const gc::Data &first_night = save->field("first_night");
-		game.set_first_night(first_night.is_string() ? first_night.get<std::string>() : "over");
 	} else {
 		game.start_new_player();
 	}
 	if (joining) {
 		game.set_world_spawn(welcome.value("world_spawn", gc::Data()));
-		game.set_first_night(welcome.value("first_night", "over"));
 	}
 	if (!options.has_pos && !joining && !(save && save->player().contains("position"))) {
 		game.spawn_on_ground(); // a new player: on dry ground near the origin, once it's loaded
@@ -1231,7 +1294,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			net_problem = e;
 			gc::log("%s", e.c_str());
 		} else {
-			session.set_world_info({{"seed", seed}, {"generator", generator_version}, {"block_ids", content.block_ids()}});
+			session.set_world_info({{"seed", seed}, {"block_ids", content.block_ids()}});
 			std::map<std::string, std::filesystem::path> folders; // (players with other mods may download ours)
 			for (const gc::ModInfo &m : mods.loaded()) {
 				folders[gc::mod_entry(m)] = m.dir;
@@ -1246,7 +1309,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	const bool online = session.mode() != gc::Session::Mode::OFFLINE;
 	float sleeping = -1; // seconds asleep (-1: awake)
 	double frame_time_total = 0; // (mining: the arm keeps swinging for others to see)
-	// Block shadows (the Godot version's default sun shadows), from where the sun is.
+	// Block shadows, from where the sun is.
 	world->set_sun_angle(day.angle());
 	world->set_block_shadows(true);
 
@@ -1257,7 +1320,6 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			state.update(game.save_player());
 			save->set_field("block_entities", game.block_entities().serialize());
 			save->set_field("time", day.time);
-			save->set_field("first_night", game.first_night());
 			save->set_field("plants", game.save_plants());
 			if (session.is_host()) {
 				save->set_field("players", session.saved_players()); // joined players' inventories
@@ -1280,6 +1342,8 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	End end = End::QUIT;
 	bool quit_requested = false;
 	while (true) {
+		gc::profiler().begin_frame(); // (the F3 screen shows the times)
+		GC_PROFILE("frame");
 		if (!window.pump()) {
 			end = End::QUIT;
 			break;
@@ -1371,15 +1435,18 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 				player.velocity[k] += (*push)[k];
 			}
 		}
-		accumulator += paused ? 0.0f : dt;
-		while (accumulator >= gc::Player::STEP) {
-			std::copy(player.position, player.position + 3, previous_position);
-			if (!game.frozen()) {
-				player.step(input, *world, rules);
-				game.after_move(gc::Player::STEP);
+		{
+			GC_PROFILE("physics (player, drops, creatures)");
+			accumulator += paused ? 0.0f : dt;
+			while (accumulator >= gc::Player::STEP) {
+				std::copy(player.position, player.position + 3, previous_position);
+				if (!game.frozen()) {
+					player.step(input, *world, rules);
+					game.after_move(gc::Player::STEP);
+				}
+				game.physics_step(gc::Player::STEP);
+				accumulator -= gc::Player::STEP;
 			}
-			game.physics_step(gc::Player::STEP);
-			accumulator -= gc::Player::STEP;
 		}
 		const float alpha = accumulator / gc::Player::STEP;
 
@@ -1393,12 +1460,14 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		gin.sneak = window.key_down(VK_SHIFT);
 		gin.wheel = -int(wheel); // (rolled towards you: the next slot)
 		gin.number_key = number_pressed(window, controls);
-		if (!paused) {
-			game.update(dt, gin);
-			game.tick(dt);
-			day.update(dt);
-			game.set_day(day.day_amount());
-			game.update_first_night();
+		{
+			GC_PROFILE("game (mining, using, time)");
+			if (!paused) {
+				game.update(dt, gin);
+				game.tick(dt);
+				day.update(dt);
+				game.set_day(day.day_amount());
+			}
 		}
 		// A bed used at night: sleep (the screen fades out), then it's morning.
 		if (game.take_bed_used()) {
@@ -1416,9 +1485,6 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			if (sleeping >= 2.5f && !joining && session.peers_sleeping()) {
 				day.time = gc::DayCycle::MORNING;
 				sleeping = -1;
-				if (game.first_night() != "over") {
-					game.set_first_night("over"); // slept through it
-				}
 				session.night_skipped();
 			}
 			if (online && sleeping >= 2.5f && sleeping < 2.5f + dt) {
@@ -1440,12 +1506,15 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 				session.open_container(container); // (its contents come from the host)
 			}
 		}
-		tick_accumulator += paused ? 0.0 : dt;
-		while (tick_accumulator >= TICK) {
-			if (!joining) { // (a client: the host's mods run the world)
-				mods.tick(TICK);
+		{
+			GC_PROFILE("mods (20 ticks a second)");
+			tick_accumulator += paused ? 0.0 : dt;
+			while (tick_accumulator >= TICK) {
+				if (!joining) { // (a client: the host's mods run the world)
+					mods.tick(TICK);
+				}
+				tick_accumulator -= TICK;
 			}
-			tick_accumulator -= TICK;
 		}
 
 		camera.position = {previous_position[0] + (player.position[0] - previous_position[0]) * alpha,
@@ -1462,8 +1531,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		}
 		const bool walking = player.on_floor && std::hypot(player.velocity[0], player.velocity[2]) > 0.5f;
 		hand.update(paused ? 0.0f : dt, game.mining_progress() > 0.0f, walking);
-		// A light-giving block in hand (a torch) lights the world around
-		// (the Godot version's main._update_hand_light).
+		// A light-giving block in hand (a torch) lights the world around.
 		std::vector<std::array<float, 4>> held_lights;
 		if (auto it = content.blocks.find(game.selected_item()); !game.dead() && it != content.blocks.end()) {
 			const float level = float(it->second.value("light", 0.0));
@@ -1484,7 +1552,10 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		pose.swings = game.swings() + (game.mining_progress() > 0 ? int(frame_time_total * 3.0) : 0);
 		pose.light = held_lights.empty() ? 0 : int(held_lights.front()[3]);
 		frame_time_total += dt;
-		session.update(dt, pose);
+		{
+			GC_PROFILE("network");
+			session.update(dt, pose);
+		}
 		for (const auto &l : session.held_lights()) {
 			held_lights.push_back(l);
 		}
@@ -1498,15 +1569,18 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		const bool in_lava = in_fluid && eye_block.value("fluid", "") == "lava";
 		const DirectX::XMFLOAT3 facing = camera.forward();
 		const float forward[3] = {facing.x, facing.y, facing.z};
-		audio.set_listener(eye, forward);
-		for (const gc::SoundEvent &e : game.take_sounds()) {
-			audio.play(e.set, e.kind, e.at, e.volume_db);
+		{
+			GC_PROFILE("sound");
+			audio.set_listener(eye, forward);
+			for (const gc::SoundEvent &e : game.take_sounds()) {
+				audio.play(e.set, e.kind, e.at, e.volume_db);
+			}
+			audio.set_volumes(options.hidden ? 0.0f : settings.master_volume, settings.effects_volume,
+					settings.ambience_volume);
+			audio.update_ambience(day.day_amount());
+			audio.set_underwater(in_fluid);
+			audio.update();
 		}
-		audio.set_volumes(options.hidden ? 0.0f : settings.master_volume, settings.effects_volume,
-				settings.ambience_volume);
-		audio.update_ambience(day.day_amount());
-		audio.set_underwater(in_fluid);
-		audio.update();
 
 		// The settings, as they are now (the settings screen changes them live).
 		world->set_view_distance(view_distance(options));
@@ -1516,12 +1590,15 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		renderer.set_render_scale(render_scale(options));
 		renderer.set_vsync(!options.no_vsync && settings.vsync);
 		world->set_sun_angle(day.angle()); // (shadows follow it in steps)
-		world->update(player.position[0], player.position[1], player.position[2]);
-		for (const gc::ChunkPos &p : world->take_unloaded()) {
-			chunks.remove(p);
-		}
-		for (const gc::ChunkMesh &m : world->take_meshes()) {
-			chunks.upload(renderer.device(), m);
+		{
+			GC_PROFILE("world (loading, meshes in)");
+			world->update(player.position[0], player.position[1], player.position[2]);
+			for (const gc::ChunkPos &p : world->take_unloaded()) {
+				chunks.remove(p);
+			}
+			for (const gc::ChunkMesh &m : world->take_meshes()) {
+				chunks.upload(renderer.device(), m);
+			}
 		}
 		std::string net_status;
 		if (session.is_host()) {
@@ -1537,6 +1614,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			last_save = now;
 		}
 
+		std::optional<gc::Profiler::Scope> ui_timer(std::in_place, gc::profiler(), "screens, HUD (UI)");
 		begin_ui(window);
 		if (screen == Screen::NONE) {
 			draw_ui(renderer, player, *world, chunks, save ? &*save : nullptr, seed,
@@ -1606,23 +1684,32 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		}
 		gc::draw_held(gui(), game.inventory().cursor, icons);
 		end_ui();
+		ui_timer.reset();
 
 		sky.time = std::chrono::duration<float>(now - start).count();
 		if (!options.screenshot.empty()) {
 			// The clouds (and their shadows) as 3 seconds in, however long
-			// loading took: the same in every screenshot (and in
-			// tests/data/godot_screenshot.gd's).
+			// loading took: the same in every screenshot.
 			day.cloud_offset[0] = 0.35f * 3.0f;
 			day.cloud_offset[1] = 0.12f * 3.0f;
 		}
 		apply_day(day, float(view_distance(options)), sky);
 		const float clear[4] = {sky.fog_color.x, sky.fog_color.y, sky.fog_color.z, 1.0f};
-		renderer.begin_frame(clear);
+		renderer.begin_frame(clear, false); // (the sky covers what the world doesn't)
 		const float aspect = float(renderer.width()) / float(std::max(1, renderer.height()));
 		chunks.set_hand_light(renderer.context(), hand_lights.volume(), hand_lights.origin(), hand_lights.count(),
 				hand_light_changed);
-		chunks.draw_sky(renderer.context(), camera, aspect, sky);
-		chunks.draw(renderer.context(), camera, aspect, sky);
+		{ // The terrain, the sky where it's not, water and lava over both.
+			GC_PROFILE("draw: terrain, sky");
+			renderer.gpu_mark("terrain");
+			chunks.draw(renderer.context(), camera, aspect, sky, [&] {
+				renderer.gpu_mark("sky");
+				chunks.draw_sky(renderer.context(), camera, aspect, sky);
+				renderer.gpu_mark("water, lava");
+			});
+		}
+		renderer.gpu_mark("items, creatures, hand");
+		std::optional<gc::Profiler::Scope> rest_timer(std::in_place, gc::profiler(), "draw: items, creatures, hand");
 		// Dropped items, and the hand: lit like the terrain around them
 		// (never quite black: a ninja's sword in the dark is a faint shape).
 		const gc::Rgb tint = day.sky_tint();
@@ -1644,17 +1731,49 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 				gc::light_for(*world, hand_lights, sky_light, at, NIGHT_CREATURE_LIGHT, lit);
 				gc::build_creature(c, content, table, alpha, lit, creature_mesh);
 			}
-			// Other players: their figures, what they hold, their names.
+			// Other players: their figures in their skins (a slot each, the last
+			// one ours), what they hold, their names.
+			constexpr int OWN_SKIN = gc::ChunkRenderer::SKIN_SLOTS - 1;
+			const auto &avatars = session.avatars();
+			if (skins_seen != session.skins_changed()) {
+				skins_seen = session.skins_changed();
+				std::fill(skin_slots.begin(), skin_slots.end(), -1); // (all again)
+			}
+			if (skin_slots[OWN_SKIN] != 0) {
+				chunks.set_skin(renderer.context(), OWN_SKIN, my_skin);
+				skin_slots[OWN_SKIN] = 0;
+			}
+			for (size_t i = 0; i < avatars.size() && i < size_t(OWN_SKIN); i++) {
+				if (skin_slots[i] != avatars[i].id) {
+					const std::vector<uint8_t> *theirs = session.skin_of(avatars[i].id);
+					chunks.set_skin(renderer.context(), int(i), theirs ? *theirs : default_skin);
+					skin_slots[i] = avatars[i].id;
+				}
+			}
+			if (options.mannequin) { // (ours, three blocks ahead, facing us)
+				gc::Figure still;
+				still.update(0.0f);
+				float from[3], look[3], hand_m[16], lit[3];
+				player.eye(from);
+				player.look(look);
+				const float len = std::max(0.001f, std::hypot(look[0], look[2]));
+				const float at[3] = {from[0] + look[0] / len * 3.0f, from[1], from[2] + look[2] / len * 3.0f};
+				const float feet[3] = {at[0], at[1] - 0.6f, at[2]};
+				gc::light_for(*world, hand_lights, sky_light, feet, NIGHT_CREATURE_LIGHT, lit);
+				gc::build_player(still, 0, at, player.yaw + 3.14159265f, lit, creature_mesh, hand_m, OWN_SKIN);
+			}
 			std::vector<gc::WorldVertex> held_by_others;
-			for (const gc::Avatar &a : session.avatars()) {
+			for (size_t i = 0; i < avatars.size(); i++) {
+				const gc::Avatar &a = avatars[i];
 				const float at[3] = {a.shown[0], a.shown[1] - 0.6f, a.shown[2]};
 				float lit[3];
 				gc::light_for(*world, hand_lights, sky_light, at, NIGHT_CREATURE_LIGHT, lit);
 				float hand_m[16];
-				gc::build_player(a.figure, a.id, a.shown, a.shown_yaw, lit, creature_mesh, hand_m);
+				gc::build_player(a.figure, a.id, a.shown, a.shown_yaw, lit, creature_mesh, hand_m,
+						i < size_t(OWN_SKIN) ? int(i) : -1);
 				if (!a.item.empty()) {
 					// A block: a small cube in the fist; a flat item held by its
-					// lower corner, tip forward and up (the Godot version's Avatar).
+					// lower corner, tip forward and up.
 					const bool block = content.blocks.count(a.item) > 0 && rules.is_placeable(a.item) &&
 							rules.def(gocube::BlockId(std::max(0, content.block_index(a.item)))).value("shape", "") != "cross";
 					const DirectX::XMMATRIX local = block
@@ -1685,7 +1804,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 						camera.position, sky, true);
 			}
 			// Puffs of smoke (a ninja caught by the sun): a burst of grey cubes
-			// rising for 0.9 s (the Godot version's CPUParticles3D).
+			// rising for 0.9 s.
 			for (const gc::Effect &e : game.take_effects()) {
 				if (e.name != "smoke") {
 					continue;
@@ -1738,14 +1857,16 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			float lit[3];
 			gc::light_for(*world, hand_lights, sky_light, eye, NIGHT_CREATURE_LIGHT, lit);
 			std::vector<gc::WorldVertex> arm, held;
-			hand.build(item_models, game.selected_item(), lit, arm, held);
+			std::vector<gc::CreatureVertex> skinned_arm; // (our right arm, in our skin)
+			hand.build(item_models, game.selected_item(), lit, arm, held, &skinned_arm, gc::ChunkRenderer::SKIN_SLOTS - 1);
 			const DirectX::XMMATRIX projection = camera.projection(aspect);
 			chunks.clear_depth(renderer.context());
-			chunks.draw_items(renderer.context(), arm, projection, {0, 0, 0}, sky, false);
+			chunks.draw_creatures(renderer.context(), skinned_arm, projection, {0, 0, 0}, sky);
 			chunks.clear_depth(renderer.context());
 			chunks.draw_items(renderer.context(), held, projection, {0, 0, 0}, sky, true, true);
 		}
 
+		rest_timer.reset();
 		// With a screenshot, count frames once the world around has loaded.
 		const gc::WorldStats ws = world->stats();
 		bool counting = options.screenshot.empty() || ws.settled;
@@ -1758,18 +1879,41 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			counting = true;
 		}
 		const bool last_frame = options.frames > 0 && counting && ++frame >= options.frames;
-		if (!renderer.end_frame(ui_overlay(renderer), last_frame && !options.screenshot.empty() ? options.screenshot.c_str() : nullptr)) {
-			end = End::FAILED;
-			break;
+		{
+			GC_PROFILE("present (UI, GPU, vsync)");
+			if (!renderer.end_frame(ui_overlay(renderer), last_frame && !options.screenshot.empty() ? options.screenshot.c_str() : nullptr)) {
+				end = End::FAILED;
+				break;
+			}
+		}
+		for (const auto &[name, ms] : renderer.gpu_times()) { // (a few frames late)
+			gc::profiler().add(("GPU: " + name).c_str(), ms, name == "frame" ? 0 : 1);
 		}
 		if (last_frame || quit_requested) {
 			break;
 		}
-		if (settings.max_fps > 0) { // the frame rate limit
-			std::this_thread::sleep_until(now + std::chrono::microseconds(1000000 / settings.max_fps));
+		{
+			GC_PROFILE("frame rate limit (waiting)");
+			if (settings.max_fps > 0) { // the frame rate limit
+				std::this_thread::sleep_until(now + std::chrono::microseconds(1000000 / settings.max_fps));
+			}
 		}
 	}
 
+	if (options.profile) {
+		const gc::WorldStats ws = world->stats();
+		gc::log("Frame times (ms; the GPU's a few frames late):");
+		const std::string lines = gc::profiler().report();
+		for (size_t from = 0, to; from < lines.size(); from = to + 1) { // (a line at a time: the log's lines are short)
+			to = lines.find('\n', from);
+			to = to == std::string::npos ? lines.size() : to;
+			gc::log("%s", lines.substr(from, to - from).c_str());
+		}
+		gc::log("World threads (%d): %lld chunks generated, %.2f ms each; %lld meshed, light %.2f ms + mesh %.2f ms each",
+				ws.workers, ws.generated, ws.generated ? ws.generate_ms / double(ws.generated) : 0.0, ws.meshed_jobs,
+				ws.meshed_jobs ? ws.light_ms / double(ws.meshed_jobs) : 0.0,
+				ws.meshed_jobs ? ws.mesh_ms / double(ws.meshed_jobs) : 0.0);
+	}
 	save_all();
 	session.leave();
 	mods.attach(nullptr, nullptr);
@@ -1791,7 +1935,8 @@ int main(int argc, char **argv) {
 	}
 
 	gc::Window window;
-	if (!window.create(L"GoCube", 1280, 720, !options.hidden)) {
+	// Three quarters of the screen (hidden, for tests and screenshots: always 1280 x 720).
+	if (!window.create(L"GoCube", options.hidden ? 1280 : 0, options.hidden ? 720 : 0, !options.hidden)) {
 		gc::log("Couldn't create the window");
 		return 1;
 	}

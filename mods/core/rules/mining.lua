@@ -1,6 +1,5 @@
 -- Mining: how long a block takes to break, and what breaking it gives.
--- (The Godot version's Player.mine_seconds, drop_of and drops_of, without
--- tools: everything is mined by hand, twice as fast as a bare hand was.)
+-- (No tools: everything is mined by hand.)
 
 local MINE_SECONDS_PER_HARDNESS = 0.375
 local MIN_MINE_SECONDS = 0.1

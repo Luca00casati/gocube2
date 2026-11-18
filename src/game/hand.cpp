@@ -35,7 +35,7 @@ Hand::Pose mix(const Hand::Pose &a, const Hand::Pose &b, float u) {
 	return p;
 }
 
-// A Godot node's transform: Euler angles in its YXZ order (Z turned first),
+// A node's transform: Euler angles in YXZ order (Z turned first),
 // then the position; as a DirectXMath (row vector) matrix.
 XMMATRIX node(XMFLOAT3 position, const float euler[3], float scale = 1.0f) {
 	return XMMatrixScaling(scale, scale, scale) * XMMatrixRotationZ(euler[2]) * XMMatrixRotationX(euler[0]) *
@@ -43,7 +43,7 @@ XMMATRIX node(XMFLOAT3 position, const float euler[3], float scale = 1.0f) {
 }
 
 // The hand shader's shade for a face of the model's own normal is applied
-// on the GPU; here a box (Godot's BoxMesh) of `size` centred on its origin.
+// on the GPU; here a box of `size` centred on its origin.
 void add_box(std::vector<WorldVertex> &out, XMFLOAT3 size, const XMMATRIX &m, const float color[3]) {
 	static const float N[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 	for (const auto &n : N) {
@@ -114,7 +114,7 @@ void light_for(const World &world, const HandLights &hand_lights, const float sk
 	world.light_at(int(std::floor(at[0])), int(std::floor(at[1])), int(std::floor(at[2])), sky, block);
 	const float s = light_curve(float(sky) / 15.0f);
 	const float b = light_curve(float(std::max(block, hand_lights.level_at(at))) / 15.0f);
-	static const float BLOCK_LIGHT_COLOR[3] = {1.0f, 0.85f, 0.62f}; // (used as is, as the Godot version's Color)
+	static const float BLOCK_LIGHT_COLOR[3] = {1.0f, 0.85f, 0.62f}; //
 	for (int k = 0; k < 3; k++) {
 		out[k] = std::max(std::max(sky_light[k] * s, BLOCK_LIGHT_COLOR[k] * b), least);
 	}
@@ -164,7 +164,7 @@ void Hand::update(float dt, bool mining, bool walking) {
 }
 
 void Hand::build(ItemModels &models, const std::string &item, const float light[3], std::vector<WorldVertex> &arm,
-		std::vector<WorldVertex> &held) const {
+		std::vector<WorldVertex> &held, std::vector<CreatureVertex> *skinned, int skin) const {
 	const float zero[3] = {0, 0, 0};
 	const XMMATRIX hand = node({SHOULDER.x + bob_offset_[0] + pose_.push[0], SHOULDER.y + bob_offset_[1] + pose_.push[1],
 									   SHOULDER.z + bob_offset_[2] + pose_.push[2]},
@@ -173,11 +173,22 @@ void Hand::build(ItemModels &models, const std::string &item, const float light[
 	const float arm_turn[3] = {0.15f, -0.12f, 0.0f};
 	const XMMATRIX arm_m = node({0.0f, -0.02f, 0.12f}, arm_turn) * grip;
 	const XMMATRIX fist_m = node({0, 0, -0.22f}, zero) * arm_m;
-	// (Colours as they are: items.hlsl writes the result out as the Godot version's renderer does.)
+	// (Colours as they are: items.hlsl writes the result out as the world's shaders do.)
 	const float sleeve[3] = {0.34f * light[0], 0.46f * light[1], 0.72f * light[2]};
-	const float skin[3] = {0.86f * light[0], 0.68f * light[1], 0.54f * light[2]};
-	add_box(arm, {0.135f, 0.135f, 0.42f}, arm_m, sleeve); // wider than the hand: a cuff around the wrist
-	add_box(arm, {0.1f, 0.1f, 0.12f}, fist_m, skin);
+	const float tone[3] = {0.86f * light[0], 0.68f * light[1], 0.54f * light[2]};
+	if (skinned) {
+		// The skin's right arm, raised forward: its hand where the fist is
+		// (12 pixels of 0.04 m, the hand's end 0.28 m ahead of the sleeve's
+		// middle), its front facing up.
+		constexpr float P = 0.04f;
+		const float raise[3] = {1.5707963f, 0.0f, 0.0f};
+		XMFLOAT4X4 m;
+		XMStoreFloat4x4(&m, node({0.0f, 0.0f, -0.28f + 6 * P}, raise) * arm_m);
+		build_skinned_arm(&m._11, P, light, skin, *skinned);
+	} else {
+		add_box(arm, {0.135f, 0.135f, 0.42f}, arm_m, sleeve); // wider than the hand: a cuff around the wrist
+		add_box(arm, {0.1f, 0.1f, 0.12f}, fist_m, tone);
+	}
 	if (item.empty()) {
 		return;
 	}

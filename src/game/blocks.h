@@ -2,7 +2,6 @@
 // Block rules for playing: which blocks can be placed, which variant a
 // placement makes (slabs, stairs, torches, ladders, doors, beds), the other
 // half of a door or bed, opening doors, and what needs support.
-// Ported from the Godot version's BlockShapes, PlantSim.supported and Player.
 
 #include "content/content.h"
 #include "world/world.h"

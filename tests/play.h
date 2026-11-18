@@ -24,7 +24,6 @@ struct Play {
 	struct Setup {
 		bool creative = false;
 		uint32_t seed = 4242;
-		int generator = gc::GENERATOR_VERSION;
 		std::vector<std::string> block_ids; // (a client: the host's)
 		float x = 0.5f, z = 0.5f;           // loaded around here
 		int view = 32;
@@ -51,7 +50,7 @@ struct Play {
 		content.freeze(s.block_ids);
 		table = gc::build_block_table(content);
 		rules = std::make_unique<gc::BlockRules>(content);
-		gc::configure_generator(generator, content, s.seed, s.generator);
+		gc::configure_generator(generator, content, s.seed);
 		world = std::make_unique<gc::World>(table.blocks, table.atlas.layout, generator);
 		world->set_view_distance(s.view);
 		wait_loaded(s.x, s.z);

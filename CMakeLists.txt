@@ -31,13 +31,17 @@ target_compile_definitions(lua PRIVATE _CRT_SECURE_NO_WARNINGS)
 set(GOCUBE_DEFINES UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 set(GOCUBE_OPTIONS /W4 /permissive- /utf-8 /EHsc /MP)
 
-# Everything that doesn't touch the window or the GPU: the voxel engine (from
-# the Godot version's GDExtension) and mods' content. Shared with the tests.
+# Everything that doesn't touch the window or the GPU: the voxel engine, the
+# game and mods' content. Shared with the tests.
 add_library(gocube_core STATIC
 	src/content/content.cpp
 	src/content/content.h
 	src/content/image.cpp
 	src/content/image.h
+	src/content/skin.cpp
+	src/content/skin.h
+	src/profiler.cpp
+	src/profiler.h
 	src/content/item_models.cpp
 	src/content/item_models.h
 	src/audio/mixing.cpp
@@ -106,11 +110,6 @@ target_include_directories(gocube_core PUBLIC src)
 target_link_libraries(gocube_core PRIVATE lua bcrypt ws2_32 PUBLIC winmm cabinet) # (winmm: platform/fine_sleep.h; cabinet: platform/compression.h)
 target_compile_definitions(gocube_core PUBLIC ${GOCUBE_DEFINES})
 target_compile_options(gocube_core PRIVATE ${GOCUBE_OPTIONS})
-# The voxel engine is the Godot version's, unchanged: quiet its warnings here
-# rather than diverge from it.
-set_source_files_properties(src/voxel/generator.cpp src/voxel/light.cpp src/voxel/mesher.cpp src/voxel/storage.cpp
-	PROPERTIES COMPILE_OPTIONS "/wd4100;/wd4244;/wd4005"
-	COMPILE_DEFINITIONS "_CRT_SECURE_NO_WARNINGS;_SILENCE_CXX20_U8PATH_DEPRECATION_WARNING")
 
 # Shaders: compiled by FXC (shader model 5.0) into headers at build time.
 find_program(FXC fxc REQUIRED DOC "The Windows SDK's shader compiler (in the Visual Studio developer environment)")
@@ -121,7 +120,7 @@ function(add_shader file entry profile name)
 	add_custom_command(OUTPUT ${out}
 		COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_DIR}
 		COMMAND ${FXC} /nologo /T ${profile} /E ${entry} /O3 /WX /Vn g_${name} /Fh ${out} ${CMAKE_CURRENT_SOURCE_DIR}/${file}
-		DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${file} ${CMAKE_CURRENT_SOURCE_DIR}/shaders/godot_color.hlsli
+		DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${file} ${CMAKE_CURRENT_SOURCE_DIR}/shaders/color.hlsli
 		COMMENT "Compiling ${file} (${entry})")
 	set(SHADER_HEADERS ${SHADER_HEADERS} ${out} PARENT_SCOPE)
 endfunction()

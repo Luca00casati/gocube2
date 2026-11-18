@@ -1,5 +1,4 @@
-// Multiplayer across two real processes over the network (the Godot version's
-// test_mp_processes and mp_smoke). Run without arguments (CTest), it starts
+// Multiplayer across two real processes over the network. Run without arguments (CTest), it starts
 // itself twice: a host (`host PORT`) and, once the host says it's ready, a
 // client (`client PORT`). The client checks that edits made before and after
 // it joined reach it, that the host keeps its inventory, that its requests are

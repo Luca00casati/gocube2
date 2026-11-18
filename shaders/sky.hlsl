@@ -1,8 +1,8 @@
 // The sky: a colour gradient, a square pixel sun and moon, stars at night and
-// a drifting layer of blocky clouds. Ported from the Godot version's
-// sky.gdshader. Drawn first, behind everything (a full-screen triangle).
+// a drifting layer of blocky clouds (a full-screen triangle, drawn where
+// nothing else is: after the solid blocks).
 
-#include "godot_color.hlsli"
+#include "color.hlsli"
 
 cbuffer Sky : register(b0) {
 	float4x4 inv_view_proj;
@@ -137,5 +137,5 @@ float4 ps_main(PSIn i) : SV_Target {
 		float3 cloud_col = lerp(lit * 0.86, lit, core);
 		col = lerp(col, cloud_col, cloud * fade * 0.92);
 	}
-	return float4(godot_to_srgb(col), 1.0); // (as the Godot version writes it: godot_color.hlsli)
+	return float4(to_srgb(col), 1.0);
 }

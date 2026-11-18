@@ -65,7 +65,7 @@ struct OpenWorld {
 		content.freeze(save.block_ids());
 		save.set_block_ids(content.block_ids());
 		table = gc::build_block_table(content);
-		gc::configure_generator(generator, content, save.seed(), save.generator());
+		gc::configure_generator(generator, content, save.seed());
 		world = std::make_unique<gc::World>(table.blocks, table.atlas.layout, generator, utf8(save.chunks_dir()));
 		world->set_view_distance(32);
 		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
@@ -154,21 +154,13 @@ TEST_CASE("worlds that can't be read safely are left alone") {
 	write(dir / "world.lua", "os.remove('x') return {seed = 1}");
 	CHECK(save.open(dir, 1).find("damaged") != std::string::npos);
 	CHECK(fs::exists(dir / "world.lua")); // (left as it is)
-
-	// The old format (the Godot version's, and this one's before): not read.
-	const fs::path old = fresh_dir("old_json");
-	fs::create_directories(old);
-	write(old / "world.json", R"({"seed": 1, "format": 2})");
-	CHECK(save.open(old, 1).find("world.json") != std::string::npos);
-	CHECK_FALSE(fs::exists(old / "world.lua"));
 }
 
-TEST_CASE("a new world gets a seed, the newest generator and the block table") {
+TEST_CASE("a new world gets a seed and the block table") {
 	const fs::path dir = fresh_dir("new");
 	gc::WorldSave save;
 	REQUIRE(save.open(dir, 99) == "");
 	CHECK(save.seed() == 99);
-	CHECK(save.generator() == gc::GENERATOR_VERSION);
 	CHECK(save.block_ids().empty());
 	save.set_block_ids({"core:air", "core:stone"});
 	const Data meta = read_world(dir);
@@ -297,8 +289,8 @@ TEST_CASE("settings: saved and read back; what's missing or wrong is the default
 	CHECK(back.last_address == "192.168.1.20:24680");
 	CHECK(back.actions_using('J') == std::vector<std::string>{"jump"});
 
-	// Out of range, the wrong type, an unknown shadow mode (the Godot version's
-	// "smooth"), a key that isn't one: those settings are the defaults.
+	// Out of range, the wrong type, an unknown shadow mode, a key that isn't
+	// one: those settings are the defaults.
 	std::ofstream(file) << "return {view_distance = 100000, mouse_sensitivity = \"fast\", shadow_mode = \"smooth\", "
 						   "render_scale = 0.01, keys = {jump = -3, sprint = 82}, master_volume = 7}\n";
 	gc::Settings odd;

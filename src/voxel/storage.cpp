@@ -8,7 +8,6 @@
 #include <vector>
 
 #ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
 
@@ -16,10 +15,10 @@ namespace gocube {
 
 namespace {
 
-// Paths come from Godot as UTF-8; on Windows they must become wide paths, or
+// Paths come as UTF-8; on Windows they must become wide paths, or
 // folders with non-ASCII names (a user called Ëlla) can't be opened.
 std::filesystem::path native_path(const std::string &utf8) {
-	return std::filesystem::u8path(utf8);
+	return std::filesystem::path(std::u8string(utf8.begin(), utf8.end()));
 }
 
 // Replaces `to` with `from` in one step. std::rename can't on Windows when
@@ -152,7 +151,7 @@ std::vector<std::array<int, 3>> list_chunk_files(const std::string &dir) {
 		int x, y, z;
 		const std::string name = entry.path().filename().string();
 		char tail = 0;
-		if (std::sscanf(name.c_str(), "c.%d.%d.%d.bi%c", &x, &y, &z, &tail) == 4 && tail == 'n' &&
+		if (sscanf_s(name.c_str(), "c.%d.%d.%d.bi%c", &x, &y, &z, &tail, 1u) == 4 && tail == 'n' &&
 				name.size() > 4 && name.compare(name.size() - 4, 4, ".bin") == 0) {
 			out.push_back({ x, y, z });
 		}

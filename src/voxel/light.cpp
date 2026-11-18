@@ -161,9 +161,9 @@ void compute_light(LightRegion &out, const ChunkData *const chunks[27], const Co
 		}
 	}
 
-	// Sky: full light straight down each column until its topmost opaque block.
-	std::vector<int32_t> sky_queue;
-	sky_queue.reserve(N / 4);
+	// Sky: full light straight down each column until its topmost opaque block
+	// (the lowest lit cell of each column kept).
+	std::vector<int16_t> lowest(size_t(S) * S, int16_t(S));
 	for (int z = 0; z < S; z++) {
 		for (int x = 0; x < S; x++) {
 			const ColumnTops *t = tops[(chunk_offset[z] + 1) * 3 + (chunk_offset[x] + 1)];
@@ -175,7 +175,39 @@ void compute_light(LightRegion &out, const ChunkData *const chunks[27], const Co
 					break;
 				}
 				out.sky[i] = LIGHT_MAX;
-				sky_queue.push_back(i);
+				lowest[size_t(z) * S + x] = int16_t(y);
+			}
+		}
+	}
+	// The flood starts only from lit cells next to an unlit open one: from any
+	// other, every neighbour is lit already or opaque (the same light comes out,
+	// without going through the whole open sky). A column's cells can only have
+	// one below them unlit at its lowest; beside them, where the next column's
+	// lit part ends higher up.
+	std::vector<int32_t> sky_queue;
+	for (int z = 0; z < S; z++) {
+		for (int x = 0; x < S; x++) {
+			const int low = lowest[size_t(z) * S + x];
+			if (low >= S) {
+				continue; // (no sky in this column)
+			}
+			auto spreads = [&](int y) {
+				const int i = LightRegion::index(x, y, z);
+				auto dark = [&](int j) { return !opaque[j] && out.sky[j] < LIGHT_MAX - 1; };
+				return (y > 0 && dark(i - S * S)) || (x > 0 && dark(i - 1)) || (x < S - 1 && dark(i + 1)) ||
+						(z > 0 && dark(i - S)) || (z < S - 1 && dark(i + S));
+			};
+			// Only where a neighbouring column isn't lit as far down as this one can there be a dark neighbour.
+			int deepest_neighbour = low;
+			if (x > 0) deepest_neighbour = std::max(deepest_neighbour, int(lowest[size_t(z) * S + x - 1]));
+			if (x < S - 1) deepest_neighbour = std::max(deepest_neighbour, int(lowest[size_t(z) * S + x + 1]));
+			if (z > 0) deepest_neighbour = std::max(deepest_neighbour, int(lowest[size_t(z - 1) * S + x]));
+			if (z < S - 1) deepest_neighbour = std::max(deepest_neighbour, int(lowest[size_t(z + 1) * S + x]));
+			const int y_top = std::min(S - 1, deepest_neighbour == S ? S - 1 : deepest_neighbour);
+			for (int y = low; y <= y_top; y++) {
+				if (spreads(y)) {
+					sky_queue.push_back(LightRegion::index(x, y, z));
+				}
 			}
 		}
 	}

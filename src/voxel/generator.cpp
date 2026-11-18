@@ -2,22 +2,45 @@
 #include "noise.h"
 
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <cstdint>
 
 namespace gocube {
 
 namespace {
-std::atomic<uint64_t> next_epoch{ 1 };
 
 int64_t column_key(int x, int z) {
 	return (int64_t(x) << 32) ^ int64_t(uint32_t(z));
 }
+
+int floor_div(int v, int d) {
+	return v >= 0 ? v / d : -((-v + d - 1) / d);
+}
+
+// Fractal sum of 3D noise, roughly [-1, 1].
+float fbm3(float x, float y, float z, uint32_t seed, int octaves) {
+	float sum = 0.0f, amp = 1.0f, norm = 0.0f;
+	for (int i = 0; i < octaves; i++) {
+		sum += noise3(x, y, z, seed + static_cast<uint32_t>(i) * 1013u) * amp;
+		norm += amp;
+		amp *= 0.5f;
+		x *= 2.0f;
+		y *= 2.0f;
+		z *= 2.0f;
+	}
+	return sum / norm;
+}
+
+float smoothstep01(float t) {
+	t = std::clamp(t, 0.0f, 1.0f);
+	return t * t * (3.0f - 2.0f * t);
+}
+
+constexpr int NX = CHUNK / Generator::LX + 1, NZ = CHUNK / Generator::LZ + 1; // lattice points across a chunk column
+
 } // namespace
 
 void Generator::forget_cached() {
-	_epoch = next_epoch++;
 	std::lock_guard<std::mutex> lock(_columns_mutex);
 	_columns.clear();
 	_columns_order.clear();
@@ -37,17 +60,15 @@ void Generator::set_biomes(const std::vector<BiomeKind> &biomes) {
 	forget_cached();
 }
 
-// The biome used when none are configured (worlds from before biomes): the
-// original grass land with every tree kind at its own chance.
+// With no biome configured: plain grass land, no trees.
 const BiomeKind &Generator::biome(int index) const {
 	if (!_biomes.empty()) {
 		return _biomes[std::clamp(index, 0, int(_biomes.size()) - 1)];
 	}
-	static thread_local BiomeKind legacy;
-	legacy.surface = _ids.grass;
-	legacy.filler = _ids.dirt;
-	legacy.height = AMPLITUDE;
-	return legacy;
+	static thread_local BiomeKind plain;
+	plain.surface = _ids.grass;
+	plain.filler = _ids.dirt;
+	return plain;
 }
 
 void Generator::climate(int x, int z, float &temperature, float &humidity) const {
@@ -75,11 +96,6 @@ int Generator::biome_at(int x, int z) const {
 	return best;
 }
 
-int Generator::terrain_height(int x, int z) const {
-	int biome_index;
-	return column(x, z, biome_index);
-}
-
 // Where mountain ranges rise: a slow noise picks the ranges, a ridged one
 // shapes their crests and valleys. 0 outside ranges, up to 1 on a crest.
 float Generator::mountain_shape(int x, int z) const {
@@ -94,166 +110,57 @@ float Generator::mountain_shape(int x, int z) const {
 	return range * (0.3f + 0.7f * r * r);
 }
 
-// Terrain height and biome of a column, from one climate lookup.
-int Generator::column(int x, int z, int &biome_index) const {
-	const float n = fbm2(x * HEIGHT_FREQUENCY, z * HEIGHT_FREQUENCY, _seed, 4);
-	biome_index = 0;
+// The biomes' hill height, base and mountains, blended by closeness in climate space.
+void Generator::blend(int x, int z, float &amp, float &base, float &mountains) const {
 	if (_biomes.empty()) {
-		return static_cast<int>(std::floor(n * AMPLITUDE));
+		amp = 20.0f;
+		base = mountains = 0.0f;
+		return;
 	}
-	// Hill height and base blended by closeness in climate space; the biome is
-	// the closest one.
 	float t, h;
 	climate(x, z, t, h);
-	float wsum = 0.0f, amp = 0.0f, base = 0.0f, mountains = 0.0f, best = INFINITY;
-	for (size_t i = 0; i < _biomes.size(); i++) {
-		const BiomeKind &b = _biomes[i];
+	float wsum = 0.0f;
+	amp = base = mountains = 0.0f;
+	for (const BiomeKind &b : _biomes) {
 		const float dt = t - b.temperature, dh = h - b.humidity;
-		const float d = dt * dt + dh * dh;
-		if (d < best) {
-			best = d;
-			biome_index = int(i);
-		}
-		const float e = d + 0.02f;
+		const float e = dt * dt + dh * dh + 0.02f;
 		const float w = 1.0f / (e * e * e);
 		wsum += w;
 		amp += w * b.height;
 		base += w * b.base;
 		mountains += w * b.mountains;
 	}
-	float hgt = n * amp / wsum + base / wsum;
+	amp /= wsum;
+	base /= wsum;
+	mountains /= wsum;
+}
+
+// The density at a lattice point: above 0 is solid. The land's shape from 2D
+// noise (continents and seas, hills, the biomes' mountain ranges) gives the
+// height it leans to; 3D noise moves it up and down, more where the land is
+// rough (a slow noise): there it makes cliffs, overhangs and arches, now and
+// then a floating piece; where it's smooth, rolling hills and plains.
+float Generator::density(int x, int y, int z) const {
+	float amp, base, mountains;
+	blend(x, z, amp, base, mountains);
+	const float continent = fbm2(x * 0.0032f, z * 0.0032f, _seed + 701u, 4);
+	const float hills = fbm2(x * 0.011f, z * 0.011f, _seed + 703u, 4);
+	const float rough = smoothstep01((fbm2(x * 0.0055f, z * 0.0055f, _seed + 705u, 3) + 0.1f) / 0.5f);
+	float target = float(SEA_LEVEL) - 5.0f + base + continent * 52.0f + hills * amp * (0.7f + 0.9f * rough);
+	target += rough * 18.0f; // rough land is highland
 	if (mountains > 0.0f) {
-		hgt += mountain_shape(x, z) * mountains / wsum;
+		target += mountain_shape(x, z) * mountains * 1.3f;
 	}
-	return std::min(static_cast<int>(std::floor(hgt)), MAX_TERRAIN_Y);
-}
-
-int Generator::height_at(int x, int z) const {
-	int level, bottom, bank;
-	const int h = terrain_height(x, z);
-	if (lake_at(x, z, level, bottom, &bank)) {
-		return bottom;
+	const float squash = 8.0f + rough * 26.0f; // blocks for the density to go from 0 to 1 (the 3D part's reach)
+	const float n = fbm3(x * 0.017f, y * 0.028f, z * 0.017f, _seed + 707u, 4);
+	float d = (target - float(y)) / squash + n * (0.3f + 0.9f * rough);
+	if (y > TOP_LIMIT - 20) {
+		d -= float(y - (TOP_LIMIT - 20)) / 10.0f; // nothing reaches the top
 	}
-	return std::max(h, bank);
-}
-
-// The lake that lake cell (cx, cz) may hold: its centre and radius, and
-// whether the biome rolled one (before looking at the ground there).
-bool Generator::lake_spot(int cx, int cz, int &px, int &pz, float &radius) const {
-	const uint32_t r = hash_point(cx, 13, cz, _seed + 991u);
-	px = cx * LAKE_CELL + 10 + int(r % uint32_t(LAKE_CELL - 20));
-	pz = cz * LAKE_CELL + 10 + int((r >> 8) % uint32_t(LAKE_CELL - 20));
-	radius = 4.0f + float((r >> 16) % 5u);
-	return int((r >> 20) % 100u) < biome(biome_at(px, pz)).lakes;
-}
-
-// How far from its centre a lake reaches, bank included (its edge is at most
-// 1.25 radius out, see lake_at).
-static float lake_reach(float radius) {
-	return radius * 1.25f + Generator::LAKE_BANK + 1.0f;
-}
-
-// The water level of the lake in cell (cx, cz), or INT32_MIN if there is none:
-// none rolled, at the sea, ground not flat enough, or it would touch the lake
-// of a cell that comes before it (two lakes never meet at different levels).
-int Generator::lake_level(int cx, int cz, int px, int pz, float radius) const {
-	for (int nz = cz - 1; nz <= cz; nz++) {
-		for (int nx = cx - 1; nx <= cx + 1; nx++) {
-			if (nz == cz && nx >= cx) {
-				break;
-			}
-			int qx, qz;
-			float qr;
-			if (lake_spot(nx, nz, qx, qz, qr) &&
-					std::hypot(float(qx - px), float(qz - pz)) < lake_reach(radius) + lake_reach(qr)) {
-				return INT32_MIN;
-			}
-		}
+	if (y < BOTTOM_Y + 24) {
+		d += float(BOTTOM_Y + 24 - y) / 6.0f; // solid at the bottom
 	}
-	const int lv = terrain_height(px, pz);
-	if (lv <= SEA_LEVEL + 2) {
-		return INT32_MIN; // only on land above the sea
-	}
-	const int ri = int(radius);
-	const int probe[4][2] = { { ri, 0 }, { -ri, 0 }, { 0, ri }, { 0, -ri } };
-	for (const auto &pr : probe) {
-		if (std::abs(terrain_height(px + pr[0], pz + pr[1]) - lv) > 3) {
-			return INT32_MIN; // only on fairly flat land
-		}
-	}
-	return lv;
-}
-
-bool Generator::lake_at(int x, int z, int &level, int &bottom, int *bank) const {
-	if (bank) {
-		*bank = INT32_MIN;
-	}
-	if (_biomes.empty()) {
-		return false;
-	}
-	auto cell_floor = [](int v) { return v >= 0 ? v / LAKE_CELL : -((-v + LAKE_CELL - 1) / LAKE_CELL); };
-	const int ccx = cell_floor(x), ccz = cell_floor(z);
-	for (int cz = ccz - 1; cz <= ccz + 1; cz++) {
-		for (int cx = ccx - 1; cx <= ccx + 1; cx++) {
-			const LakeCell cell = lake_cell(cx, cz);
-			if (!cell.spot) {
-				continue;
-			}
-			const float radius = cell.radius;
-			const float dx = float(x - cell.px), dz = float(z - cell.pz);
-			const float dist = std::sqrt(dx * dx + dz * dz);
-			if (dist > lake_reach(radius)) {
-				continue; // cheap test first
-			}
-			const int lv = cell.level;
-			if (lv == INT32_MIN) {
-				continue;
-			}
-			const float edge = radius * (1.0f + 0.25f * noise2(x * 0.21f, z * 0.21f, _seed + 993u));
-			if (dist < edge) {
-				level = lv;
-				bottom = lv - std::max(1, int(std::round((1.0f - dist / edge) * 4.0f)));
-				return true;
-			}
-			// Just outside: a bank at least as high as the water, so no lake
-			// water ever stands next to open air (on a slope, say).
-			if (bank && dist < edge + LAKE_BANK) {
-				*bank = std::max(*bank, lv);
-			}
-		}
-	}
-	return false;
-}
-
-Generator::LakeCell Generator::compute_lake_cell(int cx, int cz) const {
-	LakeCell c;
-	c.spot = lake_spot(cx, cz, c.px, c.pz, c.radius);
-	if (c.spot) {
-		c.level = lake_level(cx, cz, c.px, c.pz, c.radius);
-	}
-	return c;
-}
-
-Generator::LakeCell Generator::lake_cell(int cx, int cz) const {
-	struct Cache {
-		const Generator *owner = nullptr;
-		uint64_t epoch = 0;
-		std::unordered_map<int64_t, LakeCell> cells;
-	};
-	static thread_local Cache cache;
-	if (cache.owner != this || cache.epoch != _epoch || cache.cells.size() > 4096) {
-		cache.owner = this;
-		cache.epoch = _epoch;
-		cache.cells.clear();
-	}
-	const int64_t k = column_key(cx, cz);
-	auto it = cache.cells.find(k);
-	if (it != cache.cells.end()) {
-		return it->second;
-	}
-	const LakeCell c = compute_lake_cell(cx, cz);
-	cache.cells.emplace(k, c);
-	return c;
+	return d;
 }
 
 std::shared_ptr<const Generator::Columns> Generator::columns(int ox, int oz) const {
@@ -266,29 +173,7 @@ std::shared_ptr<const Generator::Columns> Generator::columns(int ox, int oz) con
 		}
 	}
 	auto c = std::make_shared<Columns>();
-	c->min_h = 1 << 30;
-	c->max_h = -(1 << 30);
-	for (int z = 0; z < CHUNK; z++) {
-		for (int x = 0; x < CHUNK; x++) {
-			const int i = z * CHUNK + x;
-			int biome_index;
-			int h = column(ox + x, oz + z, biome_index);
-			int level, bottom, bank;
-			c->lake_level[i] = INT32_MIN;
-			c->lake_bank[i] = false;
-			if (lake_at(ox + x, oz + z, level, bottom, &bank)) {
-				c->lake_level[i] = level;
-				h = bottom;
-			} else {
-				h = std::max(h, bank); // a lake's bank
-				c->lake_bank[i] = bank != INT32_MIN;
-			}
-			c->heights[i] = h;
-			c->biomes[i] = biome_index;
-			c->min_h = std::min(c->min_h, h);
-			c->max_h = std::max(c->max_h, std::max(h, c->lake_level[i]));
-		}
-	}
+	fill_columns(*c, ox, oz);
 	std::lock_guard<std::mutex> lock(_columns_mutex);
 	if (_columns.emplace(k, c).second) {
 		_columns_order.push_back(k);
@@ -298,6 +183,95 @@ std::shared_ptr<const Generator::Columns> Generator::columns(int ox, int oz) con
 		}
 	}
 	return c;
+}
+
+// A chunk column's lattice (the whole height), and from it each column's
+// topmost solid block and biome.
+void Generator::fill_columns(Columns &c, int ox, int oz) const {
+	c.density.assign(size_t(NX) * NZ * LY_COUNT, 0.0f);
+	for (int j = 0; j < LY_COUNT; j++) {
+		for (int k = 0; k < NZ; k++) {
+			for (int i = 0; i < NX; i++) {
+				c.density[(size_t(j) * NZ + k) * NX + i] = density(ox + i * LX, BOTTOM_Y + j * LY, oz + k * LZ);
+			}
+		}
+	}
+	const int top = BOTTOM_Y + (LY_COUNT - 1) * LY;
+	c.max_h = -(1 << 30);
+	for (int z = 0; z < CHUNK; z++) {
+		for (int x = 0; x < CHUNK; x++) {
+			const int i = z * CHUNK + x;
+			const int ix = x / LX, iz = z / LZ;
+			const float fx = float(x % LX) / LX, fz = float(z % LZ) / LZ;
+			auto level = [&](int j) { // the density at this column, at lattice level j
+				const float *d = &c.density[(size_t(j) * NZ + iz) * NX + ix];
+				const float a = d[0] + (d[1] - d[0]) * fx, b = d[NX] + (d[NX + 1] - d[NX]) * fx;
+				return a + (b - a) * fz;
+			};
+			int h = BOTTOM_Y;
+			float above = level(LY_COUNT - 1);
+			for (int j = LY_COUNT - 2; j >= 0 && h == BOTTOM_Y; j--) {
+				const float below = level(j);
+				if (below > 0.0f || above > 0.0f) {
+					for (int dy = LY - 1; dy >= 0; dy--) {
+						if (below + (above - below) * float(dy) / LY > 0.0f) {
+							h = BOTTOM_Y + j * LY + dy;
+							break;
+						}
+					}
+				}
+				above = below;
+			}
+			h = std::min(h, top);
+			c.heights[i] = h;
+			c.biomes[i] = biome_at(ox + x, oz + z);
+			c.max_h = std::max(c.max_h, h);
+		}
+	}
+}
+
+int Generator::height_at(int x, int z) const {
+	const int ox = floor_div(x, CHUNK) * CHUNK, oz = floor_div(z, CHUNK) * CHUNK;
+	return columns(ox, oz)->heights[(z - oz) * CHUNK + (x - ox)];
+}
+
+BlockId Generator::top_block(int x, int h, int z, const BiomeKind &b, int &filler_depth, BlockId &filler) const {
+	const float sandy = noise2(x * 0.055f, z * 0.055f, _seed + 711u);
+	const float stony = noise2(x * 0.048f, z * 0.048f, _seed + 713u);
+	const float depth = noise2(x * 0.08f, z * 0.08f, _seed + 715u) + 0.5f * noise2(x * 0.23f, z * 0.23f, _seed + 717u);
+	filler_depth = std::clamp(int(std::floor(3.6f + depth * 3.0f)), 0, 5);
+	filler = b.filler;
+	const BlockId sand = _ids.sand ? _ids.sand : b.filler, gravel = _ids.gravel ? _ids.gravel : sand;
+	if (h < SEA_LEVEL - 1) { // the sea floor
+		filler_depth = std::max(filler_depth, 2);
+		filler = stony > 0.25f ? gravel : sandy > -0.25f ? sand : b.filler;
+		return filler;
+	}
+	if (h <= SEA_LEVEL + 2) { // the shore: beaches of sand, some of gravel
+		if (stony > 0.32f) {
+			filler = gravel;
+			filler_depth = std::max(filler_depth, 2);
+			return gravel;
+		}
+		if (sandy > -0.35f) {
+			filler = sand;
+			filler_depth = std::max(filler_depth, 3);
+			return sand;
+		}
+	}
+	if (filler_depth == 0) {
+		filler = _ids.stone;
+		return _ids.stone; // the dirt ran out: bare stone
+	}
+	const int jitter = int(hash_point(x, 7, z, _seed + 77u) % 4u); // (a ragged line, not a level one)
+	if (b.cap && h >= b.cap_above + jitter) {
+		return b.cap;
+	}
+	if (b.rock && h >= b.rock_above + jitter) {
+		filler = b.rock;
+		return b.rock;
+	}
+	return b.surface;
 }
 
 bool Generator::is_cave(int x, int y, int z) const {
@@ -316,7 +290,7 @@ bool Generator::is_cave(int x, int y, int z, Noise3Cell *cells) const {
 	if (std::fabs(a) < CAVE_WIDTH && std::fabs(a) + std::fabs(noise3(x * s, ys, z * s, _seed + 202u, cell_b)) < CAVE_WIDTH) {
 		return true;
 	}
-	// Big caverns deep down (new worlds).
+	// Big caverns deep down.
 	if (!_biomes.empty() && y < CAVERN_MAX_Y) {
 		const float c = 1.0f / CAVERN_PERIOD;
 		const float n = noise3(x * c, y * 1.5f * c, z * c, _seed + 404u, cell_c);
@@ -327,50 +301,38 @@ bool Generator::is_cave(int x, int y, int z, Noise3Cell *cells) const {
 }
 
 void Generator::trees_near(int x0, int z0, int x1, int z1, std::vector<Tree> &out) const {
-	const int reach = _biomes.empty() ? 3 : TREE_REACH;
-	auto cell_floor = [](int v) { return v >= 0 ? v / TREE_CELL : -((-v + TREE_CELL - 1) / TREE_CELL); };
-	for (int cz = cell_floor(z0 - reach); cz <= cell_floor(z1 + reach); cz++) {
-		for (int cx = cell_floor(x0 - reach); cx <= cell_floor(x1 + reach); cx++) {
+	if (_biomes.empty()) {
+		return;
+	}
+	auto cell_floor = [](int v) { return floor_div(v, TREE_CELL); };
+	for (int cz = cell_floor(z0 - TREE_REACH); cz <= cell_floor(z1 + TREE_REACH); cz++) {
+		for (int cx = cell_floor(x0 - TREE_REACH); cx <= cell_floor(x1 + TREE_REACH); cx++) {
 			const uint32_t r = hash_point(cx, 7, cz, _seed + 77u);
 			const int tx = cx * TREE_CELL + 1 + static_cast<int>((r >> 8) % (TREE_CELL - 2));
 			const int tz = cz * TREE_CELL + 1 + static_cast<int>((r >> 12) % (TREE_CELL - 2));
-			// Pick a tree kind by cumulative chance; most cells get none.
+			// Pick a tree kind by the biome's chances; most cells get none.
+			const BiomeKind &tb = biome(biome_at(tx, tz));
 			int roll = static_cast<int>(r % 100u), kind = -1;
-			if (_biomes.empty()) {
-				for (size_t k = 0; k < _trees.size(); k++) {
-					if (roll < _trees[k].chance) {
-						kind = static_cast<int>(k);
-						break;
-					}
-					roll -= _trees[k].chance;
+			for (const auto &bt : tb.trees) {
+				if (roll < bt.second) {
+					kind = bt.first;
+					break;
 				}
-			} else {
-				for (const auto &bt : biome(biome_at(tx, tz)).trees) {
-					if (roll < bt.second) {
-						kind = bt.first;
-						break;
-					}
-					roll -= bt.second;
-				}
+				roll -= bt.second;
 			}
 			if (kind < 0 || kind >= int(_trees.size())) {
-				continue;
-			}
-			const TreeKind &tk = _trees[kind];
-			int level, bottom;
-			if (lake_at(tx, tz, level, bottom)) {
 				continue;
 			}
 			const int ground = height_at(tx, tz);
 			if (ground <= SEA_LEVEL + 1 || is_cave(tx, ground, tz)) {
 				continue; // beach, sea or a cave mouth
 			}
-			if (!_biomes.empty()) {
-				const BiomeKind &tb = biome(biome_at(tx, tz));
-				if (tb.rock && ground >= tb.rock_above) {
-					continue; // bare rock up on a mountain
-				}
+			int depth;
+			BlockId filler;
+			if (top_block(tx, ground, tz, tb, depth, filler) != tb.surface) {
+				continue; // a beach, gravel, bare stone
 			}
+			const TreeKind &tk = _trees[kind];
 			const int span = std::max(1, tk.max_trunk - tk.min_trunk + 1);
 			out.push_back(Tree{ tx, tz, ground, tk.min_trunk + static_cast<int>((r >> 16) % uint32_t(span)), kind });
 		}
@@ -379,103 +341,80 @@ void Generator::trees_near(int x0, int z0, int x1, int z1, std::vector<Tree> &ou
 
 void Generator::generate(ChunkData &chunk, int ox, int oy, int oz) const {
 	chunk = ChunkData();
-	const bool v2 = !_biomes.empty();
-
-	// Column heights, lakes and biomes for this chunk (shared with the chunks above and below).
-	const std::shared_ptr<const Columns> cols = columns(ox, oz);
-	const int *heights = cols->heights;
-	const int *lake_level = cols->lake_level;
-	const bool *lake_bank = cols->lake_bank;
-	const int *biomes = cols->biomes;
-	const int min_h = cols->min_h, max_h = cols->max_h;
-
+	const std::shared_ptr<const Columns> shared = columns(ox, oz); // (with the chunks above and below)
+	const Columns &cols = *shared;
+	constexpr int TREE_ROOM = 18;
 	const int top_y = oy + CHUNK - 1;
-	const int tree_room = v2 ? 18 : 12;
-	const bool above_everything = oy > std::max(max_h, SEA_LEVEL) + tree_room;
-	if (above_everything) {
-		return; // uniform air
+	if (oy > std::max(cols.max_h, SEA_LEVEL) + TREE_ROOM) {
+		return; // all air
 	}
-	const int cave_min = v2 ? CAVE_MIN_Y : -60;
-	const bool below_caves = top_y < cave_min && top_y < min_h - DIRT_DEPTH;
-	if (below_caves) {
-		chunk.uniform_value = _ids.stone; // all stone, apart from ore veins
-		place_ores(chunk, ox, oy, oz);
-		chunk.compact();
-		return;
-	}
-
+	const bool terrain = oy <= std::max(cols.max_h, SEA_LEVEL) + 1;
 	Noise3Cell cave_cells[3];
-	for (int z = 0; z < CHUNK; z++) {
+	// From a little above the chunk (the filler under a surface just above
+	// it) to one below (snow on a surface just under it).
+	const int scan_top = std::min(top_y + 8, BOTTOM_Y + (LY_COUNT - 1) * LY - 1);
+	for (int z = 0; z < CHUNK && terrain; z++) {
 		for (int x = 0; x < CHUNK; x++) {
 			const int i = z * CHUNK + x;
-			const int h = heights[i];
-			const int lake = lake_level[i];
-			const BiomeKind &bm = biome(biomes[i]);
-			const bool beach = h <= SEA_LEVEL + 1 && lake == INT32_MIN;
-			const bool caves_allowed_column = h > SEA_LEVEL + 2 && lake == INT32_MIN && !lake_bank[i];
 			const int wx = ox + x, wz = oz + z;
-			const int water_top = lake != INT32_MIN ? lake : SEA_LEVEL;
-			for (int y = 0; y < CHUNK; y++) {
-				const int wy = oy + y;
-				const int d = wy - h;
+			const BiomeKind &bm = biome(cols.biomes[i]);
+			const int ix = x / LX, iz = z / LZ;
+			const float fx = float(x % LX) / LX, fz = float(z % LZ) / LZ;
+			auto at = [&](int j) {
+				const float *d = &cols.density[(size_t(j) * NZ + iz) * NX + ix];
+				const float a = d[0] + (d[1] - d[0]) * fx, b = d[NX] + (d[NX + 1] - d[NX]) * fx;
+				return a + (b - a) * fz;
+			};
+			auto solid_at = [&](int y) {
+				const int j = std::clamp(floor_div(y - BOTTOM_Y, LY), 0, LY_COUNT - 2);
+				const float fy = float(y - (BOTTOM_Y + j * LY)) / LY;
+				const float lo = at(j);
+				return lo + (at(j + 1) - lo) * fy > 0.0f;
+			};
+			const int land = cols.heights[i]; // the column's topmost solid block
+			const bool caves_allowed = land > SEA_LEVEL + 2;
+			int filler_depth = 0;
+			BlockId filler = AIR;
+			// Blocks since the last surface, going down (-1: in air or water).
+			// Solid just above the scan: say deep in the ground (stone).
+			int run = scan_top + 1 <= land && solid_at(scan_top + 1) ? 1 << 20 : -1;
+			for (int wy = scan_top; wy >= oy - 1; wy--) {
+				const bool solid = wy <= land && solid_at(wy);
 				BlockId b;
-				if (d > 0) {
-					b = wy <= water_top ? _ids.water : AIR;
-					if (b == _ids.water && wy == water_top && bm.frozen && _ids.ice) {
+				if (!solid) {
+					run = -1;
+					b = wy <= SEA_LEVEL ? _ids.water : AIR;
+					if (b == _ids.water && wy == SEA_LEVEL && bm.frozen && _ids.ice) {
 						b = _ids.ice;
 					}
-				} else if (d == 0) {
-					b = beach || lake != INT32_MIN ? (bm.filler == _ids.dirt || !bm.filler ? _ids.sand : bm.filler) : bm.surface;
-					if (b == bm.surface) {
-						// High up: bare rock, snow on the peaks (a ragged line, not a level one).
-						const int jitter = int(hash_point(wx, 7, wz, _seed + 77u) % 4u);
-						if (bm.cap && h >= bm.cap_above + jitter) {
-							b = bm.cap;
-						} else if (bm.rock && h >= bm.rock_above + jitter) {
-							b = bm.rock;
-						}
-					}
-				} else if (d > -bm.filler_depth) {
-					b = beach ? _ids.sand : (bm.rock && h >= bm.rock_above ? bm.rock : bm.filler);
-				} else if (bm.under && d > -(bm.filler_depth + bm.under_depth)) {
-					b = bm.under;
 				} else {
-					b = _ids.stone;
-				}
-				// Caves: on land columns, or deep under the sea floor, not too deep.
-				if (d <= 0 && wy > cave_min && (caves_allowed_column || wy < h - 5) && is_cave(wx, wy, wz, cave_cells)) {
-					b = v2 && wy <= LAVA_LEVEL && _ids.lava ? _ids.lava : AIR;
-				}
-				if (b != AIR) {
-					chunk.set(x, y, z, b);
-				}
-			}
-			// A thin cover (snow) on the high ground. Decided from the column
-			// alone, so it's the same whichever chunk holds the block above.
-			if (v2 && bm.cover && lake == INT32_MIN && !beach && h + 1 >= oy && h + 1 < oy + CHUNK &&
-					h >= bm.cover_above + int(hash_point(wx, 9, wz, _seed + 79u) % 3u) && !is_cave(wx, h, wz)) {
-				chunk.set(x, h + 1 - oy, z, bm.cover);
-				continue;
-			}
-			// Ground plants: tall grass, flowers, dead bushes.
-			if (v2 && lake == INT32_MIN && !beach && h + 1 >= oy && h + 1 < oy + CHUNK && h >= oy &&
-					chunk.get(x, h - oy, z) == bm.surface && !bm.plants.empty()) {
-				int roll = int(hash_point(wx, 5, wz, _seed + 55u) % 1000u);
-				for (const auto &pl : bm.plants) {
-					if (roll < pl.second) {
-						chunk.set(x, h + 1 - oy, z, pl.first);
-						break;
+					run = run < (1 << 20) ? run + 1 : run;
+					if (run == 0) {
+						b = top_block(wx, wy, wz, bm, filler_depth, filler);
+						// A thin cover (snow) on high ground, on the block above.
+						if (bm.cover && b == bm.surface && wy + 1 >= oy && wy + 1 <= top_y &&
+								wy >= bm.cover_above + int(hash_point(wx, 9, wz, _seed + 79u) % 3u) &&
+								chunk.get(x, wy + 1 - oy, z) == AIR) {
+							chunk.set(x, wy + 1 - oy, z, bm.cover);
+						}
+					} else if (run <= filler_depth) {
+						b = filler;
+					} else {
+						b = _ids.stone;
 					}
-					roll -= pl.second;
+					// Caves: on land, or deep under the sea.
+					if (wy >= oy && wy > CAVE_MIN_Y && (caves_allowed || wy < land - 8) && is_cave(wx, wy, wz, cave_cells)) {
+						b = wy <= LAVA_LEVEL && _ids.lava ? _ids.lava : AIR;
+					}
+				}
+				if (wy >= oy && wy <= top_y && b != AIR) {
+					chunk.set(x, wy - oy, z, b);
 				}
 			}
 		}
 	}
-
 	place_ores(chunk, ox, oy, oz);
-
-	// Trees can cross chunk borders, so every chunk places the parts it contains.
-	if (oy <= max_h + tree_room && top_y >= SEA_LEVEL + 2) {
+	if (top_y >= SEA_LEVEL + 2) {
 		std::vector<Tree> trees;
 		trees_near(ox, oz, ox + CHUNK, oz + CHUNK, trees);
 		for (const Tree &t : trees) {
@@ -585,31 +524,6 @@ void Generator::build_tree(const Tree &t, Put &&put) const {
 			}
 			return;
 		}
-		case TREE_SPRUCE: {
-			// A tall cone: rings that widen downwards, with a step back every
-			// other layer so it looks layered.
-			const int top = base + t.trunk;
-			leaf(t.x, top, t.z);
-			leaf(t.x, top + 1, t.z);
-			for (int y = top - 1; y >= base + 2; y--) {
-				const int i = top - y;
-				int r = std::min(3, 1 + i / 3);
-				if (i % 2 == 0) {
-					r = std::max(1, r - 1);
-				}
-				for (int dz = -r; dz <= r; dz++) {
-					for (int dx = -r; dx <= r; dx++) {
-						if (dx * dx + dz * dz <= r * r + (r > 1 ? 1 : 0)) {
-							leaf(t.x + dx, y, t.z + dz);
-						}
-					}
-				}
-			}
-			for (int dy = 0; dy < t.trunk; dy++) {
-				put(t.x, base + dy, t.z, k.log, false);
-			}
-			return;
-		}
 		case TREE_BIG_OAK: {
 			// A tall trunk with 2-3 branches, each ending in a ball of leaves,
 			// and a big crown on top.
@@ -630,12 +544,9 @@ void Generator::build_tree(const Tree &t, Put &&put) const {
 				blob(int(std::round(bx)), by + 1, int(std::round(bz)), 2.3f);
 			}
 			blob(t.x, base + t.trunk, t.z, 2.8f);
-			for (int dy = 0; dy < t.trunk; dy++) {
-				put(t.x, base + dy, t.z, k.log, false);
-			}
-			return;
+			break;
 		}
-		case TREE_ROUND_OAK: {
+		default: {
 			// A rounded, uneven crown: a main ball at the top of the trunk and
 			// 2-3 smaller ones around it, one on a short branch.
 			const int clumps = 2 + int(h % 2u);
@@ -651,42 +562,7 @@ void Generator::build_tree(const Tree &t, Put &&put) const {
 				blob(cx, cy, cz, 1.7f + ((h >> (20 + c)) % 2u) * 0.3f);
 			}
 			blob(t.x, base + t.trunk, t.z, 2.4f);
-			for (int dy = 0; dy < t.trunk; dy++) {
-				put(t.x, base + dy, t.z, k.log, false);
-			}
-			return;
-		}
-		case TREE_BIRCH: {
-			// Slim: two wide layers, then a narrow top.
-			for (int dy = t.trunk - 3; dy <= t.trunk + 1; dy++) {
-				const int radius = dy < t.trunk - 1 ? 2 : 1;
-				for (int dz = -radius; dz <= radius; dz++) {
-					for (int dx = -radius; dx <= radius; dx++) {
-						if (std::abs(dx) == radius && std::abs(dz) == radius && (radius == 2 || dy > t.trunk)) {
-							continue; // round off the corners
-						}
-						leaf(t.x + dx, base + dy, t.z + dz);
-					}
-				}
-			}
-			for (int dy = 0; dy < t.trunk; dy++) {
-				put(t.x, base + dy, t.z, k.log, false);
-			}
-			return;
-		}
-		default:
 			break;
-	}
-	// Oak: two wide layers around the top of the trunk, two narrow ones above.
-	for (int dy = t.trunk - 2; dy < t.trunk + 2; dy++) {
-		const int radius = dy < t.trunk ? 2 : 1;
-		for (int dz = -radius; dz <= radius; dz++) {
-			for (int dx = -radius; dx <= radius; dx++) {
-				if (radius == 2 && std::abs(dx) == 2 && std::abs(dz) == 2) {
-					continue; // round off the corners
-				}
-				leaf(t.x + dx, base + dy, t.z + dz);
-			}
 		}
 	}
 	for (int dy = 0; dy < t.trunk; dy++) {

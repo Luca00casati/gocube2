@@ -1,5 +1,4 @@
 // Terrain: opaque blocks, cutout blocks (see-through pixels) and fluids.
-// Ported from the Godot version's chunk.gdshaderinc and chunk_fluid.gdshader.
 //
 // The engine bakes block lighting into the vertex colour: r = sky light,
 // g = block light (0..1 = levels 0..15), b = corner occlusion (1 = none),
@@ -9,19 +8,20 @@
 // Everything that doesn't come from the sun (block light, the sky's light in
 // shade) is the "shade" light; faces turned towards the sun add the sun's
 // share on top, unless they're in a block's shadow (block shadows: the mesher
-// works out which faces the sun reaches) or under a cloud's.
+// works out which faces the sun reaches) or under a cloud's. Cloud shadows
+// and the grass's green drifting across the land come from smooth noise
+// read from `noise_tex` (made once by the renderer: worked out per pixel it
+// was most of the GPU's frame).
 //
-// Fog: the Godot version's Environment depth fog, in the haze's colour:
+// Fog: depth fog in the haze's colour:
 // pow(smoothstep(fog_start, fog_end, distance), 1.6), by 3D distance.
 //
-// Colours as the Godot version shows them (godot_color.hlsli): everything but
-// the sun is worked out from the raw texture (`atlas` is the atlas' plain
-// view) and taken into linear light (godot_to_linear), the sun's share is
-// added after, and the result is written as Godot writes it (godot_to_srgb).
-// Measured on Godot 4.7 (tests/data/godot_screenshot.gd and probes):
-// linear result = godot_to_linear(EMISSION) + DIFFUSE_LIGHT.
+// Colours (color.hlsli): everything but the sun is worked out from the raw
+// texture (`atlas` is the atlas' plain view) and taken into linear light
+// (to_linear), the sun's share is added after, and the result is written
+// back (to_srgb).
 
-#include "godot_color.hlsli"
+#include "color.hlsli"
 
 cbuffer Frame : register(b0) {
 	float4x4 view_proj;
@@ -54,11 +54,14 @@ Texture2D albedo : register(t0);
 // level of the block in front of it, so held light falls in whole blocks too.
 Texture3D<float> hand_light : register(t1);
 SamplerState nearest_mip : register(s0);
+Texture2D<float> noise_tex : register(t2); // smooth noise, NOISE_CELLS lattice cells across, tiling
+SamplerState linear_wrap : register(s1);
+static const float NOISE_CELLS = 32.0;
+static const float CLOUD_SHADE = 0.85;
 static const float HAND_LIGHT_SIZE = 48.0; // HandLights::SIZE
 
 static const float4 FACE_LIGHT = float4(1.0, 0.78, 0.6, 0.45); // top, north/south, east/west, bottom
 static const float SHADE = 0.55; // in shade, sky light keeps 1 - SHADE * sun_amount
-static const float CLOUD_SHADE = 0.85;
 
 struct VSIn {
 	float3 pos : POSITION;
@@ -90,21 +93,12 @@ float light_curve(float level01) {
 	return level01 <= 0.0 ? 0.0 : pow(0.8, 15.0 - level01 * 15.0);
 }
 
-float hash2(float2 p) {
-	float3 p3 = frac(p.xyx * 0.1031);
-	p3 += dot(p3, p3.yzx + 33.33);
-	return frac((p3.x + p3.y) * p3.z);
-}
-
+// Smooth noise, 0..1, a lattice cell per unit of `p` (from the texture).
 float vnoise(float2 p) {
-	float2 i = floor(p);
-	float2 f = frac(p);
-	f = f * f * (3.0 - 2.0 * f);
-	return lerp(lerp(hash2(i), hash2(i + float2(1, 0)), f.x), lerp(hash2(i + float2(0, 1)), hash2(i + float2(1, 1)), f.x), f.y);
+	return noise_tex.SampleLevel(linear_wrap, p / NOISE_CELLS, 0);
 }
 
-// Cloud shadows: soft patches from the same kind of noise as the sky's
-// clouds, drifting with them.
+// Cloud shadows: soft patches drifting with the sky's clouds.
 static const float CLOUD_CELL = 9.0; // metres per cloud cell on the ground
 
 // 0 clear .. 1 under a cloud, soft-edged.
@@ -156,8 +150,8 @@ float4 shade_terrain(PSIn i, float4 tex) {
 	lights(i, shade, full);
 	float facing = smoothstep(0.0, 0.25, dot(n, sun_dir));
 	float3 sun = base * (full - shade) * sunlit * facing * (1.0 - CLOUD_SHADE * cloud_cover(i.world.xz));
-	float3 color = godot_to_linear(base * shade) + sun;
-	return float4(godot_to_srgb(apply_fog(color, i.world)), 1.0);
+	float3 color = to_linear(base * shade) + sun;
+	return float4(to_srgb(apply_fog(color, i.world)), 1.0);
 }
 
 float4 ps_opaque(PSIn i) : SV_Target {
@@ -194,9 +188,9 @@ float4 ps_fluid(PSIn i, bool front : SV_IsFrontFace) : SV_Target {
 		shade = full;
 	}
 	float sunlit = i.color.a > 0.875 ? 1.0 : 0.0; // 0.75: in a block's shadow
-	// (Unlike the terrain, every side of the surface takes the sun: the Godot
+	// (Unlike the terrain, every side of the surface takes the sun: the fluids'
 	// version's fluid light() has no facing term.)
 	float3 sun = color * (full - shade) * sunlit * (1.0 - CLOUD_SHADE * cloud_cover(i.world.xz));
-	color = godot_to_linear(color * shade) + sun;
-	return float4(godot_to_srgb(apply_fog(color, i.world)), alpha); // (blended over what's there, in sRGB numbers, as in Godot)
+	color = to_linear(color * shade) + sun;
+	return float4(to_srgb(apply_fog(color, i.world)), alpha); // (blended over what's there, in sRGB numbers)
 }

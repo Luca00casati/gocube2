@@ -84,7 +84,7 @@ bool Settings::load(const std::filesystem::path &path, std::string *error) {
 	boolean("smooth_lighting", smooth_lighting);
 	text("shadow_mode", shadow_mode, 16);
 	if (std::none_of(std::begin(SHADOW_MODES), std::end(SHADOW_MODES), [&](const char *m) { return shadow_mode == m; })) {
-		shadow_mode = "blocks"; // (the Godot version's "smooth" too)
+		shadow_mode = "blocks"; //
 	}
 	number("render_scale", 0.25, 1.0, render_scale);
 	boolean("clock_24h", clock_24h);

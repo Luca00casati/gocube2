@@ -7,6 +7,7 @@
 
 #include <doctest/doctest.h>
 
+#include "content/skin.h"
 #include "mods/mod_pack.h"
 
 #include "platform/compression.h"
@@ -342,6 +343,70 @@ TEST_CASE("multiplayer: the host's creatures, and a client hitting one") {
 		const gc::Creature *real = h.game().creatures().find(id);
 		return !real || real->flash > 0 || real->hurt_time > 0;
 	}, 5));
+}
+
+TEST_CASE("multiplayer: a survival client falling out of the world is hurt by the host") {
+	auto host = NetPlay::host(test_port(7));
+	auto client = NetPlay::join(test_port(7), "Client", [&] { host->frame(); });
+	REQUIRE(client);
+	NetPlay &h = *host, &c = *client;
+	const std::vector<NetPlay *> both_sides = {&h, &c};
+	REQUIRE(run_until(both_sides, [&] { return c.world().is_loaded(8, 100, 8); }, 20));
+	walk(c, both_sides, 8.5f, 8.5f);
+	run_for(both_sides, 0.3f);
+	// The host opens a shaft under us, down through the world's bottom.
+	for (int y = int(NetPlay::FLOOR_Y) - 1; y >= gc::World::BOTTOM_Y; y--) {
+		for (int x = 7; x <= 9; x++) {
+			for (int z = 7; z <= 9; z++) {
+				h.world().set_block({x, y, z}, 0);
+			}
+		}
+	}
+	// We fall down it (as the game's physics would, at 40 m/s: the harness
+	// moves players by hand), out of the world: the host hurts us.
+	auto last = std::chrono::steady_clock::now();
+	CHECK(run_until(both_sides, [&] {
+		const auto now = std::chrono::steady_clock::now();
+		c.player().position[1] -= 40.0f * std::chrono::duration<float>(now - last).count();
+		last = now;
+		return c.player().position[1] < float(gc::World::BOTTOM_Y) && c.game().health() < gc::Game::MAX_HEALTH;
+	}, 20));
+}
+
+TEST_CASE("multiplayer: everyone sees each player's skin, through the host") {
+	const std::vector<uint8_t> red(gc::SKIN_BYTES, 200), blue(gc::SKIN_BYTES, 40), green(gc::SKIN_BYTES, 120);
+	auto host = NetPlay::host(test_port(0));
+	host->session.set_skin(red);
+	auto client = NetPlay::join(test_port(0), "Client", [&] { host->frame(); });
+	REQUIRE(client);
+	NetPlay &h = *host, &c = *client;
+	c.session.set_skin(blue);
+	const std::vector<NetPlay *> both_sides = {&h, &c};
+	const int client_id = c.session.my_id();
+	CHECK(run_until(both_sides, [&] {
+		const auto *theirs = h.session.skin_of(client_id), *hosts = c.session.skin_of(gc::Session::HOST_ID);
+		return theirs && *theirs == blue && hosts && *hosts == red;
+	}, 5));
+	// A second player gets both; the first gets the second's.
+	auto second = NetPlay::join(test_port(0), "Second", [&] { h.frame(); c.frame(); });
+	REQUIRE(second);
+	NetPlay &s = *second;
+	s.session.set_skin(green);
+	const std::vector<NetPlay *> all = {&h, &c, &s};
+	CHECK(run_until(all, [&] {
+		const auto *first = s.session.skin_of(client_id), *hosts = s.session.skin_of(gc::Session::HOST_ID);
+		const auto *seconds = c.session.skin_of(s.session.my_id());
+		return first && *first == blue && hosts && *hosts == red && seconds && *seconds == green;
+	}, 5));
+	// One that isn't a skin is none; the host keeps the one it had.
+	const int changes = h.session.skins_changed();
+	s.session.set_skin(std::vector<uint8_t>(100, 1));
+	run_for(all, 0.5f);
+	CHECK(h.session.skins_changed() == changes);
+	// Gone when the player leaves.
+	const int second_id = s.session.my_id();
+	second.reset();
+	CHECK(run_until({&h, &c}, [&] { return !h.session.skin_of(second_id); }, 5));
 }
 
 TEST_CASE("multiplayer: a player with other mods downloads the host's and joins with them") {

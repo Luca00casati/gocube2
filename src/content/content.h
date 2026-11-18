@@ -2,10 +2,6 @@
 // Mods' content: blocks, items, recipes, ores, trees, biomes and sound sets
 // that mods register from Lua; numeric block ids; the engine's block
 // table and texture atlas; the world generator's tables.
-//
-// Mirrors the Godot version (Registry, BlockShapes, BlockAtlas, World's
-// tables) closely: block ids, the block table and the generator tables must
-// come out the same, or worlds would generate differently.
 
 #include "voxel/generator.h"
 #include "voxel/mesher.h"
@@ -21,12 +17,10 @@
 
 namespace gc {
 
-constexpr int GENERATOR_VERSION = 3; // the newest; older worlds keep theirs
-
 class Content {
 public:
 	// Definitions by qualified id ("core:stone"), sorted by id. Each has "id"
-	// and "mod" added, as the Godot registry does.
+	// and "mod" added.
 	std::map<std::string, Data> blocks, items, recipes, ores, trees, biomes, sound_sets, creatures;
 	std::map<std::string, std::filesystem::path> mod_dirs; // mod id -> folder
 
@@ -57,14 +51,13 @@ struct GeneratorConfig {
 	gocube::GeneratorIds ids;
 	std::vector<gocube::OreKind> ores;
 	std::vector<gocube::TreeKind> trees;
-	std::vector<gocube::BiomeKind> biomes; // empty for worlds older than generator 2
+	std::vector<gocube::BiomeKind> biomes;
 };
-GeneratorConfig generator_config(const Content &content, int generator_version);
+GeneratorConfig generator_config(const Content &content);
 // The trees the generator knows, by id, in its order (Generator::tree_blocks' kind).
 std::vector<std::string> tree_order(const Content &content);
-// Sets up `generator` for a world (seed and generator version from its meta).
-void configure_generator(gocube::Generator &generator, const Content &content, uint32_t seed,
-		int generator_version);
+// Sets up `generator` for a world of this seed.
+void configure_generator(gocube::Generator &generator, const Content &content, uint32_t seed);
 
 // Block textures packed into one atlas: each 32x32 tile fills a CELL x CELL
 // area with copies (faces use the one at FACE_X, FACE_Y), so mipmaps never mix
@@ -100,11 +93,10 @@ struct BlockTable {
 BlockTable build_block_table(const Content &content);
 
 // What players see an item or block called: its "name", else its id without
-// the mod, words capitalised ("core:wood_pickaxe" -> "Wood Pickaxe"), as the
-// Godot version's String.capitalize.
+// the mod, words capitalised ("core:wood_pickaxe" -> "Wood Pickaxe").
 std::string display_name(const Content &content, const std::string &id);
 
-// Godot's String::hash (djb2): the ore salts in the Godot version came from it.
-uint32_t godot_string_hash(const std::string &s);
+// A string's djb2 hash (the ore salts come from it).
+uint32_t string_hash(const std::string &s);
 
 } // namespace gc

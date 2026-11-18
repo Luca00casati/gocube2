@@ -114,10 +114,6 @@ std::string manifest_problem(const Data &m, const fs::path &root) {
 			return "\"dependencies\" must list mod ids";
 		}
 	}
-	if (m.contains("content")) {
-		return "lists content files (\"content\"), which the game doesn't read: register its content "
-			   "from Lua instead (registry.register_block and the like, in its entry script)";
-	}
 	if (m.contains("entry")) {
 		if (std::string why = file_problem(m["entry"], root, ".lua"); !why.empty()) {
 			return "entry " + why;
@@ -690,14 +686,6 @@ struct Mods::Lua {
 		return 1;
 	}
 
-	// game.first_night() -> "ahead", "now" or "over"
-	static int game_first_night(lua_State *L) {
-		need_world(L);
-		Lua *h = of(L);
-		lua_pushstring(L, h->hooks.first_night ? h->hooks.first_night().c_str() : "over");
-		return 1;
-	}
-
 	// game.damage_player(peer, amount, source [, push_x, push_y, push_z])
 	static int game_damage_player(lua_State *L) {
 		need_world(L);
@@ -861,8 +849,6 @@ struct Mods::Lua {
 		lua_setfield(L, -2, "players");
 		lua_pushcfunction(L, &Lua::game_day);
 		lua_setfield(L, -2, "day");
-		lua_pushcfunction(L, &Lua::game_first_night);
-		lua_setfield(L, -2, "first_night");
 		lua_pushcfunction(L, &Lua::game_damage_player);
 		lua_setfield(L, -2, "damage_player");
 		lua_pushcfunction(L, &Lua::game_play_sound);
@@ -976,10 +962,6 @@ void Mods::load_all(const std::vector<fs::path> &dirs, const std::vector<std::st
 	for (const fs::path &root : dirs) {
 		for (const fs::path &dir : visible_subdirs(root)) {
 			if (!fs::exists(dir / "mod.lua")) {
-				if (fs::exists(dir / "mod.json")) {
-					fail(utf8(dir.filename()), "has a mod.json, which the game no longer reads: its manifest is a "
-							"mod.lua now (return {id = \"...\", ...}); skipping it");
-				}
 				continue;
 			}
 			Data m;
@@ -1205,7 +1187,7 @@ void Mods::creature_hit(int id, int damage, const float from[3], int attacker) {
 namespace {
 
 // Relative paths ('/' between folders) of the files under root, without
-// dot-names, sorted: as the Godot version's ModLoader._files_under.
+// dot-names, sorted.
 void files_under(const fs::path &root, const std::string &rel, std::vector<std::string> &out) {
 	const fs::path dir = rel.empty() ? root : root / fs::path(reinterpret_cast<const char8_t *>(rel.c_str()));
 	std::error_code ec;

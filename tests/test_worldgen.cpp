@@ -1,10 +1,8 @@
-// Worlds generate exactly as in the Godot version: unedited chunks are
-// generated again each time a world is opened, so any change in what comes out
-// would shift caves, ores and light in worlds already played. The fingerprints
-// were the Godot version's (tests/test_worldgen.gd: test_generation_never_changes)
-// until the base game dropped its small plants, farming, birch, spruce and snow
-// grass: the same blocks come out where they did, except bluebells and
-// sunpetals (air now), but the block ids that remain were renumbered.
+// Worlds generate the same every time: unedited chunks are generated again
+// each time a world is opened, so a change in what comes out shifts caves,
+// ores and light in worlds already played. The fingerprint (block data and
+// light around the origin) catches any change; when one is meant, record the
+// new value. And what the land is like (seas, beaches, overhangs, trees).
 
 #include "content/content.h"
 #include "helpers.h"
@@ -26,8 +24,7 @@ using namespace gocube;
 
 namespace {
 
-constexpr const char *NEW_WORLD_FINGERPRINT = "58a7a84f5b62e082";    // seed 777, generator 3
-constexpr const char *LEGACY_WORLD_FINGERPRINT = "f4c01545461df082"; // seed 4242, generator 1 (before biomes)
+constexpr const char *WORLD_FINGERPRINT = "bd803aed75d4246e"; // seed 777
 constexpr int CHUNK_Y_MIN = -3, CHUNK_Y_MAX = 3;                    // the world's height
 
 struct Sha256 {
@@ -63,8 +60,8 @@ int floor_div(int v, int d) {
 	return v >= 0 ? v / d : -((-v + d - 1) / d);
 }
 
-// The chunks around the origin, generated and lit the way the Godot version's
-// engine does it (whole columns for sky light, a full neighbourhood per chunk).
+// The chunks around the origin, generated and lit the way the world does it
+// (whole columns for sky light, a full neighbourhood per chunk).
 struct TestWorld {
 	const std::vector<BlockInfo> &blocks;
 	const Generator &generator;
@@ -141,7 +138,7 @@ struct TestWorld {
 		out[1] = (v & 15) / float(LIGHT_MAX);
 	}
 
-	// tests/test_worldgen.gd: _fingerprint().
+	// The chunks' bytes and the light at points between them, hashed.
 	std::string fingerprint() {
 		Sha256 sha;
 		for (int cx = -1; cx <= 1; cx++) {
@@ -168,28 +165,91 @@ struct TestWorld {
 	}
 };
 
-std::string fingerprint(uint32_t seed, int generator_version) {
+std::string fingerprint(uint32_t seed) {
 	gc::Content content;
 	load_base_game(content);
 	content.freeze();
 	const gc::BlockTable table = gc::build_block_table(content);
 	Generator generator;
-	gc::configure_generator(generator, content, seed, generator_version);
+	gc::configure_generator(generator, content, seed);
 	TestWorld world{table.blocks, generator};
 	return world.fingerprint();
 }
 
 } // namespace
 
-TEST_CASE("a new world (seed 777) is generated as in the Godot version") {
-	CHECK(fingerprint(777, gc::GENERATOR_VERSION) == NEW_WORLD_FINGERPRINT);
+TEST_CASE("a world (seed 777) is generated as it always was") {
+	CHECK(fingerprint(777) == WORLD_FINGERPRINT);
 }
 
-TEST_CASE("a world from before biomes (seed 4242) too") {
-	CHECK(fingerprint(4242, 1) == LEGACY_WORLD_FINGERPRINT);
+TEST_CASE("ore salts are djb2 string hashes") {
+	CHECK(gc::string_hash("") == 5381u);
+	CHECK(gc::string_hash("a") == 5381u * 33 + 'a');
 }
 
-TEST_CASE("ore salts are Godot's string hashes") {
-	CHECK(gc::godot_string_hash("") == 5381u);
-	CHECK(gc::godot_string_hash("a") == 5381u * 33 + 'a');
+TEST_CASE("the land: seas, beaches, overhangs, bare stone, trees") {
+	gc::Content content;
+	load_base_game(content);
+	content.freeze();
+	const gc::BlockTable table = gc::build_block_table(content);
+	Generator generator;
+	gc::configure_generator(generator, content, 777);
+	auto id = [&](const char *name) { return BlockId(content.block_index(name)); };
+	const BlockId grass = id("core:grass"), sand = id("core:sand"), gravel = id("core:gravel"), stone = id("core:stone"),
+				  water = id("core:water"), log = id("core:log");
+	int columns = 0, sea = 0, sand_tops = 0, gravel_tops = 0, stone_tops = 0, grass_tops = 0, overhangs = 0, trees = 0;
+	int highest = -1000;
+	ChunkData c;
+	std::map<std::tuple<int, int, int>, ChunkData> chunks;
+	auto at = [&](int x, int y, int z) {
+		const int cx = int(std::floor(x / 32.0)), cy = int(std::floor(y / 32.0)), cz = int(std::floor(z / 32.0));
+		auto key = std::make_tuple(cx, cy, cz);
+		auto it = chunks.find(key);
+		if (it == chunks.end()) {
+			it = chunks.emplace(key, ChunkData()).first;
+			generator.generate(it->second, cx * 32, cy * 32, cz * 32);
+		}
+		return it->second.get(x - cx * 32, y - cy * 32, z - cz * 32);
+	};
+	for (int x = -256; x < 256; x += 8) {
+		for (int z = -256; z < 256; z += 8) {
+			columns++;
+			const int h = generator.height_at(x, z);
+			highest = std::max(highest, h);
+			const BlockId top = at(x, h, z);
+			sea += h < Generator::SEA_LEVEL && at(x, Generator::SEA_LEVEL, z) == water;
+			sand_tops += top == sand;
+			gravel_tops += top == gravel;
+			stone_tops += top == stone && h > Generator::SEA_LEVEL;
+			grass_tops += top == grass;
+			// An overhang: solid, then air, then solid again further down, above the sea.
+			bool seen_air = false;
+			for (int y = h - 1; y > Generator::SEA_LEVEL; y--) {
+				const BlockId b = at(x, y, z);
+				if (b == AIR) {
+					seen_air = true;
+				} else if (seen_air && b != water) {
+					overhangs++;
+					break;
+				}
+			}
+		}
+	}
+	for (int x = -128; x < 128; x++) { // trees: a log on the grass
+		for (int z = -128; z < 128; z++) {
+			const int h = generator.height_at(x, z);
+			trees += at(x, h + 1, z) == log && at(x, h, z) == grass;
+		}
+	}
+	// (Seed 777: 14% sea, 16% sand, 4% gravel, under 1% bare stone, 73% grass;
+	// 14% with something overhanging, 60 trees; up to 61.)
+	CHECK(sea > columns / 15);
+	CHECK(sand_tops > columns / 15);
+	CHECK(gravel_tops > columns / 60);
+	CHECK(stone_tops > 0);
+	CHECK(grass_tops > columns / 2);
+	CHECK(overhangs > columns / 20);
+	CHECK(trees > 20);
+	CHECK(highest > 45);
+	CHECK(highest < Generator::TOP_LIMIT);
 }

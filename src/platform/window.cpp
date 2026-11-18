@@ -27,13 +27,27 @@ bool Window::create(const wchar_t *title, int width, int height, bool visible) {
 		return false;
 	}
 
-	// Size the client area, not the frame, scaled for the monitor's DPI.
-	const UINT dpi = GetDpiForSystem();
-	RECT rect = {0, 0, MulDiv(width, dpi, 96), MulDiv(height, dpi, 96)};
-	AdjustWindowRectExForDpi(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi);
+	int x = CW_USEDEFAULT, y = CW_USEDEFAULT, w, h;
+	MONITORINFO mi = {sizeof(mi)};
+	if (width <= 0 || height <= 0) {
+		// Three quarters of the screen each way (its work area: without the
+		// taskbar), in the middle of it.
+		GetMonitorInfoW(MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY), &mi);
+		const RECT &work = mi.rcWork;
+		w = (work.right - work.left) * 3 / 4;
+		h = (work.bottom - work.top) * 3 / 4;
+		x = work.left + (work.right - work.left - w) / 2;
+		y = work.top + (work.bottom - work.top - h) / 2;
+	} else {
+		// Size the client area, not the frame, scaled for the monitor's DPI.
+		const UINT dpi = GetDpiForSystem();
+		RECT rect = {0, 0, MulDiv(width, dpi, 96), MulDiv(height, dpi, 96)};
+		AdjustWindowRectExForDpi(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi);
+		w = rect.right - rect.left;
+		h = rect.bottom - rect.top;
+	}
 
-	hwnd_ = CreateWindowExW(0, CLASS_NAME, title, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-			rect.right - rect.left, rect.bottom - rect.top, nullptr, nullptr, instance, this);
+	hwnd_ = CreateWindowExW(0, CLASS_NAME, title, WS_OVERLAPPEDWINDOW, x, y, w, h, nullptr, nullptr, instance, this);
 	if (!hwnd_) {
 		return false;
 	}

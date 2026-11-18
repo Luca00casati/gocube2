@@ -4,6 +4,7 @@
 #include "voxel/storage.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <utility>
 
@@ -108,7 +109,10 @@ void World::run(Job &job, Result &r) const {
 			loaded = load_chunk_file(chunk_file_path(save_dir_, job.pos.x, job.pos.y, job.pos.z), *data);
 		}
 		if (!loaded) {
+			const auto t0 = std::chrono::steady_clock::now();
 			generator_.generate(*data, job.pos.x * CHUNK, job.pos.y * CHUNK, job.pos.z * CHUNK);
+			generate_us_ += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
+			generated_++;
 		}
 		chunk_local_tops(*data, blocks_, r.local_tops);
 		r.data = std::move(data);
@@ -122,8 +126,11 @@ void World::run(Job &job, Result &r) const {
 	for (int i = 0; i < 9; i++) {
 		tops[i] = job.tops[i].get();
 	}
+	const auto t0 = std::chrono::steady_clock::now();
 	LightRegion light;
 	compute_light(light, hood, tops, job.pos.y, blocks_);
+	const auto t1 = std::chrono::steady_clock::now();
+	light_us_ += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
 	const ChunkData *faces[FACE_COUNT] = {hood[neighbourhood_index(1, 0, 0)], hood[neighbourhood_index(-1, 0, 0)],
 			hood[neighbourhood_index(0, 1, 0)], hood[neighbourhood_index(0, -1, 0)],
 			hood[neighbourhood_index(0, 0, 1)], hood[neighbourhood_index(0, 0, -1)]};
@@ -150,6 +157,8 @@ void World::run(Job &job, Result &r) const {
 		}
 	}
 	r.light = std::move(packed);
+	mesh_us_ += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t1).count();
+	meshed_jobs_++;
 }
 
 // --- Main thread ---------------------------------------------------------------
@@ -948,6 +957,12 @@ WorldStats World::stats() const {
 		s.queued = int(jobs_.size()) + running_;
 	}
 	s.settled = s.queued == 0 && urgent_.empty();
+	s.workers = int(workers_.size());
+	s.generated = generated_.load();
+	s.meshed_jobs = meshed_jobs_.load();
+	s.generate_ms = double(generate_us_.load()) / 1000.0;
+	s.light_ms = double(light_us_.load()) / 1000.0;
+	s.mesh_ms = double(mesh_us_.load()) / 1000.0;
 	for (int dz = -radius_; dz <= radius_ && s.settled; dz++) {
 		for (int dx = -radius_; dx <= radius_ && s.settled; dx++) {
 			if (dx * dx + dz * dz > radius_ * radius_) {

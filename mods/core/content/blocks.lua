@@ -1,4 +1,4 @@
--- The base game's content (it was the Godot version's content/base.json).
+-- The base game's content.
 -- Blocks: their look, hardness, what they drop,
 -- light, and how plants and fluids behave (the rules in rules/ read these).
 
@@ -43,6 +43,8 @@ registry.register_block("grass", {
 	},
 	sound = "core:grass",
 	random_rotation = true,
+	-- Trees come up on it by themselves (rules/plants.lua): which, by weight.
+	sprouts_trees = {["core:oak"] = 9, ["core:big_oak"] = 1},
 })
 
 registry.register_block("sand", {
@@ -83,8 +85,6 @@ registry.register_block("leaves", {
 	textures = {all = looks.leaves},
 	sound = "core:grass",
 	leaves = true,
-	extra_drops = {{"core:oak_sapling", 1, 0.06}},
-	sapling = "core:oak_sapling",
 })
 
 registry.register_block("coal_ore", {
@@ -93,7 +93,6 @@ registry.register_block("coal_ore", {
 	textures = {all = looks.coal_ore},
 	sound = "core:stone",
 	drops = "core:coal",
-	eater_weight = 0.4,
 	random_rotation = true,
 })
 
@@ -102,7 +101,6 @@ registry.register_block("iron_ore", {
 	color = "#9a8070",
 	textures = {all = looks.iron_ore},
 	sound = "core:stone",
-	eater_weight = 0.25,
 	random_rotation = true,
 })
 
@@ -111,7 +109,6 @@ registry.register_block("gold_ore", {
 	color = "#b8a050",
 	textures = {all = looks.gold_ore},
 	sound = "core:stone",
-	eater_weight = 0.12,
 	random_rotation = true,
 })
 
@@ -120,7 +117,6 @@ registry.register_block("crystal_ore", {
 	color = "#5aa8b0",
 	textures = {all = looks.crystal_ore},
 	sound = "core:stone",
-	eater_weight = 0.06,
 	random_rotation = true,
 })
 
@@ -132,7 +128,6 @@ registry.register_block("lamp", {
 	color = "#f2c25a",
 	textures = {all = "textures/lamp.ppm"},
 	sound = "core:stone",
-	eater_weight = 0.1,
 })
 
 registry.register_block("water_1", {solid = false, fluid = "water", level = 1, flowing = true, color = "#3f76d6b3"})
@@ -158,7 +153,6 @@ registry.register_block("furnace", {
 		top = looks.stone,
 		bottom = looks.stone,
 	},
-	eater_weight = 0.15,
 })
 
 registry.register_block("chest", {
@@ -171,7 +165,6 @@ registry.register_block("chest", {
 		top = "textures/chest_top.ppm",
 		bottom = looks.planks,
 	},
-	eater_weight = 0.15,
 })
 
 registry.register_block("torch", {
@@ -222,14 +215,6 @@ registry.register_block("planks_fence", {
 	textures = {all = looks.planks},
 })
 
-registry.register_block("stone_slab", {
-	textures = {all = looks.stone},
-	color = "#7a7d83",
-	hardness = 1.5,
-	sound = "core:stone",
-	shape = "slab",
-})
-
 registry.register_block("stone_stairs", {
 	textures = {all = looks.stone},
 	color = "#7a7d83",
@@ -238,28 +223,12 @@ registry.register_block("stone_stairs", {
 	shape = "stairs",
 })
 
-registry.register_block("cobblestone_slab", {
-	textures = {all = looks.cobblestone},
-	color = "#6a6a6a",
-	hardness = 1.5,
-	sound = "core:stone",
-	shape = "slab",
-})
-
 registry.register_block("cobblestone_stairs", {
 	textures = {all = looks.cobblestone},
 	color = "#6a6a6a",
 	hardness = 1.5,
 	sound = "core:stone",
 	shape = "stairs",
-})
-
-registry.register_block("planks_slab", {
-	textures = {all = looks.planks},
-	color = "#a67748",
-	hardness = 1.0,
-	sound = "core:wood",
-	shape = "slab",
 })
 
 registry.register_block("planks_stairs", {
@@ -396,17 +365,6 @@ registry.register_block("lava_7", {
 	textures = {all = looks.lava},
 })
 
-registry.register_block("oak_sapling", {
-	shape = "cross",
-	hardness = 0,
-	sound = "core:grass",
-	color = "#356828",
-	textures = {all = "textures/oak_sapling.ppm"},
-	plant_on = {"core:grass", "core:dirt"},
-	grows_tree = {["core:oak"] = 9, ["core:big_oak"] = 1},
-	grow_seconds = 240,
-})
-
 registry.register_block("bed", {
 	shape = "bed",
 	hardness = 0.3,
@@ -414,6 +372,12 @@ registry.register_block("bed", {
 	color = "#b43a36",
 	textures = {
 		top = "textures/bed_foot_top.ppm",
+		side = "textures/bed_side.ppm",
+		bottom = looks.planks,
+	},
+	-- The head half: a pillow, the blanket running on into the foot's.
+	textures_head = {
+		top = "textures/bed_head_top.ppm",
 		side = "textures/bed_side.ppm",
 		bottom = looks.planks,
 	},

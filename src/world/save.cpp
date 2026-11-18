@@ -42,23 +42,17 @@ std::string WorldSave::open(const std::filesystem::path &dir, uint32_t new_seed,
 				!meta_["seed"].is_number()) {
 			return "its world.lua is damaged, so it isn't opened (to keep it safe).";
 		}
-		if (number(meta_, "format", FORMAT_VERSION) > FORMAT_VERSION ||
-				number(meta_, "generator", 1) > GENERATOR_VERSION) {
+		if (number(meta_, "format", FORMAT_VERSION) > FORMAT_VERSION) {
 			return "it was saved by a newer version of GoCube. Update the game to play it.";
 		}
 		if (!meta_.contains("mode")) {
 			meta_["mode"] = "creative";
 		}
-	} else if (std::filesystem::exists(dir / "world.json", ec)) {
-		return "it was saved as world.json (by the Godot version, or before worlds were Lua), which this "
-			   "version doesn't read.";
 	} else {
 		meta_ = Data::object();
 		meta_["seed"] = new_seed;
 		meta_["mode"] = new_mode;
-		meta_["first_night"] = "ahead"; // no ninjas until it's over
 		meta_["created"] = now_string();
-		meta_["generator"] = GENERATOR_VERSION;
 	}
 	meta_["format"] = FORMAT_VERSION;
 	std::filesystem::create_directories(chunks_dir(), ec);
@@ -70,10 +64,6 @@ std::string WorldSave::open(const std::filesystem::path &dir, uint32_t new_seed,
 
 uint32_t WorldSave::seed() const {
 	return uint32_t(int64_t(number(meta_, "seed", 0)));
-}
-
-int WorldSave::generator() const {
-	return int(number(meta_, "generator", 1)); // worlds from before biomes have none
 }
 
 std::string WorldSave::mode() const {

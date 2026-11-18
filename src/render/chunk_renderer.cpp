@@ -1,5 +1,7 @@
 #include "render/chunk_renderer.h"
 
+#include "content/skin.h"
+
 #include "log.h"
 
 // Compiled from shaders/chunk.hlsl at build time (see CMakeLists.txt).
@@ -17,6 +19,7 @@
 #include "sky_vs.h"
 
 #include <cmath>
+#include <algorithm>
 #include <cstring>
 #include <vector>
 
@@ -180,8 +183,7 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 
 	// The atlas, with mipmaps made by the GPU (tiles repeat within their cells,
 	// so mip levels don't mix neighbouring tiles). Read as it is, sRGB numbers
-	// not decoded: by the world's shaders as the Godot version's renderer does
-	// (see chunk.hlsl).
+	// not decoded (see chunk.hlsl).
 	D3D11_TEXTURE2D_DESC td = {};
 	td.Width = UINT(atlas.width);
 	td.Height = UINT(atlas.height);
@@ -200,7 +202,7 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 	ComPtr<ID3D11DeviceContext> ctx;
 	device->GetImmediateContext(&ctx);
 	ctx->UpdateSubresource(tex.Get(), 0, nullptr, atlas.rgba.data(), UINT(atlas.width) * 4, 0);
-	// (Mipmaps averaged in sRGB, as the Godot version's Image.generate_mipmaps does.)
+	//
 	ctx->GenerateMips(atlas_.Get());
 
 	D3D11_SAMPLER_DESC sd = {};
@@ -210,6 +212,55 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 	sd.ComparisonFunc = D3D11_COMPARISON_NEVER;
 	if (!ok(device->CreateSamplerState(&sd, &sampler_), "CreateSamplerState")) {
 		return false;
+	}
+
+	// Smooth noise for the terrain shader (cloud shadows, the grass's green
+	// drifting across the land), made once: random values on a lattice of
+	// NOISE_CELLS x NOISE_CELLS (wrapping round), smoothly in between,
+	// NOISE_TEXELS texels a cell; read filtered, tiling. (Worked out per pixel
+	// it was most of the GPU's frame.)
+	{
+		constexpr int CELLS = NOISE_CELLS, TEXELS = NOISE_TEXELS, SIZE = CELLS * TEXELS;
+		std::vector<float> lattice(size_t(CELLS) * CELLS);
+		uint32_t state = 0x9e3779b9u;
+		for (float &v : lattice) {
+			state ^= state << 13;
+			state ^= state >> 17;
+			state ^= state << 5;
+			v = float(state >> 8) / float(1u << 24);
+		}
+		auto at = [&](int x, int y) { return lattice[size_t((y + CELLS) % CELLS) * CELLS + size_t((x + CELLS) % CELLS)]; };
+		auto smooth = [](float t) { return t * t * (3.0f - 2.0f * t); };
+		std::vector<uint8_t> texels(size_t(SIZE) * SIZE);
+		for (int y = 0; y < SIZE; y++) {
+			for (int x = 0; x < SIZE; x++) {
+				const int cx = x / TEXELS, cy = y / TEXELS;
+				const float fx = smooth(float(x % TEXELS) / TEXELS), fy = smooth(float(y % TEXELS) / TEXELS);
+				const float top = at(cx, cy) + (at(cx + 1, cy) - at(cx, cy)) * fx;
+				const float bottom = at(cx, cy + 1) + (at(cx + 1, cy + 1) - at(cx, cy + 1)) * fx;
+				texels[size_t(y) * SIZE + x] = uint8_t(std::lround((top + (bottom - top) * fy) * 255.0f));
+			}
+		}
+		D3D11_TEXTURE2D_DESC nd = {};
+		nd.Width = nd.Height = SIZE;
+		nd.MipLevels = 1;
+		nd.ArraySize = 1;
+		nd.Format = DXGI_FORMAT_R8_UNORM;
+		nd.SampleDesc.Count = 1;
+		nd.Usage = D3D11_USAGE_IMMUTABLE;
+		nd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		const D3D11_SUBRESOURCE_DATA ndata = {texels.data(), UINT(SIZE), 0};
+		ComPtr<ID3D11Texture2D> noise;
+		D3D11_SAMPLER_DESC ns = {};
+		ns.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+		ns.AddressU = ns.AddressV = ns.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+		ns.MaxLOD = D3D11_FLOAT32_MAX;
+		ns.ComparisonFunc = D3D11_COMPARISON_NEVER;
+		if (!ok(device->CreateTexture2D(&nd, &ndata, &noise), "CreateTexture2D(noise)") ||
+				!ok(device->CreateShaderResourceView(noise.Get(), nullptr, &noise_srv_), "noise view") ||
+				!ok(device->CreateSamplerState(&ns, &noise_sampler_), "noise sampler")) {
+			return false;
+		}
 	}
 
 	D3D11_RASTERIZER_DESC rd = {};
@@ -287,6 +338,23 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 		return false;
 	}
 
+	// Players' skins: a slice each (set_skin), see-through until set. Plain
+	// RGBA, as the atlas is read (no sRGB conversion).
+	D3D11_TEXTURE2D_DESC skd = {};
+	skd.Width = skd.Height = SKIN_SIZE;
+	skd.MipLevels = 1;
+	skd.ArraySize = SKIN_SLOTS;
+	skd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	skd.SampleDesc.Count = 1;
+	skd.Usage = D3D11_USAGE_DEFAULT;
+	skd.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	const std::vector<uint8_t> clear_skin(SKIN_BYTES, 0);
+	std::vector<D3D11_SUBRESOURCE_DATA> sdata(SKIN_SLOTS, {clear_skin.data(), SKIN_SIZE * 4, 0});
+	if (!ok(device->CreateTexture2D(&skd, sdata.data(), &skins_tex_), "CreateTexture2D(skins)") ||
+			!ok(device->CreateShaderResourceView(skins_tex_.Get(), nullptr, &skins_srv_), "skins view")) {
+		return false;
+	}
+
 	// Items and the hand (the terrain's vertex layout).
 	cb.ByteWidth = sizeof(ItemConstants);
 	if (!ok(device->CreateVertexShader(g_items_vs, sizeof(g_items_vs), nullptr, &items_vs_), "items_vs") ||
@@ -302,10 +370,11 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 			{"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(CreatureVertex, normal), D3D11_INPUT_PER_VERTEX_DATA, 0},
 			{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, offsetof(CreatureVertex, color), D3D11_INPUT_PER_VERTEX_DATA, 0},
 			{"TEXCOORD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, offsetof(CreatureVertex, tile), D3D11_INPUT_PER_VERTEX_DATA, 0},
+			{"TEXCOORD", 2, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(CreatureVertex, skin), D3D11_INPUT_PER_VERTEX_DATA, 0},
 	};
 	if (!ok(device->CreateVertexShader(g_creatures_vs, sizeof(g_creatures_vs), nullptr, &creatures_vs_), "creatures_vs") ||
 			!ok(device->CreatePixelShader(g_creatures_ps, sizeof(g_creatures_ps), nullptr, &creatures_ps_), "creatures_ps") ||
-			!ok(device->CreateInputLayout(creature_layout, 5, g_creatures_vs, sizeof(g_creatures_vs), &creatures_layout_),
+			!ok(device->CreateInputLayout(creature_layout, 6, g_creatures_vs, sizeof(g_creatures_vs), &creatures_layout_),
 					"creature layout")) {
 		return false;
 	}
@@ -435,8 +504,8 @@ void ChunkRenderer::draw_creatures(ID3D11DeviceContext *ctx, const std::vector<C
 	ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
 	ctx->VSSetShader(creatures_vs_.Get(), nullptr, 0);
 	ctx->PSSetShader(creatures_ps_.Get(), nullptr, 0);
-	ID3D11ShaderResourceView *srvs[] = {atlas_.Get()};
-	ctx->PSSetShaderResources(0, 1, srvs);
+	ID3D11ShaderResourceView *srvs[] = {atlas_.Get(), skins_srv_.Get()};
+	ctx->PSSetShaderResources(0, 2, srvs);
 	ID3D11SamplerState *samplers[] = {sampler_.Get()};
 	ctx->PSSetSamplers(0, 1, samplers);
 	ctx->RSSetState(cull_none_.Get());
@@ -445,6 +514,13 @@ void ChunkRenderer::draw_creatures(ID3D11DeviceContext *ctx, const std::vector<C
 	ctx->Draw(UINT(vertices.size()), 0);
 	ctx->RSSetState(nullptr);
 	ctx->OMSetDepthStencilState(nullptr, 0);
+}
+
+void ChunkRenderer::set_skin(ID3D11DeviceContext *ctx, int slot, const std::vector<uint8_t> &rgba) {
+	if (!skins_tex_ || slot < 0 || slot >= SKIN_SLOTS || rgba.size() != SKIN_BYTES) {
+		return;
+	}
+	ctx->UpdateSubresource(skins_tex_.Get(), D3D11CalcSubresource(0, UINT(slot), 1), nullptr, rgba.data(), SKIN_SIZE * 4, 0);
 }
 
 void ChunkRenderer::clear_depth(ID3D11DeviceContext *ctx) {
@@ -482,7 +558,7 @@ void ChunkRenderer::draw_sky(ID3D11DeviceContext *ctx, const Camera &camera, flo
 	ID3D11Buffer *cbs[] = {sky_cb_.Get()};
 	ctx->PSSetConstantBuffers(0, 1, cbs);
 	ctx->RSSetState(cull_none_.Get());
-	ctx->OMSetDepthStencilState(depth_off_.Get(), 0);
+	ctx->OMSetDepthStencilState(depth_less_equal_.Get(), 0); // (at the far plane: only where the depth is still clear)
 	ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
 	ctx->Draw(3, 0);
 	ctx->RSSetState(nullptr);
@@ -585,7 +661,8 @@ void ChunkRenderer::remove(const ChunkPos &pos) {
 	chunks_.erase(key(pos));
 }
 
-void ChunkRenderer::draw(ID3D11DeviceContext *ctx, const Camera &camera, float aspect, const SkyParams &sky) {
+void ChunkRenderer::draw(ID3D11DeviceContext *ctx, const Camera &camera, float aspect, const SkyParams &sky,
+		const std::function<void()> &before_fluids) {
 	const XMMATRIX vp = camera.view() * camera.projection(aspect);
 	FrameConstants f = {};
 	XMStoreFloat4x4(&f.view_proj, vp); // (HLSL reads it transposed: mul(view_proj, v) == v * vp)
@@ -600,7 +677,7 @@ void ChunkRenderer::draw(ID3D11DeviceContext *ctx, const Camera &camera, float a
 	f.fog_end = sky.fog_end;
 	f.cloud_offset[0] = sky.cloud_offset[0];
 	f.cloud_offset[1] = sky.cloud_offset[1];
-	f.block_light_color = {1.0f, 0.85f, 0.62f}; // the Godot version's, as it is (raw: see chunk.hlsl)
+	f.block_light_color = {1.0f, 0.85f, 0.62f}; // (as it is, raw: see chunk.hlsl)
 	f.time = sky.time;
 	f.hand_light_origin = hand_light_origin_;
 	f.hand_light_count = float(hand_light_count_);
@@ -615,16 +692,19 @@ void ChunkRenderer::draw(ID3D11DeviceContext *ctx, const Camera &camera, float a
 	XMStoreFloat4x4(&vpm, vp);
 	frustum_planes(vpm, planes);
 
-	ID3D11Buffer *cbs[] = {frame_cb_.Get(), draw_cb_.Get()};
-	ctx->VSSetConstantBuffers(0, 2, cbs);
-	ctx->PSSetConstantBuffers(0, 2, cbs);
-	ctx->IASetInputLayout(layout_.Get());
-	ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	ctx->VSSetShader(vs_.Get(), nullptr, 0);
-	ID3D11ShaderResourceView *srvs[] = {atlas_.Get(), hand_light_srv_.Get()};
-	ctx->PSSetShaderResources(0, 2, srvs);
-	ID3D11SamplerState *samplers[] = {sampler_.Get()};
-	ctx->PSSetSamplers(0, 1, samplers);
+	auto bind = [&] { // (again after before_fluids, which draws with its own)
+		ID3D11Buffer *cbs[] = {frame_cb_.Get(), draw_cb_.Get()};
+		ctx->VSSetConstantBuffers(0, 2, cbs);
+		ctx->PSSetConstantBuffers(0, 2, cbs);
+		ctx->IASetInputLayout(layout_.Get());
+		ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		ctx->VSSetShader(vs_.Get(), nullptr, 0);
+		ID3D11ShaderResourceView *srvs[] = {atlas_.Get(), hand_light_srv_.Get(), noise_srv_.Get()};
+		ctx->PSSetShaderResources(0, 3, srvs);
+		ID3D11SamplerState *samplers[] = {sampler_.Get(), noise_sampler_.Get()};
+		ctx->PSSetSamplers(0, 2, samplers);
+	};
+	bind();
 
 	stats_ = {};
 	stats_.chunks = int(chunks_.size());
@@ -637,6 +717,14 @@ void ChunkRenderer::draw(ID3D11DeviceContext *ctx, const Camera &camera, float a
 		}
 	}
 	stats_.drawn = int(visible.size());
+	// Near first (what's behind is then skipped before shading).
+	auto distance2 = [&](const GpuChunk *c) {
+		const float dx = (float(c->pos.x) + 0.5f) * gocube::CHUNK - camera.position.x;
+		const float dy = (float(c->pos.y) + 0.5f) * gocube::CHUNK - camera.position.y;
+		const float dz = (float(c->pos.z) + 0.5f) * gocube::CHUNK - camera.position.z;
+		return dx * dx + dy * dy + dz * dz;
+	};
+	std::sort(visible.begin(), visible.end(), [&](const GpuChunk *a, const GpuChunk *b) { return distance2(a) < distance2(b); });
 
 	auto draw_surface = [&](const GpuChunk &c, int surface) {
 		const GpuSurface &s = c.surfaces[surface];
@@ -670,11 +758,16 @@ void ChunkRenderer::draw(ID3D11DeviceContext *ctx, const Camera &camera, float a
 	for (const GpuChunk *c : visible) {
 		draw_surface(*c, 1);
 	}
+	if (before_fluids) {
+		before_fluids();
+		bind();
+	}
+	ctx->RSSetState(cull_none_.Get());
 	ctx->OMSetDepthStencilState(depth_test_only_.Get(), 0);
 	ctx->OMSetBlendState(alpha_blend_.Get(), nullptr, 0xffffffff);
 	ctx->PSSetShader(ps_fluid_.Get(), nullptr, 0);
-	for (const GpuChunk *c : visible) {
-		draw_surface(*c, 2);
+	for (auto it = visible.rbegin(); it != visible.rend(); ++it) { // (far first: blended over what's behind)
+		draw_surface(**it, 2);
 	}
 	ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
 	ctx->OMSetDepthStencilState(nullptr, 0);

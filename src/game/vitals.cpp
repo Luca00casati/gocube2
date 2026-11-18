@@ -70,9 +70,24 @@ void Vitals::moved(const World &world, const BlockRules &rules, Mods &mods, cons
 	}
 }
 
-void Vitals::tick(const World &world, const BlockRules &rules, const float feet[3], bool in_bed, float dt) {
+int void_damage(Mods &mods, float feet_y) {
+	const float depth = float(World::BOTTOM_Y) - feet_y;
+	const std::optional<Data> r = mods.rule("void_damage", Data::array({depth}));
+	return r && r->is_number() ? int(r->get<double>()) : 4;
+}
+
+void Vitals::tick(const World &world, const BlockRules &rules, Mods &mods, const float feet[3], bool in_bed, float dt) {
 	if (dead) {
 		return;
+	}
+	if (feet[1] < float(World::BOTTOM_Y)) {
+		void_timer_ += dt;
+		if (void_timer_ >= 0.5f) {
+			void_timer_ = 0;
+			hurt(void_damage(mods, feet[1]));
+		}
+	} else {
+		void_timer_ = 0.5f; // (at once, the moment it falls out)
 	}
 	const Data &body = in_bed ? Data::object() : def_at(world, rules, feet[0], feet[1] + 0.4f, feet[2]);
 	if (body.contains("damage") && body["damage"].is_number()) {

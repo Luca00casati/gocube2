@@ -1,9 +1,7 @@
 #pragma once
 // The player: walking, sprinting, sneaking, jumping, swimming, climbing ladders
 // and flying, in fixed physics steps (Player::STEP); breaking and placing
-// blocks. Movement and the numbers are the Godot version's (player.gd).
-// Creative-style for now: blocks break at once and any block can be placed
-// (mining time, inventories and health come with survival).
+// blocks (Game adds survival's mining time, inventory and health).
 
 #include "game/blocks.h"
 #include "world/world.h"

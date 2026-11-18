@@ -5,9 +5,6 @@
 // light needs complete columns). Edits change a copy of the chunk, are saved
 // to its file, and remesh everything their light can reach.
 // The main thread calls update() once per frame and uploads finished meshes.
-//
-// Scheduling, editing, the raycast and collision follow the Godot version's
-// GoCubeWorld, without Godot.
 
 #include "voxel/generator.h"
 #include "voxel/light.h"
@@ -61,6 +58,11 @@ struct WorldStats {
 	int queued = 0;  // jobs waiting for a worker or running
 	int dirty = 0;   // edited chunks not saved yet
 	bool settled = false; // everything within view distance is meshed and up to date
+	// The worker threads' work so far (the profiler's view of them): chunks
+	// generated (not read from a file) and meshed, and the ms they took in all.
+	int workers = 0;
+	long long generated = 0, meshed_jobs = 0;
+	double generate_ms = 0, light_ms = 0, mesh_ms = 0;
 };
 
 struct RayHit {
@@ -80,6 +82,7 @@ struct MoveResult {
 class World {
 public:
 	static constexpr int CHUNK_Y_MIN = -3, CHUNK_Y_MAX = 3; // the world is 7 chunks (224 blocks) tall
+	static constexpr int BOTTOM_Y = CHUNK_Y_MIN * gocube::CHUNK; // nothing below: falling past it hurts
 
 	// `blocks`, `atlas` and `generator` must outlive the world. `save_dir`: the
 	// world's chunks folder ("": nothing is loaded or saved).
@@ -92,7 +95,7 @@ public:
 	void set_view_distance(int blocks) { view_distance_ = blocks > 0 ? blocks : 1; }
 	int view_distance() const { return view_distance_; }
 
-	// Block shadows (the Godot version's "blocks" sun shadows): each face is in
+	// Block shadows: each face is in
 	// the sun or in a block's shadow, worked out by the mesher from where the
 	// sun is (radians above the eastern horizon). They follow the sun in steps
 	// of SUN_STEP_DEGREES; each step (or turning them on or off) remeshes every
@@ -124,7 +127,7 @@ public:
 	// Light held in hand (a torch: x, y, z, level 0..15) spread like placed
 	// light, one level less per block and stopped by opaque blocks, in the cube
 	// of `size` blocks from `origin`: a level per block, indexed
-	// (y * size + z) * size + x. (The Godot version's GoCubeWorld.held_light.)
+	// (y * size + z) * size + x.
 	std::vector<uint8_t> held_light(const BlockPos &origin, int size, const std::vector<std::array<float, 4>> &lights) const;
 	// Told about every block change (position, the new block), after it happened.
 	std::function<void(const BlockPos &, gocube::BlockId)> on_block_changed;
@@ -250,6 +253,8 @@ private:
 	std::mutex result_mutex_;
 	std::vector<Result> results_;
 	std::vector<std::thread> workers_;
+	// Work done by the workers (microseconds; counts).
+	mutable std::atomic<long long> generate_us_{0}, light_us_{0}, mesh_us_{0}, generated_{0}, meshed_jobs_{0};
 };
 
 } // namespace gc

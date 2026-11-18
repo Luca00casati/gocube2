@@ -15,6 +15,8 @@ public:
 	Window &operator=(const Window &) = delete;
 	~Window();
 
+	// `width` x `height`: the client area (scaled for the DPI); 0 x 0: three
+	// quarters of the screen each way, in its middle.
 	bool create(const wchar_t *title, int width, int height, bool visible);
 	// Handles pending messages; false once the window has been closed.
 	bool pump();

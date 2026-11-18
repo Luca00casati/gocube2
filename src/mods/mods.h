@@ -13,9 +13,6 @@
 //     entry = "main.lua",                  code (optional), see below
 //     api_version = 1,                     the modding API it was written for
 //   }
-// (A folder with an old mod.json, or a manifest listing "content" files, is
-// refused with a message saying what changed.)
-//
 // The entry script runs once at load, in the mod's own environment: Lua's
 // string (without dump), table, math (without random) and utf8 libraries,
 // the safe basic functions, and
@@ -24,7 +21,7 @@
 //              all(section) -> {[id] = def} ("blocks", "trees", ...);
 //              ids without "mod:" get this mod's. A definition is a
 //              table of named fields (lists 1..n inside it stay lists); a
-//              biome's "trees" and "plants" are lists of {id, value} pairs
+//              biome's "trees" is a list of {id, percent} pairs
 //              (their order reaches the world generator)
 //   events     on(name, function): "tick" (dt), "block_placed" and
 //              "block_broken" (x, y, z, block id; by the player),
@@ -48,8 +45,7 @@
 //              (not while loading: what mods register must depend only on
 //              their files). Rules the game asks: see Mods::rule.
 //              While playing: players() -> {{peer, x, y, z, survival, alive}},
-//              day() -> 0..1, first_night() -> "ahead"/"now"/"over" (a new
-//              world's first night is safe), damage_player(peer, amount, source [, push xyz]),
+//              day() -> 0..1, damage_player(peer, amount, source [, push xyz]),
 //              play_sound(set, kind, x, y, z [, dB]), effect("smoke", x, y, z)
 //   mod        {id, version}
 //   print      to the game's log
@@ -134,7 +130,6 @@ public:
 		// Players: [{peer, x, y, z (feet), survival, alive}].
 		std::function<Data()> players;
 		std::function<float()> day; // 0 at night .. 1 in full day
-		std::function<std::string()> first_night; // "ahead", "now", "over" (Game::first_night)
 		std::function<void(int peer, int amount, const std::string &source, const float push[3])> damage_player;
 		std::function<void(const std::string &set, const std::string &kind, const float at[3], float volume_db)>
 				play_sound;
@@ -177,7 +172,7 @@ private:
 };
 
 // A short hash of every file in a mod folder (names and contents, dot-names
-// left out), as the Godot version's ModLoader.fingerprint: players can tell
+// left out): players can tell
 // whether two copies of a mod with the same version really match.
 std::string mod_fingerprint(const std::filesystem::path &root);
 // The files a mod's fingerprint covers ("/"-separated paths under root, sorted).

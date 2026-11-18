@@ -165,25 +165,20 @@ void Creatures::animate(float dt) {
 		c.hurt_time = std::max(0.0f, c.hurt_time - dt);
 		c.flash = std::max(0.0f, c.flash - dt * 3.0f);
 		c.attacking = std::max(0.0f, c.attacking - dt);
-		if (c.model != "ninja") {
+		if (c.model != "figure") {
 			continue;
 		}
-		// The Godot version's Ninja._process: the figure from how it moves.
+		// The figure's pose from how it moves.
 		const float smooth = 1.0f - std::exp(-10.0f * dt);
 		const float moving = c.blocked ? 0.0f : std::hypot(c.vel[0], c.vel[2]);
 		c.anim_speed += (moving - c.anim_speed) * smooth;
 		const float vspeed = c.on_floor ? 0.0f : c.vel[1];
 		c.figure.move_speed = c.anim_speed;
 		c.figure.on_floor = std::abs(vspeed) < 1.5f;
-		c.figure.ninja = true;
 		if (c.strikes != c.seen_strikes) {
 			c.seen_strikes = c.strikes;
 			c.figure.swing();
 		}
-		c.anim_time += dt;
-		const float run = std::min(c.anim_speed / 3.6f, 1.0f); // the tails hang still when it stands
-		c.tails[0] = 0.5f * run + std::sin(c.anim_time * (6.0f + 3.0f * c.anim_speed)) * 0.25f * run;
-		c.tails[1] = std::sin(c.anim_time * 4.3f) * 0.2f * run;
 		c.figure.update(dt);
 	}
 }

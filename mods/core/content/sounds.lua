@@ -1,4 +1,4 @@
--- The base game's content (it was the Godot version's content/base.json).
+-- The base game's content.
 -- Sound sets: the sounds blocks make (by their "sound").
 
 registry.register_sound_set("grass", {

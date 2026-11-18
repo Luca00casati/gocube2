@@ -1,7 +1,6 @@
 #pragma once
 // The time of day (0..1, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset) and what
-// follows from it: daylight, the sky's colours, where the sun is. As the
-// Godot version's DayCycle. A day lasts day_length seconds (a real day by
+// follows from it: daylight, the sky's colours, where the sun is. A day lasts day_length seconds (a real day by
 // default: new worlds start at the computer's clock time).
 
 #include <algorithm>
@@ -22,7 +21,7 @@ public:
 	static constexpr float NIGHT_LIGHT = 0.02f;    // sky light at night: dark, bring a torch
 	static constexpr double MORNING = 0.26;        // what sleeping wakes you at
 	static constexpr float PI = 3.14159265358979f;
-	// (Colours as the Godot version's: linear, as its shaders get them.)
+	// (Colours: linear, as the shaders get them.)
 	static constexpr Rgb NIGHT_TINT = {0.6f, 0.7f, 1.0f}; // moonlight is a cool blue
 	static constexpr Rgb DAY_TOP = {0.32f, 0.52f, 0.86f};
 	static constexpr Rgb DAY_HORIZON = {0.68f, 0.79f, 0.92f};
@@ -70,8 +69,8 @@ public:
 	Rgb sky_horizon() const {
 		return NIGHT_HORIZON.lerp(DAY_HORIZON, day_amount()).lerp(DUSK_HORIZON, dusk() * 0.65f);
 	}
-	// Depth fog: from 0.45 of the view distance, thick at 0.95, by day (the
-	// Godot version's main._set_fog_range); much nearer at night.
+	// Depth fog: from 0.45 of the view distance, thick at 0.95, by day; much
+	// nearer at night.
 	float fog_begin(float view) const { return NIGHT_FOG_BEGIN + (view * 0.45f - NIGHT_FOG_BEGIN) * day_amount(); }
 	float fog_end(float view) const { return NIGHT_FOG_END + (view * 0.95f - NIGHT_FOG_END) * day_amount(); }
 

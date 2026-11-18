@@ -7,6 +7,7 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <set>
 #include <string>
 
@@ -116,18 +117,29 @@ TEST_CASE("the base game's atlas: painted faces and PPM images, no missing ones"
 		}
 		return true;
 	};
-	// Painted: solid; stone's faces, and the slab's, are the same tile.
+	// Painted: solid; stone's faces, and its stairs', are the same tile.
 	CHECK(opaque(info("core:stone").tiles[0]));
-	CHECK(info("core:stone").tiles[0] == info("core:stone_slab").tiles[0]);
+	CHECK(info("core:stone").tiles[0] == info("core:stone_stairs").tiles[0]);
 	CHECK(info("core:grass").tiles[2] != info("core:grass").tiles[0]); // top, side
 	CHECK(info("core:grass").tiles[3] == info("core:dirt").tiles[0]);  // bottom
-	// A bed's two halves look the same.
-	CHECK(info("core:bed").tiles[2] == info("core:bed_n_head").tiles[2]); // (core:bed: the foot, facing n)
+	// A bed's two halves are one picture: the head has the pillow, the foot doesn't.
+	CHECK(info("core:bed").tiles[2] != info("core:bed_n_head").tiles[2]); // (core:bed: the foot, facing n)
+	CHECK(info("core:bed").tiles[0] == info("core:bed_n_head").tiles[0]); // (the same sides)
 	CHECK_FALSE(info("core:stone").cutout);
 	CHECK_FALSE(info("core:leaves").cutout);
-	// Drawn (PPM): plants, torches and glass are see-through in places.
-	CHECK(info("core:oak_sapling").cutout);
+	// Drawn (PPM): torches and glass are see-through in places.
 	CHECK(info("core:torch").cutout);
+	// A torch on a wall stands against it, but is textured as the one in the
+	// middle of the floor (the drawn torch is there: elsewhere the image is see-through).
+	for (const char *f : {"n", "e", "s", "w"}) {
+		CAPTURE(f);
+		const gocube::BlockInfo &wall = info(("core:torch_wall_" + std::string(f)).c_str());
+		REQUIRE(wall.model.size() == 1);
+		const gocube::Box &b = wall.model[0];
+		CHECK((b.mn[0] + b.mx[0]) / 2 - b.tx == doctest::Approx(0.5f));
+		CHECK((b.mn[2] + b.mx[2]) / 2 - b.tz == doctest::Approx(0.5f));
+		CHECK((std::min(b.mn[0], b.mn[2]) < 0.1f || std::max(b.mx[0], b.mx[2]) > 0.9f)); // against a side
+	}
 	CHECK(info("core:glass").cutout);
 	CHECK_FALSE(opaque(table.icon("core:snowball")));
 	// Nothing fell back to magenta (an image not found).

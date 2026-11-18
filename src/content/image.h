@@ -14,7 +14,7 @@
 
 namespace gc {
 
-// Godot's Color.html: "#rgb", "#rgba", "#rrggbb" or "#rrggbbaa" ('#' optional).
+// An HTML colour: "#rgb", "#rgba", "#rrggbb" or "#rrggbbaa" ('#' optional).
 bool parse_html_color(std::string s, uint8_t out[4]);
 
 // An image as 8-bit RGBA, width x height.

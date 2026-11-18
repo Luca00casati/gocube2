@@ -108,7 +108,7 @@ void ItemDrops::build_mesh(ItemModels &models, const std::function<void(const fl
 		const float at[3] = {d.pos[0], d.pos[1] + 0.3f, d.pos[2]};
 		float lit[3];
 		light(at, lit);
-		// The Godot version's model: BOX up from the drop's feet, bobbing, and
+		// The model: BOX up from the drop's feet, bobbing, and
 		// spinning slowly about y from a random start.
 		const float spin = d.turn + d.age * 1.2f;
 		const float c = std::cos(spin), s = std::sin(spin);

@@ -1,5 +1,5 @@
 #pragma once
-// The game's sounds (the Godot version's Sounds), through XAudio2: a sound
+// The game's sounds, through XAudio2: a sound
 // set's sound (content "sound_sets": a list of files per kind), a random one
 // of its files, its pitch varied a little so repeats don't sound the same,
 // heard from where it is (full volume within UNIT_SIZE blocks, then falling

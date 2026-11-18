@@ -1,5 +1,5 @@
 // Render scale: the world drawn at a fraction of the window's size, stretched
-// over it with bilinear filtering (as Godot's scaling_3d_mode BILINEAR does).
+// over it with bilinear filtering.
 
 Texture2D source : register(t0);
 SamplerState bilinear : register(s0);

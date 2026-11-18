@@ -10,7 +10,7 @@
 
 namespace gc {
 
-// Godot's Color.html: "#rgb", "#rgba", "#rrggbb" or "#rrggbbaa" ('#' optional).
+// An HTML colour: "#rgb", "#rgba", "#rrggbb" or "#rrggbbaa" ('#' optional).
 bool parse_html_color(std::string s, uint8_t out[4]) {
 	if (!s.empty() && s[0] == '#') {
 		s.erase(0, 1);

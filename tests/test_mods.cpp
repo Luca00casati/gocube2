@@ -159,7 +159,7 @@ assert(not pcall(setmetatable, {}, {__gc = function() end}), '__gc was allowed')
 assert(not pcall(world.get_block, 0, 0, 0), 'world before there is one')
 -- Creatures and the playing-only game functions: there, but only with a world.
 for _, f in ipairs({creatures.spawn, creatures.remove, creatures.all, creatures.get, creatures.set,
-		world.raycast, world.box_free, game.players, game.day, game.first_night, game.damage_player, game.play_sound,
+		world.raycast, world.box_free, game.players, game.day, game.damage_player, game.play_sound,
 		game.effect}) do
 	assert(type(f) == 'function')
 	assert(not pcall(f, 'core:block_eater', 0, 0, 0), 'a playing-only function before there is a world')
@@ -273,26 +273,21 @@ TEST_CASE("broken mod.lua files and newer mods are skipped") {
 	// A manifest is data: nothing in it can run (there's nothing to call).
 	write(root / "runs" / "mod.lua", R"(os.exit(1) return {id = "runs"})");
 	write(root / "spins" / "mod.lua", R"(while true do end)");
-	write(root / "oldjson" / "mod.json", R"({"id": "oldjson"})");
 	make_mod(root, "future", "", {{"api_version", 2}});
 	make_mod(root, "noentry", "", {{"entry", "missing.lua"}});
 	make_mod(root, "escape", "", {{"entry", "../core/main.lua"}});
-	make_mod(root, "jsoncontent", "", {{"content", {"content/blocks.json"}}});
 	Loaded l(root, quick());
 	CHECK(l.problem("badid").find("\"id\"") != std::string::npos);
 	CHECK(l.problem("badlua").find("can't be read") != std::string::npos);
 	CHECK(l.problem("runs").find("can't be read") != std::string::npos);
 	CHECK(l.problem("spins").find("too long") != std::string::npos);
-	CHECK(l.problem("oldjson").find("mod.lua now") != std::string::npos);
 	CHECK(l.problem("future").find("newer game") != std::string::npos);
 	CHECK(l.problem("noentry").find("doesn't exist") != std::string::npos);
 	CHECK(l.problem("escape").find("inside the mod") != std::string::npos);
-	// Content comes from Lua only: a mod still listing content files is told so.
-	CHECK(l.problem("jsoncontent").find("from Lua") != std::string::npos);
 	CHECK(l.loaded("core"));
 }
 
-TEST_CASE("fingerprints: the Godot version's algorithm (same files, same fingerprint)") {
+TEST_CASE("fingerprints: the same files give the same fingerprint") {
 	// SHA-256 over the sorted relative paths (dot-names left out), each followed
 	// by a 0 byte and the file's bytes; the first 12 hex digits. The value was
 	// worked out separately (Python's hashlib) for this folder.
@@ -327,7 +322,7 @@ end)
 	const gc::BlockTable table = gc::build_block_table(content);
 	const gc::BlockRules rules(content);
 	gocube::Generator generator;
-	gc::configure_generator(generator, content, 4242, gc::GENERATOR_VERSION);
+	gc::configure_generator(generator, content, 4242);
 	gc::World world(table.blocks, table.atlas.layout, generator);
 	world.set_view_distance(32);
 	const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);

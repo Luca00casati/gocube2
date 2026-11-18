@@ -52,7 +52,7 @@ struct NetPlay {
 		n->day.time = 0.4; // day
 		const std::string e = n->session.host(port, name, gc::Session::mod_list(p.mods.loaded()));
 		PLAY_REQUIRE(e.empty());
-		n->session.set_world_info({{"seed", 4242}, {"generator", gc::GENERATOR_VERSION}, {"block_ids", p.content.block_ids()}});
+		n->session.set_world_info({{"seed", 4242}, {"block_ids", p.content.block_ids()}});
 		std::map<std::string, std::filesystem::path> folders; // (players with other mods may download ours)
 		for (const gc::ModInfo &m : p.mods.loaded()) {
 			folders[gc::mod_entry(m)] = m.dir;
@@ -101,7 +101,6 @@ struct NetPlay {
 		}
 		s.creative = w.value("mode", "survival") == "creative";
 		s.seed = uint32_t(w.value("seed", 0.0));
-		s.generator = int(w.value("generator", 1.0));
 		for (const gc::Data &id : w["block_ids"]) {
 			s.block_ids.push_back(id.get<std::string>());
 		}

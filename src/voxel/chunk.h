@@ -31,6 +31,7 @@ struct Box {
 	float mn[3];
 	float mx[3];
 	float ty = 0.0f; // texture offset up: side faces are textured as if the box sat ty lower
+	float tx = 0.0f, tz = 0.0f; // and across: as if it sat tx, tz further along x, z (a wall torch: as if in the middle)
 };
 
 struct BlockInfo {

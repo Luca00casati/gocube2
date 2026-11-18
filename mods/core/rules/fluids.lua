@@ -1,4 +1,4 @@
--- Flowing water and lava. (The Godot version's FluidSim.)
+-- Flowing water and lava.
 --
 -- Only cells near a recent change are looked at (every TICK seconds), so a
 -- still sea costs nothing. A fluid is a block with "fluid" (its name) and

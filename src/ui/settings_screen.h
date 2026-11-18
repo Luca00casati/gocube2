@@ -1,5 +1,5 @@
 #pragma once
-// The settings screen (the Godot version's SettingsScreen): view distance,
+// The settings screen: view distance,
 // mouse sensitivity, frame rate limit, vsync, smooth lighting, sun shadows,
 // render scale, volumes, the clock, key bindings, and which mods load (and
 // the mods downloaded from servers). Changes apply at once (the game reads the

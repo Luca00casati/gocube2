@@ -1,13 +1,12 @@
 // Dropped items and the first-person hand: unlit like the world, with a shade
 // per face of the model's own (unturned) normal and the light where they are.
-// Ported from the Godot version's item_drop.gdshader and hand.gdshader.
 //
 // Vertices come already placed (world space for drops, camera space for the
 // hand); `view_proj` takes them to the screen. Colour: the light, times the
 // texture (the atlas' plain view: raw sRGB numbers), or the colour alone (the
 // sleeve and hand: their tint times the light).
 
-#include "godot_color.hlsli"
+#include "color.hlsli"
 
 cbuffer Items : register(b0) {
 	float4x4 view_proj;
@@ -52,9 +51,8 @@ float4 ps_main(PSIn i) : SV_Target {
 	clip(c.a - 0.5);
 	float3 n = abs(i.normal);
 	float shade = i.normal.y > 0.5 ? 1.0 : (i.normal.y < -0.5 ? 0.55 : (n.x > 0.5 ? 0.8 : 0.7));
-	// (Unshaded, as the Godot version's renderer shows it: godot_color.hlsli.)
-	float3 color = godot_to_linear(max(c.rgb * shade * i.color.rgb, 0.0));
+	float3 color = to_linear(max(c.rgb * shade * i.color.rgb, 0.0));
 	float d = length(i.place - eye);
 	color = lerp(color, fog_color, pow(smoothstep(fog_start, fog_end, d), 1.6));
-	return float4(godot_to_srgb(color), 1.0);
+	return float4(to_srgb(color), 1.0);
 }

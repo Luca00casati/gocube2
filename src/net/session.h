@@ -1,5 +1,5 @@
 #pragma once
-// Multiplayer over TCP and UDP (net/transport.h): the Godot version's Session.
+// Multiplayer over TCP and UDP (net/transport.h).
 //
 // The host is an authoritative server that also plays. World generation is
 // deterministic, so clients generate terrain themselves from the seed and only
@@ -78,7 +78,7 @@ struct Avatar {
 
 class Session : public Remote {
 public:
-	static constexpr int PROTOCOL = 2; // 2: mod packs compressed with MSZIP, not zlib
+	static constexpr int PROTOCOL = 4; // (any change to the messages: one more)
 	static constexpr int DEFAULT_PORT = 24680;
 	static constexpr int MAX_PLAYERS = 8;
 	static constexpr int HOST_ID = 1;
@@ -130,7 +130,7 @@ public:
 	// Network traffic in and out: every frame (a client also before it plays).
 	void poll();
 	// A client: the host took us in; the world to build (block_ids, seed,
-	// generator, mode, time, day_length, spawn, world_spawn, first_night, id).
+	// mode, time, day_length, spawn, world_spawn, id).
 	bool welcomed() const { return welcomed_; }
 	const Data &welcome() const { return welcome_; }
 	// Why it ended (a client: refused, lost, timed out); "" while it goes on.
@@ -156,6 +156,14 @@ public:
 	void update(float dt, const LocalPose &pose);
 
 	const std::vector<Avatar> &avatars() const { return avatars_; }
+	// Players' skins (content/skin.h: SKIN_BYTES of RGBA). Ours (before or
+	// while playing; any other size: none): a client sends it to the host
+	// once welcomed, the host gives it to everyone who joins. The host passes
+	// each player's on to the others. skin_of: a player's, or null;
+	// skins_changed: counts changes (one came, a player left).
+	void set_skin(std::vector<uint8_t> rgba);
+	const std::vector<uint8_t> *skin_of(int id) const;
+	int skins_changed() const { return skins_changed_; }
 	int player_count() const;
 	// Other players' held lights (x, y, z, level) for the world's light.
 	std::vector<std::array<float, 4>> held_lights() const;
@@ -256,11 +264,14 @@ private:
 	std::vector<std::unique_ptr<Peer>> peers_;
 	int next_id_ = HOST_ID + 1;
 	std::vector<Avatar> avatars_;
+	std::vector<uint8_t> my_skin_;
+	bool skin_sent_ = false;
+	std::map<int, std::vector<uint8_t>> skins_; // by player id (the host's own too)
+	int skins_changed_ = 0;
 	int player_count_ = 1;
 	float state_timer_ = 0, world_timer_ = 0, time_timer_ = 0;
 	LocalPose last_pose_;
 	Data saved_players_ = Data::object();
-	std::string last_first_night_;
 	bool woken_ = false;
 	std::optional<std::array<float, 3>> correction_, push_;
 	uint32_t inventory_seq_ = 0; // a client: inventory actions sent

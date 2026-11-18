@@ -1,7 +1,7 @@
 -- The base game's creatures: how big they are and how they move. What they do
 -- is rules/creatures.lua; how they look, the game's models ("model").
 
--- A squat, slow grazer (the Godot version's BlockEater).
+-- A squat, slow grazer.
 registry.register_creature("block_eater", {
 	model = "block_eater",
 	box = {0.9, 0.95, 0.9},

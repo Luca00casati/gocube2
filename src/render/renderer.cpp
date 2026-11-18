@@ -201,25 +201,93 @@ void Renderer::resize(int width, int height) {
 	create_targets();
 }
 
-void Renderer::begin_frame(const float clear_linear[4]) {
+// --- GPU times --------------------------------------------------------------------
+
+void Renderer::gpu_stamp(const char *name) {
+	GpuFrame &f = gpu_[gpu_frame_];
+	const size_t i = f.names.size();
+	if (i >= size_t(GPU_MARKS)) {
+		return;
+	}
+	if (i >= f.stamps.size()) {
+		D3D11_QUERY_DESC qd = {D3D11_QUERY_TIMESTAMP, 0};
+		ComPtr<ID3D11Query> q;
+		if (FAILED(device_->CreateQuery(&qd, &q))) {
+			return;
+		}
+		f.stamps.push_back(q);
+	}
+	context_->End(f.stamps[i].Get());
+	f.names.push_back(name);
+}
+
+void Renderer::gpu_mark(const char *name) {
+	if (gpu_open_) {
+		gpu_stamp(name);
+	}
+}
+
+// A frame's times, if the GPU is done with them (else they're dropped: the
+// queries are needed again).
+void Renderer::gpu_collect(GpuFrame &f) {
+	if (!f.pending) {
+		return;
+	}
+	f.pending = false;
+	D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj;
+	if (context_->GetData(f.disjoint.Get(), &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK || dj.Disjoint ||
+			dj.Frequency == 0) {
+		return;
+	}
+	std::vector<UINT64> t(f.names.size());
+	for (size_t i = 0; i < t.size(); i++) {
+		if (context_->GetData(f.stamps[i].Get(), &t[i], sizeof(UINT64), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) {
+			return;
+		}
+	}
+	gpu_times_.clear();
+	for (size_t i = 0; i + 1 < t.size(); i++) {
+		gpu_times_.push_back({f.names[i], double(t[i + 1] - t[i]) * 1000.0 / double(dj.Frequency)});
+	}
+	gpu_times_.push_back({"frame", double(t.back() - t.front()) * 1000.0 / double(dj.Frequency)});
+}
+
+void Renderer::begin_frame(const float clear_linear[4], bool clear_color) {
+	// GPU times: the oldest frame's are read, its queries start this one.
+	gpu_frame_ = (gpu_frame_ + 1) % GPU_FRAMES;
+	GpuFrame &gf = gpu_[gpu_frame_];
+	gpu_collect(gf);
+	gf.names.clear();
+	if (!gf.disjoint) {
+		D3D11_QUERY_DESC qd = {D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
+		device_->CreateQuery(&qd, &gf.disjoint);
+	}
+	gpu_open_ = gf.disjoint != nullptr;
+	if (gpu_open_) {
+		context_->Begin(gf.disjoint.Get());
+		gpu_stamp("clear");
+	}
 	// The flip model unbinds the back buffer at every Present, so bind it each frame.
 	ID3D11RenderTargetView *world = scaled() ? scaled_target_.Get() : target_.Get();
 	context_->OMSetRenderTargets(1, &world, depth_.Get());
-	// (As the world's shaders write colours: Godot's curve, godot_color.hlsli.)
+	//
 	float clear[4];
 	for (int k = 0; k < 3; k++) {
 		clear[k] = std::max(1.055f * std::pow(std::max(clear_linear[k], 0.0f), 0.416666667f) - 0.055f, 0.0f);
 	}
 	clear[3] = clear_linear[3];
-	context_->ClearRenderTargetView(world, clear);
+	if (clear_color) {
+		context_->ClearRenderTargetView(world, clear);
+	}
 	context_->ClearDepthStencilView(depth_.Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
 	D3D11_VIEWPORT vp = {0, 0, float(scaled_width_), float(scaled_height_), 0.0f, 1.0f};
 	context_->RSSetViewports(1, &vp);
 }
 
 bool Renderer::end_frame(const std::function<void()> &overlay, const char *screenshot_png) {
+	gpu_mark("scaling, UI (Direct2D)");
 	if (scaled()) {
-		// Stretch the world over the window (bilinear, on the pixel values as Godot scales).
+		// Stretch the world over the window.
 		ID3D11RenderTargetView *full[] = {target_.Get()};
 		context_->OMSetRenderTargets(1, full, nullptr);
 		D3D11_VIEWPORT vp = {0, 0, float(width_), float(height_), 0.0f, 1.0f};
@@ -243,6 +311,12 @@ bool Renderer::end_frame(const std::function<void()> &overlay, const char *scree
 	context_->OMSetRenderTargets(1, targets, nullptr);
 	if (overlay) {
 		overlay();
+	}
+	if (gpu_open_) {
+		gpu_stamp("end");
+		context_->End(gpu_[gpu_frame_].disjoint.Get());
+		gpu_[gpu_frame_].pending = true;
+		gpu_open_ = false;
 	}
 	if (screenshot_png && !save_png(screenshot_png)) {
 		log("Couldn't save the screenshot %s", screenshot_png);

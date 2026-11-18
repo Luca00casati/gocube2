@@ -1,5 +1,5 @@
 #pragma once
-// The 3D model of an item, as the Godot version's ItemDrop.model_mesh: a
+// The 3D model of an item: a
 // small cube for solid blocks (each face its own texture, shrunk to a slab's or
 // a door's single box), a whole bed for beds, else the item's icon given
 // depth (each opaque pixel a little block, walls where it borders a clear

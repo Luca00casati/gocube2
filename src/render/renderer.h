@@ -6,11 +6,11 @@
 // while their Direct3D 11 drivers are mature. Feature level 11_0 is the minimum.
 //
 // The world is drawn into the plain back buffer: its shaders work out linear
-// light and write it as the Godot version's renderer does (shaders/
-// godot_color.hlsli), so see-through surfaces blend as there; the UI's
+// light and write it back through the sRGB curve (shaders/color.hlsli), so
+// see-through surfaces blend in sRGB numbers; the UI's
 // colours (Direct2D, ui/gui_d2d.h) are already what the screen shows. With a render scale below
 // 1 the world is drawn into a smaller target first, then stretched over the
-// window (bilinear), under the full-size UI: the Godot version's setting.
+// window (bilinear), under the full-size UI.
 
 #include <d3d11_1.h>
 #include <dxgi1_6.h>
@@ -18,6 +18,8 @@
 
 #include <functional>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace gc {
 
@@ -43,15 +45,16 @@ public:
 	bool init(HWND hwnd, int width, int height, const RendererOptions &options);
 	void resize(int width, int height);
 
-	// The world's resolution as a part of the window's (0.25..1; the Godot
-	// version offers 1, 0.85, 0.75 and 0.5).
+	// The world's resolution as a part of the window's (0.25..1; the settings
+	// offer 1, 0.85, 0.75 and 0.5).
 	void set_render_scale(float scale);
 	void set_vsync(bool on) { options_.vsync = on; } // (from the next frame)
 	float render_scale() const { return render_scale_; }
 
-	// Clears the world's target (to a linear colour) and the depth buffer, and
-	// binds them for drawing the world.
-	void begin_frame(const float clear_linear[4]);
+	// Clears the world's target (to a linear colour; not if `clear_color` is
+	// false: the sky will cover what nothing else does) and the depth buffer,
+	// and binds them for drawing the world.
+	void begin_frame(const float clear_linear[4], bool clear_color = true);
 	// Calls `overlay` with the back buffer bound (the UI draws there), saves a
 	// screenshot if `screenshot_png` is given, presents. False if the device
 	// was lost.
@@ -67,7 +70,28 @@ public:
 	// Errors and warnings the debug layer reported so far (each is also logged).
 	int debug_messages();
 
+	// The GPU's time for the parts of a frame (timestamp queries): from a mark
+	// to the next one (or to the frame's end) is the mark's part. begin_frame
+	// starts one ("clear"), end_frame marks the UI's. Read a few frames late
+	// (never waiting for the GPU): the latest frame's times, (name, ms).
+	void gpu_mark(const char *name);
+	const std::vector<std::pair<std::string, double>> &gpu_times() const { return gpu_times_; }
+
 private:
+	struct GpuFrame {
+		ComPtr<ID3D11Query> disjoint;
+		std::vector<ComPtr<ID3D11Query>> stamps; // (reused)
+		std::vector<std::string> names;          // the part each stamp starts; the last one ends the frame
+		bool pending = false;
+	};
+	static constexpr int GPU_FRAMES = 4, GPU_MARKS = 16;
+	GpuFrame gpu_[GPU_FRAMES];
+	int gpu_frame_ = 0;
+	bool gpu_open_ = false;
+	std::vector<std::pair<std::string, double>> gpu_times_;
+	void gpu_stamp(const char *name);
+	void gpu_collect(GpuFrame &f);
+
 	bool create_device();
 	bool create_targets();
 	bool create_blit();

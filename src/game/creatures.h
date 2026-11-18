@@ -4,10 +4,9 @@
 // cycle, a squash or a red flash when hurt) and being hit. What they do is the
 // mods' (the core mod's rules/creatures.lua): it spawns them, sets where they
 // head and how fast, and handles hits, through the `creatures` Lua API.
-// As the Godot version's BlockEater and Ninja nodes, minus their behaviour.
 //
 // A kind is content (registry.register_creature): "model" (how it's drawn:
-// "block_eater" or "ninja"), "box" {width, height, depth} (collision, picking),
+// "block_eater" or "figure": a person), "box" {width, height, depth} (collision, picking),
 // "gravity", "step_height" (walks up that much), "turn_rate" (how fast it turns
 // towards its heading), "jump" and "jump_when_blocked" (leaps over what stops
 // it), "light_height" (where its light is taken).
@@ -41,12 +40,10 @@ struct Creature {
 	float hurt_time = 0, flash = 0, attacking = 0;
 	int strikes = 0;      // goes up with every strike (the figure plays one)
 	float walk_phase = 0;
-	// A figure's (model "ninja"): its pose, how fast it seems to go, the
-	// headband's tails.
+	// A figure's (model "figure"): its pose, how fast it seems to go.
 	Figure figure;
-	float anim_speed = 0, anim_time = 0;
+	float anim_speed = 0;
 	int seen_strikes = 0;
-	float tails[3] = {0, 0, 0};
 	// From its kind.
 	float box[3] = {0.6f, 1.8f, 0.6f};
 	float gravity = 24, step_height = 1, turn_rate = 8, jump = 0, light_height = 0.5f;
@@ -80,8 +77,7 @@ public:
 	const Creature *find(int id) const;
 	const std::vector<Creature> &all() const { return list_; }
 
-	// One physics step for every creature (the Godot version's simulate()
-	// without the decisions).
+	// One physics step for every creature (its body only: what it decides is the mods').
 	void step(float dt, const World &world);
 	// Each frame: the looks (walk cycle, squash, flash, strike).
 	void animate(float dt);

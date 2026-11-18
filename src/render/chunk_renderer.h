@@ -12,6 +12,7 @@
 #include <wrl/client.h>
 
 #include <cstdint>
+#include <functional>
 #include <unordered_map>
 #include <vector>
 
@@ -23,7 +24,7 @@ struct Camera {
 	DirectX::XMFLOAT3 position = {0, 0, 0};
 	float yaw = 0;   // radians; 0 looks towards -z, positive turns left
 	float pitch = 0; // radians; positive looks up
-	float fov_y = DirectX::XMConvertToRadians(75.0f); // (Godot's Camera3D default)
+	float fov_y = DirectX::XMConvertToRadians(75.0f); //
 	float near_z = 0.05f, far_z = 1000.0f;
 
 	DirectX::XMFLOAT3 forward() const; // unit view direction
@@ -58,23 +59,31 @@ public:
 	bool init(ID3D11Device *device, const Atlas &atlas);
 	void upload(ID3D11Device *device, const ChunkMesh &mesh); // replaces the chunk's mesh
 	void remove(const ChunkPos &pos);
-	// Draws into the bound render target and depth buffer.
-	void draw(ID3D11DeviceContext *context, const Camera &camera, float aspect, const SkyParams &sky);
-	// First of all: the sky behind everything.
+	// Draws into the bound render target and depth buffer: the solid blocks
+	// (near chunks first: hidden pixels are skipped early), then calls
+	// `before_fluids` (the sky goes there: only where nothing was drawn), then
+	// water and lava blended over (far chunks first).
+	void draw(ID3D11DeviceContext *context, const Camera &camera, float aspect, const SkyParams &sky,
+			const std::function<void()> &before_fluids = {});
+	// The sky where nothing is drawn yet (the depth buffer still clear): after
+	// the solid blocks, before what's see-through.
 	void draw_sky(ID3D11DeviceContext *context, const Camera &camera, float aspect, const SkyParams &sky);
 	// Dropped items and the first-person hand (shaders/items.hlsl): vertices
 	// placed already, `view_proj` takes them to the screen; their colour is the
 	// light (times the texture if `textured`, else it's the whole colour).
 	// Fog by distance from `eye`, as the terrain's. `cull_back`: faces wound
-	// the other way aren't drawn (the held item, as the Godot version's hand
-	// shader does: its extruded items are wound inside out, so it shows their
-	// far side); otherwise both sides (drops).
+	// the other way aren't drawn (the held item: its extruded items are wound
+	// inside out, so it shows their far side); otherwise both sides (drops).
 	void draw_items(ID3D11DeviceContext *context, const std::vector<WorldVertex> &vertices,
 			const DirectX::XMMATRIX &view_proj, const DirectX::XMFLOAT3 &eye, const SkyParams &sky, bool textured,
 			bool cull_back = false);
 	// Creatures' boxes (game/creature_models.h; shaders/creatures.hlsl), in world space.
 	void draw_creatures(ID3D11DeviceContext *context, const std::vector<CreatureVertex> &vertices,
 			const DirectX::XMMATRIX &view_proj, const DirectX::XMFLOAT3 &eye, const SkyParams &sky);
+	// Players' skins (content/skin.h: SKIN_BYTES of RGBA) for creature
+	// vertices to show (CreatureVertex::skin's slot).
+	static constexpr int SKIN_SLOTS = 9; // (every other player, and us)
+	void set_skin(ID3D11DeviceContext *context, int slot, const std::vector<uint8_t> &rgba);
 	// Clears the depth buffer (the hand is drawn over everything).
 	void clear_depth(ID3D11DeviceContext *context);
 	// Torches held in hand (HandLights): their light levels, a cube of
@@ -130,6 +139,11 @@ private:
 	UINT creature_capacity_ = 0;
 	ComPtr<ID3D11Texture3D> hand_light_tex_;
 	ComPtr<ID3D11ShaderResourceView> hand_light_srv_;
+	ComPtr<ID3D11ShaderResourceView> noise_srv_; // smooth noise (cloud shadows, the grass's green)
+	ComPtr<ID3D11SamplerState> noise_sampler_;
+	static constexpr int NOISE_CELLS = 32, NOISE_TEXELS = 8; // (shaders/chunk.hlsl: NOISE_CELLS)
+	ComPtr<ID3D11Texture2D> skins_tex_;
+	ComPtr<ID3D11ShaderResourceView> skins_srv_;
 	DirectX::XMFLOAT3 hand_light_origin_ = {0, 0, 0};
 	int hand_light_count_ = 0;
 	bool upload_dynamic(ID3D11DeviceContext *context, const std::vector<WorldVertex> &vertices);

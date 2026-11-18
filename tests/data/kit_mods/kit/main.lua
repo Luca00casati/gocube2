@@ -6,6 +6,7 @@ registry.register_item("iron_ingot", {color = "#d8d8d8"})
 registry.register_item("wood_pickaxe", {color = "#a07a50", tool = "pickaxe", max_stack = 1, damage = 3})
 registry.register_item("iron_helmet", {color = "#c8c8c8", armor = {slot = "head", points = 2}, max_stack = 1})
 registry.register_block("kiln", {hardness = 3.5, color = "#6a6a6a", block_entity = "furnace"})
+registry.register_block("slab", {shape = "slab", hardness = 1.5, color = "#7a7d83"}) -- (the base game has none)
 
 registry.register_recipe("log_to_planks", {
 	type = "shapeless",
@@ -88,9 +89,9 @@ end)
 
 -- A hostile creature (the base game has none): at night it runs at the
 -- nearest survival player and strikes; in daylight under open sky it's gone
--- in a puff of smoke. (Much as the base game's ninjas were.)
+-- in a puff of smoke.
 registry.register_creature("stalker", {
-	model = "ninja",
+	model = "figure",
 	box = {0.6, 1.8, 0.6},
 	gravity = 24.0,
 	step_height = 1.0,

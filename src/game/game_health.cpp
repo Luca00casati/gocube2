@@ -1,8 +1,7 @@
 // Game: health, damage, death and respawn, spawning on dry ground.
-// As the Godot version's Player._after_move, damage, respawn and
-// main.gd's _place_on_ground and _respawn.
 
 #include "game/game.h"
+#include "game/vitals.h"
 
 #include <algorithm>
 #include <cmath>
@@ -100,6 +99,16 @@ void Game::after_move(float dt) {
 		}
 	} else {
 		burn_timer_ = 0.5f;
+	}
+	// Below the world's bottom: hurt every half second, the first at once.
+	if (y < float(World::BOTTOM_Y)) {
+		void_timer_ += dt;
+		if (void_timer_ >= 0.5f) {
+			void_timer_ = 0;
+			damage(void_damage(mods_, y), "void");
+		}
+	} else {
+		void_timer_ = 0.5f;
 	}
 	// Breath: lost with the head in water, then drowning; back three times as fast.
 	const Data &head = block_def(player_.position[0], y + Player::EYE_HEIGHT, player_.position[2]);

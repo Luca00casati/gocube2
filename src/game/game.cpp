@@ -59,7 +59,6 @@ Game::Game(Content &content, const BlockTable &table, const BlockRules &rules, W
 		return list;
 	};
 	hooks.day = [this] { return day_; };
-	hooks.first_night = [this] { return first_night_; };
 	hooks.damage_player = [this](int peer, int amount, const std::string &source, const float push[3]) {
 		if (peer != 0) {
 			if (on_damage_peer && !creative_) {
@@ -664,15 +663,6 @@ void Game::tick(double dt) {
 	}
 }
 
-void Game::update_first_night() {
-	constexpr float NINJA_NIGHT = 0.15f; // daylight below which ninjas come out
-	if (first_night_ == "ahead" && day_ < NINJA_NIGHT) {
-		first_night_ = "now";
-	} else if (first_night_ == "now" && day_ > 0.3f) {
-		first_night_ = "over"; // morning: from now on nights have ninjas
-	}
-}
-
 int Game::aimed_creature() const {
 	float eye[3], dir[3], distance;
 	player_.eye(eye);
@@ -681,7 +671,7 @@ int Game::aimed_creature() const {
 	if (id == 0) {
 		return 0;
 	}
-	// A block nearer than the creature (by its centre, as the Godot version) is what's aimed at.
+	// A block nearer than the creature is what's aimed at.
 	const RayHit hit = player_.target(world_);
 	if (hit.hit) {
 		const float dx = hit.position.x + 0.5f - eye[0], dy = hit.position.y + 0.5f - eye[1],

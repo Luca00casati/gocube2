@@ -31,7 +31,7 @@ struct TestWorld {
 		content.freeze();
 		table = gc::build_block_table(content);
 		rules = std::make_unique<gc::BlockRules>(content);
-		gc::configure_generator(generator, content, 4242, gc::GENERATOR_VERSION);
+		gc::configure_generator(generator, content, 4242);
 		world = std::make_unique<gc::World>(table.blocks, table.atlas.layout, generator);
 		world->set_view_distance(32);
 		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
@@ -40,7 +40,19 @@ struct TestWorld {
 			REQUIRE(std::chrono::steady_clock::now() < deadline);
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}
+		// A stone floor high above the land (whatever is at the origin), open above.
+		for (int x = -8; x <= 8; x++) {
+			for (int z = -8; z <= 8; z++) {
+				for (int y = FLOOR_Y - 2; y <= FLOOR_Y; y++) { // (three thick: digging one leaves a floor)
+					REQUIRE(world->set_block({x, y, z}, id("core:stone")));
+				}
+				for (int y = FLOOR_Y + 1; y <= FLOOR_Y + 6; y++) {
+					REQUIRE(world->set_block({x, y, z}, 0));
+				}
+			}
+		}
 	}
+	static constexpr int FLOOR_Y = 110;
 	gocube::BlockId id(const char *name) const { return gocube::BlockId(content.block_index(name)); }
 	// The top solid block of a column (the ground, after edits).
 	int ground(int x, int z) const {
@@ -172,11 +184,4 @@ TEST_CASE("doors are placed whole, open and close, and break whole") {
 	REQUIRE(p.break_target(*w.world, *w.rules));
 	CHECK(w.world->block_at(0, h + 1, door_z) == 0);
 	CHECK(w.world->block_at(0, h + 2, door_z) == 0);
-}
-
-TEST_CASE("what is under spawn in seed 4242 (for looking at a screenshot)" * doctest::skip()) {
-	TestWorld w;
-	for (int y = 4; y >= -8; y--) {
-		printf("y %3d: %s\n", y, w.content.block_ids()[w.world->block_at(0, y, 0)].c_str());
-	}
 }

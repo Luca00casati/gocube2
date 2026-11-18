@@ -1,7 +1,6 @@
 #pragma once
-// A jointed figure made of boxes (ninjas; players' figures later), animated
-// from how it moves: the Godot version's Figure. Feet at the origin, facing
-// -z, 1.8 m tall.
+// A jointed figure made of boxes (players, creatures with the "figure" model),
+// animated from how it moves. Feet at the origin, facing -z, 1.8 m tall.
 //
 // Joints: hips -> torso (bends at the waist) -> head, shoulders -> upper arm
 // -> elbow -> forearm, and hips -> thigh -> knee -> shin. Each frame the owner
@@ -23,9 +22,8 @@ struct Figure {
 	float move_speed = 0;  // horizontal m/s
 	bool on_floor = true, sneaking = false, lying = false;
 	float pitch = 0;       // looking up (+) or down (-)
-	bool ninja = false;    // runs leaning forward with the arms swept back
 
-	// The pose (Euler angles, Godot's YXZ order) and the hips' height.
+	// The pose and the hips' height.
 	float rot[JOINTS][3] = {};
 	float hips_y = HIP_Y;
 	float lie = 0;         // 0 standing .. 1 lying down

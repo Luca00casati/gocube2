@@ -1,4 +1,4 @@
-// Survival: the inventory (and its Godot save format), the core mod's mining
+// Survival: the inventory, the core mod's mining
 // and drop rules, breaking with drops that get picked up, placing that uses
 // up blocks, and starting items.
 
@@ -63,8 +63,8 @@ TEST_CASE("inventory: its save format, both ways (false for an empty slot)") {
 	gc::Content content;
 	gc::Mods mods(content);
 	mods.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods", KIT_MODS}); // (armour: the kit's)
-	// As Inventory.serialize writes it (the Godot version's layout, with false
-	// for an empty slot: a Lua list can't hold nil).
+	// As Inventory.serialize writes it (false for an empty slot: a Lua list
+	// can't hold nil).
 	Data saved = Data::array();
 	saved.push_back(Data::array({"core:torch", 5}));
 	saved.push_back(false);
@@ -99,18 +99,9 @@ TEST_CASE("the core mod's rules: mining time and drops (by hand: there are no to
 	CHECK(p.game->drops_of("core:grass", "") == std::vector<std::string>{"core:dirt"});
 	CHECK(p.game->drops_of("core:log", "") == std::vector<std::string>{"core:log"});
 	CHECK(p.game->drops_of("core:wood_door_n_upper", "") == std::vector<std::string>{"core:wood_door"}); // a variant
-	int saplings = 0;
-	for (int i = 0; i < 400; i++) { // leaves: themselves, sometimes a sapling too (6%)
-		const std::vector<std::string> d = p.game->drops_of("core:leaves", "");
-		REQUIRE(!d.empty());
-		CHECK(d[0] == "core:leaves");
-		for (size_t k = 1; k < d.size(); k++) {
-			CHECK(d[k] == "core:oak_sapling");
-			saplings++;
-		}
+	for (int i = 0; i < 100; i++) { // leaves: themselves only (no saplings)
+		CHECK(p.game->drops_of("core:leaves", "") == std::vector<std::string>{"core:leaves"});
 	}
-	CHECK(saplings > 6);
-	CHECK(saplings < 50);
 }
 
 TEST_CASE("survival: a new player has the starting items; breaking drops items that get picked up") {
@@ -502,7 +493,7 @@ TEST_CASE("a new player is put on dry ground (a biome's surface) and that become
 
 #include "game/day_cycle.h"
 
-TEST_CASE("the day: sun, daylight and the clock, as the Godot version's DayCycle") {
+TEST_CASE("the day: sun, daylight and the clock") {
 	gc::DayCycle d;
 	d.time = 0.5; // noon
 	CHECK(d.sun_height() == doctest::Approx(1.0f));
@@ -626,7 +617,7 @@ TEST_CASE("plants (a mod's crop): crops grow, and what's growing is saved") {
 	CHECK(q.block(1, 41, 1) == "kit:crop");
 }
 
-TEST_CASE("a sapling grows into a tree: the generator's shape, where there's room") {
+TEST_CASE("a tree grows: the generator's shape, where there's room") {
 	Play p;
 	pool(p, "core:air");
 	for (int y = 43; y <= 46; y++) { // (open the pool upwards: trees are tall)
@@ -637,14 +628,13 @@ TEST_CASE("a sapling grows into a tree: the generator's shape, where there's roo
 		}
 	}
 	REQUIRE(p.world->set_block({1, 40, 1}, p.id("core:grass")));
-	REQUIRE(p.world->set_block({1, 41, 1}, p.id("core:oak_sapling")));
 	CHECK(p.game->grow_tree({1, 41, 1}, "core:oak"));
 	CHECK(p.block(1, 41, 1) == "core:log");
 	CHECK(p.block(1, 42, 1) == "core:log");
 	CHECK_FALSE(p.game->grow_tree({1, 41, 1}, "core:nonexistent"));
 }
 
-TEST_CASE("milestone 5 (with a mod's recipes): from a new survival world to a crafted tool and a container") {
+TEST_CASE("with a mod's recipes: from a new survival world to a crafted tool and a container") {
 	Play p(with_kit()); // a new survival player: just the starting torch
 	CHECK(p.game->inventory().count_of("core:torch") == 1);
 	// A tree trunk (4 logs) two blocks ahead, on a stone floor.
@@ -753,7 +743,8 @@ TEST_CASE("the base game has no farming, food or small plants; one grass, one wo
 		CHECK_FALSE(p.content.items.count(gone));
 	}
 	for (const char *gone : {"core:farmland", "core:wheat_0", "core:tall_grass", "core:bluebell", "core:sunpetal",
-				"core:dead_bush", "core:snow_grass", "core:birch_log", "core:spruce_leaves"}) {
+				"core:dead_bush", "core:snow_grass", "core:birch_log", "core:spruce_leaves", "core:oak_sapling",
+				"core:stone_slab", "core:cobblestone_slab", "core:planks_slab"}) {
 		CHECK_FALSE(p.content.blocks.count(gone));
 	}
 	for (const auto &[id, def] : p.content.items) {
@@ -763,6 +754,12 @@ TEST_CASE("the base game has no farming, food or small plants; one grass, one wo
 	}
 	CHECK(p.content.trees.count("core:oak"));
 	CHECK_FALSE(p.content.trees.count("core:birch"));
+	// No saplings: trees sprout on grass by themselves.
+	for (const auto &[id, def] : p.content.blocks) {
+		CAPTURE(id);
+		CHECK_FALSE(def.contains("grows_tree"));
+	}
+	CHECK(p.content.blocks.at("core:grass").contains("sprouts_trees"));
 }
 
 TEST_CASE("farming (a mod's rule): seeds are planted on dirt, and grow") {
@@ -863,7 +860,7 @@ TEST_CASE("sounds: breaking and placing sound like the block, steps like the gro
 	p.game->damage(2);
 	CHECK(count_sounds(p.game->take_sounds(), "core:effects", "hurt") == 1);
 
-	// Walking 10 blocks on grass: a footstep every 1.7 m (the Godot version's stride).
+	// Walking 10 blocks on grass: a footstep every 1.7 m.
 	pool(p, "core:air");
 	for (int x = -1; x <= 3; x++) {
 		for (int z = -12; z <= 3; z++) {
@@ -938,7 +935,7 @@ TEST_CASE("creatures: they fall to the ground, walk where they head, notice wall
 	CHECK(cs.pick(eye, dir, 4.0f, d) == 0);
 }
 
-TEST_CASE("Block Eaters (the core mod's Lua): they come by day on grass, flee when hit, drop what they're made of") {
+TEST_CASE("Block Eaters (the core mod's Lua): rare, they come by day on grass, flee when hit") {
 	Play p;
 	// Grass all around the player, open to the sky.
 	for (int x = -50; x <= 50; x++) {
@@ -970,18 +967,19 @@ TEST_CASE("Block Eaters (the core mod's Lua): they come by day on grass, flee wh
 		CHECK(c.kind != "core:block_eater");
 	}
 	p.game->set_day(1.0f);
-	run(60);
+	run(100); // (one comes every 45 s, two at most)
 	const auto &all = p.game->creatures().all();
 	REQUIRE(!all.empty());
-	CHECK(all.size() <= 12);
+	CHECK(all.size() <= 2);
 	for (const gc::Creature &c : all) {
 		CHECK(c.kind == "core:block_eater");
+		CHECK(c.variant.empty()); // (none made of a block: only a mod spawns those)
 		CHECK(c.pos[1] == doctest::Approx(71.0f).epsilon(0.01)); // on the grass
 		const float d = std::hypot(c.pos[0] - 0.5f, c.pos[2] - 0.5f);
 		CHECK(d < 80.0f); // (spawned up to 48 away, they wander; gone past DESPAWN_DISTANCE)
 	}
-	// One made of stone, hit four times (2 each: bare hands, 8 health): it
-	// runs off, then is gone and drops a stone.
+	// One made of stone (as a mod would spawn it), hit four times (2 each:
+	// bare hands, 8 health): it runs off, then is gone and drops a stone.
 	const float spot[3] = {5.5f, 71.0f, 0.5f};
 	const int id = p.game->creatures().spawn(p.content, "core:block_eater", spot, "core:stone");
 	run(0.1f);
@@ -1031,6 +1029,70 @@ void live_for(Play &p, float seconds) {
 
 } // namespace
 
+TEST_CASE("Block Eaters eat the block in front of them (it's gone); trees sprout on grass by themselves") {
+	Play p;
+	open_field(p);
+	p.game->set_day(1.0f);
+	const float at[3] = {6.5f, 71.0f, 6.5f};
+	const int id = p.game->creatures().spawn(p.content, "core:block_eater", at);
+	REQUIRE(id > 0);
+	auto holes = [&] {
+		int n = 0;
+		for (int x = -50; x <= 50; x++) {
+			for (int z = -50; z <= 50; z++) {
+				n += p.world->is_loaded(x, 70, z) && p.block(x, 70, z) == "core:air";
+			}
+		}
+		return n;
+	};
+	auto logs = [&] {
+		int n = 0;
+		for (int x = -50; x <= 50; x++) {
+			for (int z = -50; z <= 50; z++) {
+				n += p.world->is_loaded(x, 71, z) && p.block(x, 71, z) == "core:log";
+			}
+		}
+		return n;
+	};
+	CHECK(holes() == 0);
+	CHECK(logs() == 0);
+	live_for(p, 240); // (it grazes every few seconds and eats 3 times in 10; a tree tries every 20 s)
+	CHECK(holes() > 0);
+	const gc::Creature *c = p.game->creatures().find(id);
+	if (c) {
+		CHECK(c->variant.empty()); // (it doesn't take the form of what it ate)
+	}
+	CHECK(logs() > 0);
+	// Not close to the player (at the origin): 24 blocks or more away.
+	for (int x = -24; x <= 24; x++) {
+		for (int z = -24; z <= 24; z++) {
+			if (std::hypot(x + 0.5f, z + 0.5f) < 22.0f) {
+				CHECK(p.block(x, 71, z) != "core:log");
+			}
+		}
+	}
+}
+
+TEST_CASE("falling out of the world (below its bottom) hurts every half second; not in creative") {
+	Play p;
+	p.player.position[0] = 0.5f;
+	p.player.position[1] = float(gc::World::BOTTOM_Y) - 2.0f;
+	p.player.position[2] = 0.5f;
+	live(p, 0.05f);
+	CHECK(p.game->health() == gc::Game::MAX_HEALTH - 4); // at once
+	live(p, 0.5f);
+	CHECK(p.game->health() == gc::Game::MAX_HEALTH - 8);
+	live(p, 2.0f);
+	CHECK(p.game->health() == 0); // (gone)
+
+	Play creative(true);
+	creative.player.position[0] = 0.5f;
+	creative.player.position[1] = float(gc::World::BOTTOM_Y) - 2.0f;
+	creative.player.position[2] = 0.5f;
+	live(creative, 1.0f);
+	CHECK(creative.game->health() == gc::Game::MAX_HEALTH);
+}
+
 TEST_CASE("a hostile creature (a mod's: the base game has none) runs at the player and strikes; the sun makes it vanish in smoke") {
 	Play p(with_kit());
 	open_field(p);
@@ -1057,12 +1119,10 @@ TEST_CASE("a hostile creature (a mod's: the base game has none) runs at the play
 TEST_CASE("no enemies: nights stay empty and nothing hurts the player") {
 	Play p;
 	open_field(p);
-	p.game->set_first_night("over"); // (long past a new world's first night)
 	p.game->set_day(0.0f);
 	live_for(p, 30.0f);
 	CHECK(p.game->creatures().all().empty());
 	CHECK(p.game->health() == gc::Game::MAX_HEALTH);
-	CHECK_FALSE(p.content.creatures.count("core:ninja"));
 	// By day the Block Eaters (harmless) still come.
 	p.game->set_day(1.0f);
 	live_for(p, 30.0f);

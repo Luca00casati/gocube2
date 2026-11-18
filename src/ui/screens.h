@@ -1,8 +1,7 @@
 #pragma once
 // Game screens (ui/gui.h): the inventory (E) with hand crafting, or in
-// creative a palette of every block and item. As the Godot version's
-// InventoryScreen: click a slot to pick its stack up, click another to put it
-// down (same items stack, others swap).
+// creative a palette of every block and item: click a slot to pick its
+// stack up, click another to put it down (same items stack, others swap).
 
 #include "content/content.h"
 #include "game/game.h"

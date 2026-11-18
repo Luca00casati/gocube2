@@ -1,9 +1,12 @@
-// Milestone 6's rendering data, worked out on the CPU: item models (the
-// Godot version's ItemDrop.model_mesh), the light a held torch spreads, the
-// first-person arm's swing, and block shadows.
+// Rendering data worked out on the CPU: item models, the light a held torch
+// spreads, the first-person arm, block shadows, skins, the profiler.
 
 #include "content/content.h"
 #include "content/item_models.h"
+#include "content/skin.h"
+#include "game/creature_models.h"
+#include "game/figure.h"
+#include "profiler.h"
 #include "game/hand.h"
 #include "helpers.h"
 #include "world/world.h"
@@ -25,7 +28,7 @@ struct Models {
 	gc::BlockTable table;
 	std::unique_ptr<gc::ItemModels> models;
 	Models() {
-		load_base_game(content);
+		load_base_game(content, true); // (with the kit's slab)
 		content.freeze();
 		table = gc::build_block_table(content);
 		models = std::make_unique<gc::ItemModels>(content, table);
@@ -51,7 +54,7 @@ struct LoadedWorld {
 		load_base_game(content);
 		content.freeze();
 		table = gc::build_block_table(content);
-		gc::configure_generator(generator, content, 4242, gc::GENERATOR_VERSION);
+		gc::configure_generator(generator, content, 4242);
 		world = std::make_unique<gc::World>(table.blocks, table.atlas.layout, generator);
 		world->set_view_distance(32);
 		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
@@ -76,7 +79,7 @@ TEST_CASE("item models: a small cube for blocks (a slab half of it, a bed whole)
 	CHECK(lo == doctest::Approx(-0.125f));
 	CHECK(hi == doctest::Approx(0.125f));
 	// A slab: its bottom half, standing on the cell's bottom.
-	extent(m.models->model("core:stone_slab"), 1, lo, hi);
+	extent(m.models->model("kit:slab"), 1, lo, hi);
 	CHECK(lo == doctest::Approx(-0.125f));
 	CHECK(hi == doctest::Approx(0.0f));
 	// A bed: both halves, 9/16 high, without the faces where they meet.
@@ -170,6 +173,34 @@ TEST_CASE("the arm swings once for each swing asked for, the next one after the 
 	CHECK(hit.tilt[0] == doctest::Approx(-0.8f));
 }
 
+TEST_CASE("the first-person arm is the skin's right arm, held forward, its hand where the item is") {
+	gc::Hand hand;
+	hand.update(0.0f, false, false);
+	gc::Content content;
+	load_base_game(content);
+	content.freeze();
+	const gc::BlockTable table = gc::build_block_table(content);
+	gc::ItemModels models(content, table);
+	const float light[3] = {1, 1, 1};
+	std::vector<gc::WorldVertex> arm, held;
+	std::vector<gc::CreatureVertex> skinned;
+	hand.build(models, "", light, arm, held, &skinned, 8);
+	CHECK(arm.empty()); // (no plain sleeve)
+	REQUIRE(!skinned.empty());
+	float nearest = 1e9f;
+	for (const gc::CreatureVertex &v : skinned) {
+		CHECK(v.skin[2] == 8.0f);
+		const float u = v.skin[0] * 64, w = v.skin[1] * 64;
+		CHECK(((u >= 40 && u <= 56 && w >= 16 && w <= 32) || (u >= 40 && u <= 56 && w >= 32 && w <= 48))); // arm or sleeve
+		CHECK(v.pos[0] > 0); // on the right
+		nearest = std::min(nearest, v.pos[2]);
+	}
+	CHECK(nearest < -0.7f); // reaching forward to the hand
+	// Without a skin: the plain sleeve and hand.
+	hand.build(models, "", light, arm, held);
+	CHECK(!arm.empty());
+}
+
 TEST_CASE("block shadows: faces the sun can't reach are marked, and moving the sun remeshes") {
 	LoadedWorld w;
 	w.world->take_meshes(); // (the meshes from before: not looked at)
@@ -218,4 +249,99 @@ TEST_CASE("block shadows: faces the sun can't reach are marked, and moving the s
 	};
 	CHECK(top_alpha(-2) == doctest::Approx(0.75f)); // in the pillar's shadow
 	CHECK(top_alpha(2) == doctest::Approx(1.0f));   // in the sun
+}
+
+TEST_CASE("player skins: the usual layout, 64x64 or the older 64x32; the figure wears it") {
+	// The base game's skin.
+	gc::Image image, skin;
+	REQUIRE(gc::read_ppm(std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods" / "core" / "textures" / "player.ppm", image));
+	REQUIRE(gc::to_skin(image, skin));
+	CHECK(skin.rgba.size() == gc::SKIN_BYTES);
+	auto alpha = [&](const gc::Image &im, int x, int y) { return im.rgba[(size_t(y) * size_t(im.width) + size_t(x)) * 4 + 3]; };
+	CHECK(alpha(skin, 12, 12) == 255); // the face
+	CHECK(alpha(skin, 40, 4) == 0);    // no hat (magenta)
+
+	// The older layout: 64x32, its left leg and arm copied from the right ones, mirrored.
+	gc::Image old;
+	old.width = 64;
+	old.height = 32;
+	old.rgba.assign(64 * 32 * 4, 255);
+	for (int y = 20; y < 32; y++) { // the right leg's front: a mark in its outer column (x 4 of 4..7)
+		old.rgba[(size_t(y) * 64 + 4) * 4 + 0] = 10;
+	}
+	REQUIRE(gc::to_skin(old, skin));
+	CHECK(skin.height == 64);
+	auto red = [&](int x, int y) { return skin.rgba[(size_t(y) * 64 + size_t(x)) * 4]; };
+	CHECK(red(20 + 3, 52 + 5) == 10); // the left leg's front (20..23, 52..63): the mark on the other side
+	CHECK(red(20 + 0, 52 + 5) == 255);
+	gc::Image odd;
+	odd.width = odd.height = 32;
+	odd.rgba.assign(32 * 32 * 4, 0);
+	CHECK_FALSE(gc::to_skin(odd, skin));
+
+	// Where faces are: the head's front is 8..16 x 8..16; an upper arm is the arm's first 6 rows.
+	float r[4];
+	gc::skin_face(gc::skin_parts::HEAD, 5, r);
+	CHECK((r[0] == 8 && r[1] == 8 && r[2] == 8 && r[3] == 8));
+	gc::skin_face(gc::skin_parts::RIGHT_ARM, 5, r, 0, 6);
+	CHECK((r[0] == 44 && r[1] == 20 && r[2] == 4 && r[3] == 6));
+	gc::skin_face(gc::skin_parts::RIGHT_ARM, 3, r);
+	CHECK((r[0] == 48 && r[1] == 16 && r[2] == 4 && r[3] == 4)); // the bottom
+
+	// The figure in skin slot 3: every face from that skin, inside it; 1.8 m tall.
+	gc::Figure f;
+	const float eye[3] = {0, 1.62f, 0}, light[3] = {1, 1, 1};
+	float hand[16];
+	std::vector<gc::CreatureVertex> mesh;
+	gc::build_player(f, 2, eye, 0, light, mesh, hand, 3);
+	REQUIRE(!mesh.empty());
+	float low = 1e9f, high = -1e9f;
+	bool face_seen = false;
+	for (const gc::CreatureVertex &v : mesh) {
+		CHECK(v.skin[2] == 3.0f);
+		CHECK((v.skin[0] >= 0 && v.skin[0] <= 1 && v.skin[1] >= 0 && v.skin[1] <= 1));
+		low = std::min(low, v.pos[1]);
+		high = std::max(high, v.pos[1]);
+		// The front of the head (facing -z, at the top): from the face's pixels.
+		if (v.normal[2] < -0.5f && v.pos[1] > 1.4f && v.pos[2] < -0.2f && v.pos[2] > -0.24f) {
+			face_seen = true;
+			CHECK((v.skin[0] * 64 >= 8 && v.skin[0] * 64 <= 16 && v.skin[1] * 64 >= 8 && v.skin[1] * 64 <= 16));
+		}
+	}
+	CHECK(face_seen);
+	CHECK((low > -0.03f && low < 0.01f)); // the feet (the trousers' outer layer a little lower)
+	CHECK(high == doctest::Approx(1.8f + 0.03f).epsilon(0.02)); // (the hat, a pixel bigger)
+	// Without a skin: the coloured figure, no skin.
+	mesh.clear();
+	gc::build_player(f, 2, eye, 0, light, mesh, hand);
+	REQUIRE(!mesh.empty());
+	CHECK(mesh[0].skin[2] == -1.0f);
+}
+
+TEST_CASE("the profiler: a frame's times added up, smoothed, the worst of the last frames; nested timers under") {
+	gc::Profiler p;
+	for (int i = 0; i < 10; i++) {
+		p.begin_frame();
+		p.add("draw", 4.0);
+		p.add("draw", 1.0, 0); // (twice in a frame: added up)
+		p.add("draw: terrain", i == 5 ? 30.0 : 3.0, 1);
+	}
+	p.begin_frame();
+	REQUIRE(p.entries().size() == 2);
+	const gc::Profiler::Entry &draw = p.entries()[0], &terrain = p.entries()[1];
+	CHECK(draw.name == "draw");
+	CHECK(draw.average == doctest::Approx(5.0));
+	CHECK(draw.worst == doctest::Approx(5.0));
+	CHECK(terrain.depth == 1);
+	CHECK(terrain.worst == doctest::Approx(30.0)); // (one slow frame shows)
+	CHECK(terrain.average > 3.0);
+	CHECK(terrain.average < 5.0);
+	// A timer in a timer is one deeper.
+	{
+		gc::Profiler::Scope outer(p, "outer");
+		gc::Profiler::Scope inner(p, "inner");
+	}
+	CHECK(p.entries()[2].name == "inner"); // (added when it ends: first)
+	CHECK(p.entries()[2].depth == 1);
+	CHECK(p.entries()[3].depth == 0);
 }

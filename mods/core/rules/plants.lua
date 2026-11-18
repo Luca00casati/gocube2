@@ -1,4 +1,4 @@
--- Growing saplings and blocks that need support. (The Godot version's PlantSim.)
+-- Growing trees and blocks that need support.
 --
 -- Falling: blocks with "falls" (sand, gravel) drop while there's air or a
 -- fluid under them.
@@ -11,9 +11,19 @@
 -- Growth: a block with "grows_into" turns into that block after about
 -- "grow_seconds"; a sapling ("grows_tree": a tree id, or {[tree id] = weight})
 -- grows into that tree, trying again later when there's no room. What's
--- growing is saved with the world (world.json's "plants").
+-- growing is saved with the world (world.json's "plants"). (The base game has
+-- no saplings: a mod's would grow this way.)
+-- Trees sprout by themselves: every SPROUT_EVERY seconds, near one player, a
+-- random spot SPROUT_MIN-SPROUT_MAX blocks away (out of the way of what they
+-- see up close) whose top block has "sprouts_trees" ({[tree id] = weight}:
+-- grass) and no log within SPROUT_SPACE grows one of those trees, if there's
+-- room.
 
 local TICK = 1.0
+local SPROUT_EVERY = 20.0
+local SPROUT_MIN, SPROUT_MAX = 24.0, 48.0
+local SPROUT_SPACE = 4
+local TOP_Y = 200
 local LEAF_REACH = 4
 local SAPLING_CHANCE = 0.05
 -- At most this many cells (and leaves) are looked at a game tick, the rest
@@ -28,6 +38,7 @@ local check = {}     -- cells whose support (or falling) to check
 local leaf_check = {} -- leaves to test for a nearby log
 local decaying = {}  -- leaves -> seconds until they fall
 local timer = 0
+local sprout_timer = 0
 
 -- A cell as one integer (21 bits a coordinate, up to a million blocks out):
 -- no string or table to collect for each cell looked at.
@@ -138,7 +149,42 @@ local function pick_tree(grows)
 	return ids[#ids]
 end
 
+-- A log within SPROUT_SPACE (sideways) of the cell, at its height or one up.
+local function log_near(x, y, z)
+	for dx = -SPROUT_SPACE, SPROUT_SPACE do
+		for dz = -SPROUT_SPACE, SPROUT_SPACE do
+			for dy = 0, 1 do
+				if is_log(world.get_block(x + dx, y + dy, z + dz)) then return true end
+			end
+		end
+	end
+	return false
+end
+
+-- One try at a tree coming up near a player.
+local function sprout()
+	local players = game.players()
+	if #players == 0 then return end
+	local p = players[math.floor(game.random() * #players) + 1]
+	local angle = game.random() * 2 * math.pi
+	local dist = SPROUT_MIN + (SPROUT_MAX - SPROUT_MIN) * game.random()
+	local x = math.floor(p.x + math.cos(angle) * dist)
+	local z = math.floor(p.z + math.sin(angle) * dist)
+	local hit = world.raycast(x + 0.5, TOP_Y, z + 0.5, 0, -1, 0, 400)
+	if not hit then return end
+	local trees = def(hit.id).sprouts_trees
+	if type(trees) ~= "table" or world.get_block(x, hit.y + 1, z) ~= "core:air" or log_near(x, hit.y + 1, z) then
+		return
+	end
+	world.grow_tree(x, hit.y + 1, z, pick_tree(trees))
+end
+
 events.on("tick", function(dt)
+	sprout_timer = sprout_timer + dt
+	if sprout_timer >= SPROUT_EVERY then
+		sprout_timer = 0
+		sprout()
+	end
 	-- Falling and support.
 	for _, k in ipairs(take(check, MAX_CHECKS)) do
 		local x, y, z = unkey(k)
@@ -204,7 +250,7 @@ events.on("tick", function(dt)
 	timer = 0
 end)
 
--- world.json's "plants": [[x, y, z, seconds left], ...], as the Godot version.
+-- world.lua's "plants": {{x, y, z, seconds left}, ...}.
 game.set_rule("save_plants", function()
 	local out = {}
 	for k, left in pairs(growing) do

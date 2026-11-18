@@ -1,7 +1,7 @@
 #pragma once
 // Items lying in the world: they pop out of broken blocks, fall, merge with
 // the same item nearby, drift to the player and go into their inventory,
-// and disappear after LIFETIME. As the Godot version's ItemDrop(s).
+// and disappear after LIFETIME.
 
 #include "content/content.h"
 #include "content/item_models.h"

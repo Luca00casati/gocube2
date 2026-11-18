@@ -30,7 +30,7 @@ struct Recipe {
 	int count = 1;
 };
 
-// A sound to play (the Godot version's Sounds.play): sound set ("core:grass"),
+// A sound to play: sound set ("core:grass"),
 // kind ("step", "break", "place", "hurt"...), where, and how loud.
 struct SoundEvent {
 	std::string set, kind;
@@ -127,13 +127,7 @@ public:
 	static constexpr float ATTACK_REACH = 4.0f, ATTACK_COOLDOWN = 0.4f;
 	// The daylight (0 night .. 1 day): the mods ask (game.day).
 	void set_day(float day) { day_ = day; }
-	// A new world's first night is safe: no ninjas until a morning has followed
-	// a night, or the player slept through it. "ahead" -> "now" -> "over"
-	// (world.lua's "first_night"; worlds without one count as over).
-	const std::string &first_night() const { return first_night_; }
-	void set_first_night(const std::string &stage) { first_night_ = stage; }
-	void update_first_night(); // (from the daylight; each frame)
-	// A sound set's sound (as the Godot version: e.g. "core:effects", "splash").
+	// A sound set's sound.
 	void play_sound(const std::string &set, const std::string &kind, const float at[3], float volume_db = 0);
 	// A block's sound of `kind` ("step", "break", "place"), from its "sound".
 	void play_block_sound(const std::string &block, const std::string &kind, const float at[3], float volume_db = 0);
@@ -265,7 +259,7 @@ private:
 	bool dead_ = false;
 	float fall_peak_ = 0;
 	bool was_on_floor_ = true;
-	float since_damage_ = 0, regen_timer_ = 0, drown_timer_ = 0, burn_timer_ = 0.5f;
+	float since_damage_ = 0, regen_timer_ = 0, drown_timer_ = 0, burn_timer_ = 0.5f, void_timer_ = 0.5f;
 	float since_hurt_ = 99;
 	std::optional<BlockPos> bed_;
 	bool spawn_pending_ = false;
@@ -279,7 +273,6 @@ private:
 	std::vector<Effect> effects_;
 	Creatures creatures_;
 	float day_ = 1;
-	std::string first_night_ = "over";
 	float attack_cooldown_ = 0;
 	float step_distance_ = 0;       // walked since the last footstep
 	float last_feet_[3] = {0, 0, 0};

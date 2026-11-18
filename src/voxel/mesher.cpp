@@ -21,7 +21,7 @@ struct FaceDef {
 
 // Builds the 6 face definitions once. Corners go around the face in (u, v)
 // tangent order; the winding is then chosen so triangles are clockwise when
-// seen from outside, which is what Godot treats as front-facing.
+// seen from outside (front-facing).
 struct FaceTable {
 	FaceDef f[FACE_COUNT];
 
@@ -86,7 +86,7 @@ const FaceTable &faces() {
 }
 
 // Block at chunk-local coordinates that may be one step outside the chunk.
-inline BlockId sample(const ChunkData &c, const ChunkData *const nb[FACE_COUNT], const std::vector<BlockInfo> &blocks,
+inline BlockId sample(const ChunkData &c, const ChunkData *const nb[FACE_COUNT], const std::vector<BlockInfo> & /*blocks*/,
 		int x, int y, int z, BlockId solid_fallback) {
 	if (x >= 0 && y >= 0 && z >= 0 && x < CHUNK && y < CHUNK && z < CHUNK) {
 		return c.get(x, y, z);
@@ -359,8 +359,9 @@ void emit_shape(Surface &s, const FaceTable &table, const BlockInfo &info, Block
 				pos[c][0] = x + p[0];
 				pos[c][1] = y + p[1];
 				pos[c][2] = z + p[2];
-				st[c][0] = p[d.ua];
-				st[c][1] = axis == 1 ? p[d.va] : 1.0f - (p[d.va] - bx.ty);
+				const float shift[3] = { bx.tx, 0.0f, bx.tz };
+				st[c][0] = p[d.ua] - shift[d.ua];
+				st[c][1] = axis == 1 ? p[d.va] - shift[d.va] : 1.0f - (p[d.va] - bx.ty);
 			}
 			const float normal[3] = { float(d.dx), float(d.dy), float(d.dz) };
 			emit_quad(s, pos, st, normal, atlas, info.tiles[f], sky, blk, d.order);
@@ -515,7 +516,7 @@ void mesh_chunk(const ChunkData &chunk, const ChunkData *const neighbours[FACE_C
 							fluid_tops(chunk, neighbours, hood, blocks, x, y, z, solid_fallback, tops);
 							tops_done = true;
 						}
-						emit_face(fluid, d, x, y, z, atlas, info.tiles[f], cl, 1.0f, 0, tops);
+						emit_face(fluid, d, float(x), float(y), float(z), atlas, info.tiles[f], cl, 1.0f, 0, tops);
 						if (shadows && d.dx * options.sun_x + d.dy * options.sun_y > 0.0f
 								&& !sun_reaches(*light, options, max_top, fx, fy, fz)) {
 							set_alpha(fluid, fluid.colors.size() / 4 - 4, 0.75f);
@@ -530,8 +531,8 @@ void mesh_chunk(const ChunkData &chunk, const ChunkData *const neighbours[FACE_C
 						const int rot = info.random_rotation && d.dy != 0
 								? block_rotation(options.origin_x + x, options.origin_y + y, options.origin_z + z)
 								: 0;
-						emit_face(opaque, d, x, y, z, atlas, info.tiles[f], cl, 1.0f, rot);
-						// Faces turned away from the sun get none anyway (chunk.gdshaderinc).
+						emit_face(opaque, d, float(x), float(y), float(z), atlas, info.tiles[f], cl, 1.0f, rot);
+						// Faces turned away from the sun get none anyway (chunk.hlsl).
 						const bool shadowed = shadows && d.dx * options.sun_x + d.dy * options.sun_y > 0.0f
 								&& !sun_reaches(*light, options, max_top, fx, fy, fz);
 						if (info.tint || shadowed) {

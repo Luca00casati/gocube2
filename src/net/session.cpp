@@ -3,6 +3,7 @@
 #include "log.h"
 #include "mods/mod_pack.h"
 #include "net/wire.h"
+#include "content/skin.h"
 
 #include <algorithm>
 #include <chrono>
@@ -33,6 +34,7 @@ enum Msg : uint8_t {
 	C_SLEEP,     // bool
 	C_RESPAWNED,
 	C_MOD_PART,  // entry, part u32 (a player we offered our mods)
+	C_SKIN,      // bytes (SKIN_BYTES of RGBA)
 
 	H_WELCOME = 64, // info (data), chunks (u32 count, position + bytes)
 	H_REJECTED,     // reason
@@ -51,9 +53,9 @@ enum Msg : uint8_t {
 	H_SOUND,        // set, kind, at, dB f32
 	H_EFFECT,       // name, at
 	H_WAKE,
-	H_FIRST_NIGHT,  // "ahead", "now", "over"
 	H_OFFER_MODS,   // u16 count, {entry, size u32} (our mods; size 0: the base game)
 	H_MOD_PART,     // entry, part u32, parts u32, bytes
+	H_SKIN,         // id u32, bytes (SKIN_BYTES of RGBA)
 };
 
 // "id@version#fingerprint" -> its parts ("" if it isn't one).
@@ -178,6 +180,7 @@ const std::map<std::string, Session::Rate> &Session::rates() {
 			{"inventory", {30, 60}}, // clicks in screens, eating
 			{"mine", {20, 40}},
 			{"mod", {80, 160}}, // parts of our mods (offered, not joined)
+			{"skin", {0.2f, 2}}, // a player's skin (sent once, maybe again)
 	};
 	return table;
 }
@@ -265,6 +268,9 @@ std::string Session::host(int port, const std::string &name, std::vector<std::st
 	name_ = clean_name(name).empty() ? "Host" : clean_name(name);
 	mods_ = std::move(mods);
 	my_id_ = HOST_ID;
+	if (!my_skin_.empty()) {
+		skins_[HOST_ID] = my_skin_;
+	}
 	log("Hosting on port %d", port);
 	return "";
 }
@@ -299,6 +305,9 @@ void Session::leave() {
 	server_ = nullptr;
 	peers_.clear();
 	avatars_.clear();
+	skins_.clear();
+	skin_sent_ = false;
+	skins_changed_++;
 	mode_ = Mode::OFFLINE;
 	connected_ = welcomed_ = false;
 }
@@ -328,7 +337,6 @@ void Session::attach(const Attach &a) {
 	if (!is_host()) {
 		return;
 	}
-	last_first_night_ = game.first_night();
 	// Every block change goes to every joined player.
 	previous_block_hook_ = a_.world->on_block_changed;
 	a_.world->on_block_changed = [this](const BlockPos &p, gocube::BlockId id) {
@@ -492,6 +500,9 @@ void Session::poll() {
 					if (from->joined) {
 						log("%s left", from->name.c_str());
 						saved_players(); // (keeps its inventory and health)
+						if (skins_.erase(from->id)) {
+							skins_changed_++;
+						}
 					}
 					std::erase_if(peers_, [&](const auto &p) { return p.get() == from; });
 				}
@@ -604,7 +615,6 @@ void Session::hello(Peer &p, const uint8_t *data, size_t size) {
 	if (const auto &ws = a_.game->world_spawn()) {
 		info["world_spawn"] = {(*ws)[0], (*ws)[1], (*ws)[2]};
 	}
-	info["first_night"] = a_.game->first_night();
 	Writer w(H_WELCOME);
 	w.data(info);
 	const auto chunks = a_.world->edited_chunks();
@@ -613,6 +623,11 @@ void Session::hello(Peer &p, const uint8_t *data, size_t size) {
 		w.i32(pos.x).i32(pos.y).i32(pos.z).blob(bytes);
 	}
 	send(p.conn, w.bytes);
+	for (const auto &[id, skin] : skins_) { // (everyone's skin, ours too)
+		Writer s(H_SKIN);
+		s.u32(uint32_t(id)).blob(skin);
+		send(p.conn, s.bytes);
+	}
 	log("%s joined (player %d)", name.c_str(), p.id);
 }
 
@@ -996,6 +1011,22 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 				p.vitals.respawn();
 			}
 			break;
+		case C_SKIN: {
+			std::vector<uint8_t> skin = r.blob(SKIN_BYTES);
+			if (!r.ok() || skin.size() != SKIN_BYTES || !allow(p, "skin")) {
+				break;
+			}
+			Writer w(H_SKIN);
+			w.u32(uint32_t(p.id)).blob(skin);
+			for (auto &other : peers_) { // (to the others; it has its own)
+				if (other->joined && other.get() != &p) {
+					send(other->conn, w.bytes);
+				}
+			}
+			skins_[p.id] = std::move(skin);
+			skins_changed_++;
+			break;
+		}
 		default:
 			break;
 	}
@@ -1096,6 +1127,15 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 		local_mods_[entry] = dir;
 		log("Downloaded the server's mod %s", entry.c_str());
 		mods_ready_ = std::all_of(downloads_.begin(), downloads_.end(), [](const auto &kv) { return kv.second.done; });
+		return;
+	}
+	if (type == H_SKIN) { // (may come before we play)
+		const int id = int(r.u32());
+		std::vector<uint8_t> skin = r.blob(SKIN_BYTES);
+		if (r.ok() && skin.size() == SKIN_BYTES && id != my_id_) {
+			skins_[id] = std::move(skin);
+			skins_changed_++;
+		}
 		return;
 	}
 	if (type == H_WELCOME) {
@@ -1310,13 +1350,6 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 		case H_WAKE:
 			woken_ = true;
 			break;
-		case H_FIRST_NIGHT: {
-			const std::string stage = r.str(16);
-			if (r.ok() && (stage == "ahead" || stage == "now" || stage == "over")) {
-				game.set_first_night(stage);
-			}
-			break;
-		}
 		default:
 			break;
 	}
@@ -1389,7 +1422,7 @@ void Session::host_update(float dt) {
 		if (p->inv) {
 			float feet[3];
 			p->feet(feet);
-			p->vitals.tick(*a_.world, *a_.rules, feet, (p->flags & FLAG_SLEEP) != 0, dt);
+			p->vitals.tick(*a_.world, *a_.rules, *a_.mods, feet, (p->flags & FLAG_SLEEP) != 0, dt);
 			if (p->vitals.changed) {
 				p->vitals.changed = false;
 				Writer w(H_HEALTH);
@@ -1407,12 +1440,6 @@ void Session::host_update(float dt) {
 		}
 	}
 
-	if (game.first_night() != last_first_night_) {
-		last_first_night_ = game.first_night();
-		Writer w(H_FIRST_NIGHT);
-		w.str(last_first_night_);
-		to_players(w.bytes);
-	}
 	time_timer_ += dt;
 	if (time_timer_ >= TIME_SYNC_SECONDS && a_.day) {
 		time_timer_ = 0;
@@ -1480,7 +1507,32 @@ void Session::host_update(float dt) {
 	}
 }
 
+void Session::set_skin(std::vector<uint8_t> rgba) {
+	if (rgba.size() != SKIN_BYTES) {
+		rgba.clear();
+	}
+	my_skin_ = std::move(rgba);
+	skin_sent_ = false;
+	if (is_host() && !my_skin_.empty()) {
+		skins_[HOST_ID] = my_skin_;
+		Writer w(H_SKIN);
+		w.u32(uint32_t(HOST_ID)).blob(my_skin_);
+		to_players(w.bytes);
+	}
+}
+
+const std::vector<uint8_t> *Session::skin_of(int id) const {
+	auto it = skins_.find(id);
+	return it != skins_.end() ? &it->second : nullptr;
+}
+
 void Session::client_update(float dt, const LocalPose &pose) {
+	if (welcomed_ && !skin_sent_ && !my_skin_.empty()) {
+		skin_sent_ = true;
+		Writer w(C_SKIN);
+		w.blob(my_skin_);
+		send_host(w.bytes);
+	}
 	state_timer_ += dt;
 	if (state_timer_ >= STATE_INTERVAL && welcomed_) {
 		state_timer_ = 0;

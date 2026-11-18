@@ -1,4 +1,4 @@
--- The base game's content (it was the Godot version's content/base.json).
+-- The base game's content.
 -- Items: what blocks drop that isn't a block (coal, snowballs). (No food,
 -- farming, tools, weapons or armour:
 -- everything is mined by hand, and creatures are fought bare-handed.)

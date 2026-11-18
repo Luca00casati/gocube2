@@ -62,12 +62,12 @@ bool flag(const Data &j, const char *key, bool fallback = false) {
 	return it != j.end() && it->is_boolean() ? it->get<bool>() : fallback;
 }
 
-// Godot's int() of a JSON number (a float): truncates.
+// A number as an int: truncates.
 int inum(const Data &j, const char *key, int fallback) {
 	return static_cast<int>(num(j, key, fallback));
 }
 
-// The variant blocks of a shaped block, in the Godot version's order:
+// The variant blocks of a shaped block, in this order (block ids follow it):
 // (suffix, state); the base block itself is suffix "".
 std::vector<std::pair<std::string, Data>> variants(const Data &def) {
 	std::vector<std::pair<std::string, Data>> out;
@@ -163,13 +163,14 @@ void expand(std::map<std::string, Data> &blocks) {
 	}
 }
 
-// A box in 1/16 units: x0, y0, z0, x1, y1, z1, texture y offset.
-using Box16 = std::array<double, 7>;
+// A box in 1/16 units: x0, y0, z0, x1, y1, z1, texture offsets y, x, z
+// (textured as if the box were that much lower / further along x, z).
+using Box16 = std::array<double, 9>;
 
 // Quarter turns clockwise seen from above: north -> east -> south -> west.
 Box16 rotate(Box16 b, int turns) {
 	for (int t = 0; t < turns; t++) {
-		b = {16 - b[5], b[1], b[0], 16 - b[2], b[4], b[3], b[6]}; // (x, z) -> (16 - z, x)
+		b = {16 - b[5], b[1], b[0], 16 - b[2], b[4], b[3], b[6], -b[8], b[7]}; // (x, z) -> (16 - z, x)
 	}
 	return b;
 }
@@ -185,7 +186,7 @@ std::vector<Box16> model_boxes(const std::string &shape, const Data &state) {
 		if (str(state, "facing") == "floor") {
 			return {{7, 0, 7, 9, 10, 9, 0}};
 		}
-		boxes = {{7, 4, 0.5, 9, 14, 2.5, 4}}; // on a wall, raised against it
+		boxes = {{7, 4, 0.5, 9, 14, 2.5, 4, 0, -6.5}}; // on a wall, raised against it (textured as the standing one)
 	} else if (shape == "ladder") {
 		boxes = {{0, 0, 0, 16, 16, 1, 0}};
 	} else if (shape == "bed") {
@@ -206,7 +207,8 @@ std::vector<Box> to_boxes(const std::vector<Box16> &in) {
 	std::vector<Box> out;
 	for (const Box16 &b : in) {
 		out.push_back({{float(b[0] / 16.0), float(b[1] / 16.0), float(b[2] / 16.0)},
-				{float(b[3] / 16.0), float(b[4] / 16.0), float(b[5] / 16.0)}, float(b[6] / 16.0)});
+				{float(b[3] / 16.0), float(b[4] / 16.0), float(b[5] / 16.0)}, float(b[6] / 16.0), float(b[7] / 16.0),
+				float(b[8] / 16.0)});
 	}
 	return out;
 }
@@ -235,7 +237,7 @@ std::string display_name(const Content &content, const std::string &id) {
 	return out;
 }
 
-uint32_t godot_string_hash(const std::string &s) {
+uint32_t string_hash(const std::string &s) {
 	uint32_t h = 5381;
 	for (unsigned char c : s) { // ids are ASCII: bytes are code points
 		h = (h << 5) + h + c;
@@ -314,7 +316,7 @@ std::filesystem::path Content::asset_path(const Data &def, const std::string &re
 
 namespace {
 
-// A biome's "trees" or "plants": a list of {id, value} pairs, in their order
+// A biome's "trees": a list of {id, value} pairs, in their order
 // (it reaches the generator); a table keyed by id has no order in Lua, so
 // that form is taken in id order.
 std::vector<std::pair<std::string, double>> id_values(const Data &j) {
@@ -338,10 +340,10 @@ std::vector<std::pair<std::string, double>> id_values(const Data &j) {
 
 } // namespace
 
-GeneratorConfig generator_config(const Content &content, int generator_version) {
+GeneratorConfig generator_config(const Content &content) {
 	GeneratorConfig g;
 	const int block_count = int(content.block_ids().size());
-	auto block = [&](const std::string &id) { // as World and GoCubeWorld together did
+	auto block = [&](const std::string &id) {
 		const int i = content.block_index(id);
 		return static_cast<BlockId>(i > 0 && i < block_count ? i : 0);
 	};
@@ -352,6 +354,7 @@ GeneratorConfig generator_config(const Content &content, int generator_version) 
 	g.ids.water = block("core:water");
 	g.ids.lava = block("core:lava");
 	g.ids.ice = block("core:ice");
+	g.ids.gravel = block("core:gravel");
 
 	// Ores, sorted by id; each one's veins are keyed to its id (the salt), so
 	// adding a mod doesn't move existing veins.
@@ -368,13 +371,12 @@ GeneratorConfig generator_config(const Content &content, int generator_version) 
 		const Data size = def.value("size", Data::array({3, 6}));
 		k.min_size = std::max(1, size.empty() ? 3 : int(size.front().get<double>()));
 		k.max_size = std::max(k.min_size, size.empty() ? 6 : int(size.back().get<double>()));
-		k.salt = godot_string_hash(id) & 0x7fffffffu;
+		k.salt = string_hash(id) & 0x7fffffffu;
 		g.ores.push_back(k);
 	}
 
 	// Trees with a known log and leaves (or a cactus), sorted by id: biomes
 	// refer to them by index in this order.
-	static const char *const STYLES[] = {"oak", "big_oak", "birch", "spruce", "cactus", "round_oak"};
 	const std::vector<std::string> tree_order = gc::tree_order(content);
 	for (const std::string &id : tree_order) {
 		const Data &def = content.trees.at(id);
@@ -384,24 +386,11 @@ GeneratorConfig generator_config(const Content &content, int generator_version) 
 		const Data trunk = def.value("trunk", Data::array({4, 6}));
 		t.min_trunk = std::clamp(trunk.empty() ? 4 : int(trunk.front().get<double>()), 2, 20);
 		t.max_trunk = std::clamp(trunk.empty() ? 6 : int(trunk.back().get<double>()), t.min_trunk, 20);
-		t.chance = std::clamp(inum(def, "chance", 30), 0, 100);
-		std::string style = str(def, "style", "oak");
-		if (style == "round_oak" && generator_version < 3) {
-			style = "oak"; // older worlds' unexplored land matches what they saved
-		}
-		int s = 0;
-		for (int i = 0; i < 6; i++) {
-			if (style == STYLES[i]) {
-				s = i;
-			}
-		}
-		t.style = static_cast<uint8_t>(s);
+		const std::string style = str(def, "style", "oak");
+		t.style = style == "big_oak" ? gocube::TREE_BIG_OAK : style == "cactus" ? gocube::TREE_CACTUS : gocube::TREE_ROUND_OAK;
 		g.trees.push_back(t);
 	}
 
-	if (generator_version < 2) {
-		return g; // worlds from before biomes
-	}
 	for (const auto &[id, def] : content.biomes) {
 		gocube::BiomeKind b;
 		b.temperature = float(num(def, "temperature", 0.0));
@@ -410,11 +399,7 @@ GeneratorConfig generator_config(const Content &content, int generator_version) 
 		b.base = float(num(def, "base", 0.0));
 		b.surface = block(str(def, "surface"));
 		b.filler = block(str(def, "filler"));
-		b.filler_depth = std::clamp(inum(def, "filler_depth", 3), 1, 16);
-		b.under = block(str(def, "under"));
-		b.under_depth = std::clamp(inum(def, "under_depth", 0), 0, 16);
 		b.frozen = flag(def, "frozen");
-		b.lakes = std::clamp(inum(def, "lakes", 20), 0, 100);
 		b.mountains = std::clamp(float(num(def, "mountains", 0.0)), 0.0f, 60.0f);
 		b.rock = block(str(def, "rock"));
 		b.rock_above = inum(def, "rock_above", 1 << 20);
@@ -426,11 +411,6 @@ GeneratorConfig generator_config(const Content &content, int generator_version) 
 			auto it = std::find(tree_order.begin(), tree_order.end(), tree);
 			if (it != tree_order.end()) {
 				b.trees.push_back({int(it - tree_order.begin()), int(percent)});
-			}
-		}
-		for (const auto &[plant, per_mille] : id_values(def.value("plants", Data()))) {
-			if (content.block_index(plant) > 0) {
-				b.plants.push_back({block(plant), int(per_mille)});
 			}
 		}
 		if (b.surface && b.filler) {
@@ -451,9 +431,8 @@ std::vector<std::string> tree_order(const Content &content) {
 	return out;
 }
 
-void configure_generator(gocube::Generator &generator, const Content &content, uint32_t seed,
-		int generator_version) {
-	const GeneratorConfig g = generator_config(content, generator_version);
+void configure_generator(gocube::Generator &generator, const Content &content, uint32_t seed) {
+	const GeneratorConfig g = generator_config(content);
 	generator.set_biomes(g.biomes);
 	generator.configure(seed, g.ids, g.ores, g.trees);
 }

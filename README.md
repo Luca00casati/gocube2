@@ -1,20 +1,20 @@
 # GoCube
 
 Voxel sandbox for Windows, in C++20 with Direct3D 11, gameplay and mods in Lua.
-A rewrite of the Godot version of GoCube; the plan is in the
-[GoCube Native Rewrite Plan](https://claude.ai/artifact/CMdng1jnMGWsAb7X84FHoy).
 
-Status: milestone 8. Survival: mining by hand, drops, chests, health, the day
-and night, saplings growing into trees, flowing water and lava;
-creatures (harmless Block Eaters by day; no enemies);
-sound; creative; multiplayer (one player hosts, others join); a title menu
-and pause menu.
-It looks like the Godot version: its sky, fog, block and cloud shadows, light
-from torches (placed and held), dropped items and the first-person arm.
-Worlds are generated exactly as the Godot version does. The rules of the game
+Survival: mining by hand, drops, chests, health, the day and night, trees
+coming up on grass by themselves, flowing water and lava; creatures (rare,
+harmless Block Eaters by day that eat the ground; no enemies); sound;
+creative; multiplayer (one player hosts, others join); a title menu and pause
+menu. A sky with a sun, moon, stars and drifting clouds (and their shadows),
+fog, block shadows, light from torches (placed and held), dropped items and a
+first-person arm in your skin.
+The terrain comes from 3D noise: hills, cliffs, overhangs, seas with sand and
+gravel beaches, caves, lava deep down, ore veins. Players wear skins in the
+usual box-figure layout (`%APPDATA%\GoCube\skin.ppm`, 64x64 or 64x32, as a
+PPM: magenta is see-through), and everyone sees each player's. The rules of the game
 and its content are the base game's Lua (`mods/core`), sandboxed like every mod;
-every data file (a mod's manifest, a world's `world.lua`) is a Lua data table,
-not JSON. (So worlds the Godot version saved, as JSON, don't open here.)
+every data file (a mod's manifest, a world's `world.lua`) is a Lua data table.
 
 ## Requirements
 - Windows 10 or 11, x64
@@ -64,14 +64,14 @@ survival or creative). Or straight into a world:
 | E | Inventory (creative: every block and item) |
 | Esc | Pause menu (settings; save and quit) |
 
-Survival as in the Godot version, without its tools, weapons, armour, crafting
-and smelting: everything is mined by hand (hardness x 0.375 s) and drops itself
+Survival without tools, weapons, armour, crafting or smelting: everything is
+mined by hand (hardness x 0.375 s) and drops itself
 (or what it gives: stone gives cobblestone, coal ore coal), chests, health
-(falls, lava, drowning; no bar: the screen reddens the lower it is,
+(falls, lava, drowning, falling out of the world; no bar: the screen reddens the lower it is,
 and healing with time fades it), death and respawn at your bed or the world spawn, a day that
 lasts a real day by default and a bed to sleep through the night, falling sand,
-growing saplings, decaying leaves. One kind of grass and of wood (oak), no
-small plants (flowers, tall grass), no farming and no food. The world is saved every minute and
+trees sprouting on grass, decaying leaves. One kind of grass and of wood (oak), no
+saplings, no small plants (flowers, tall grass), no farming and no food. The world is saved every minute and
 when you quit.
 
 Settings (the title menu's Settings button, or the pause menu's): view distance,
@@ -98,12 +98,14 @@ host's mods.
 | `--world=NAME` | Play the world NAME in `%APPDATA%\GoCube\worlds` (a new one is made if needed) |
 | `--world-dir=DIR` | Play the world in this folder |
 | `--seed=N` | Seed for a new world (default 777) |
-| `--generator=N` | World generator version for an unsaved world: 1 (before biomes), 2, 3 (default, the newest) |
 | `--view=N` | View distance in blocks (default: the settings', 128) |
 | `--pos=X,Y,Z`, `--look=YAW,PITCH` | Start flying at this position (feet), and view direction in degrees |
 | `--time=0..1` | Start at this time of day (0.5: noon) |
 | `--drop=ID,...` | Drop these items in front of the player (trying things out) |
 | `--spawn=KIND[=BLOCK],...` | Put creatures in front of the player (`block_eater=core:stone`) |
+| `--mannequin` | Your own figure, in your skin, in front of you (what others see) |
+| `--details` | Start with the details screen (F3) open: frame times by part (the profiler) |
+| `--profile` | When the world ends, log the frame times by part, the GPU's and the world threads' (with `--frames`, `--no-vsync`: measure what's slow) |
 | `--screen=inventory\|settings` | Open the inventory or the settings at the start (screenshots) |
 | `--menu` | The title menu even with testing options (`--frames`, `--screenshot` apply to it) |
 | `--warp` | Render on WARP, Windows' software adapter (no GPU needed) |
@@ -146,43 +148,43 @@ gap: Lua's string pattern functions (`string.find`, `match`, `gmatch`, `gsub`)
 run in C, where the time limit can't reach them, so a pathological pattern on a
 long string could stall the game.
 
-Each mod gets a fingerprint of its files (the Godot version's algorithm), for
-checking that players have the same mods. `mods/` and `tests/data/` are kept byte
+Each mod gets a fingerprint of its files, for checking that players have the
+same mods. `mods/` and `tests/data/` are kept byte
 for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 
 ## Layout
 - `src/voxel/`: the voxel engine (chunks, world generation, light, meshing, chunk
-  files), copied unchanged from the Godot version's GDExtension (GoCube `4425f46`).
+  files).
 - `src/content/`: the content mods register, block ids, the block table, the texture
-  atlas, item models and the generator's tables, as the Godot version builds them.
+  atlas, item models, skins and the generator's tables.
   Most block faces are painted from a colour and noise (`image.h`; the base game's
-  in `mods/core/content/looks.lua`); the few drawn images (saplings, torches, doors,
-  beds, chests, items) are PPM files, where magenta is see-through.
+  in `mods/core/content/looks.lua`); the few drawn images (torches, doors,
+  beds, chests, items, the default skin) are PPM files, where magenta is see-through.
 - `src/world/`: chunk streaming on worker threads, editing, the raycast, collision;
   the world folder (`world.lua`, `chunks\`).
-- `src/game/`: the player (movement, breaking, placing) and the block rules
-  (shaped blocks' variants, doors, beds, support).
+- `src/game/`: the player (movement, breaking, placing), the block rules
+  (shaped blocks' variants, doors, beds, support), survival (inventory,
+  health, drops), creatures and their models, the first-person arm.
 - `src/mods/`: finding, ordering and loading mods; the Lua sandbox and API;
   fingerprints.
-- `src/net/`: multiplayer (the Godot version's Session): the host's checks, what
+- `src/net/`: multiplayer: the host's checks, what
   travels between host and clients, the message format, and the transport (TCP,
   and UDP for positions, on the same port; Winsock only).
-- `src/render/`, `shaders/`: Direct3D 11, the terrain, sky and item shaders (HLSL,
-  compiled by FXC at build time), drawn as the Godot version shows them.
+- `src/render/`, `shaders/`: Direct3D 11, the terrain, sky, item and creature
+  shaders (HLSL, compiled by FXC at build time).
+- `src/profiler.h`: the frame profiler (F3, `--profile`).
 - `src/ui/`: the UI, our own: an immediate-mode core (`gui.h`: windows, layout,
   buttons, text fields, sliders, drop-downs, scrolling; tested with a fake font)
   drawn with Direct2D and DirectWrite (`gui_d2d.h`) in the Share Tech font
   (built into the executable); the inventory, container and settings screens.
-- `mods/core/`: the base game: content, assets and `main.lua` (the Godot version's
-  `main.gd`, which registered a block from code).
+- `mods/core/`: the base game: content, assets, rules and `main.lua`.
 - `thirdparty/lua/`: Lua 5.4.8's sources, built with a fixed string-hash seed.
-- `tests/`: doctest unit tests: the generation fingerprints, player movement and
-  editing, saving, mods (the sandbox, undoing, events, fingerprints), survival,
-  and what rendering works out on the CPU (item models, held light, block
-  shadows), multiplayer (host and client in one process). `tests/mp_smoke.cpp`
-  plays a round between a host and a client in two processes (CTest runs it).
-  `tests/data/godot_screenshot.gd` takes the Godot version's side of a
-  screenshot comparison.
+- `tests/`: doctest unit tests: world generation (a fingerprint, what the land
+  is like), player movement and editing, saving, mods (the sandbox, undoing,
+  events, fingerprints), survival, the UI, and what rendering works out on the
+  CPU (item models, held light, block shadows, skins, the profiler),
+  multiplayer (host and client in one process). `tests/mp_smoke.cpp` plays a
+  round between a host and a client in two processes (CTest runs it).
 
 ## Dependencies
 In `thirdparty/` as source, pinned to releases and built with the game, linked

@@ -122,7 +122,6 @@ Stack Inventory::put_armor(int slot, const Stack &held) {
 	armor[slot] = held.empty() ? Stack{} : Stack{held.id, 1};
 	Stack rest = held;
 	rest.count -= 1;
-	// (The Godot version wears one and keeps nothing else held: armour doesn't stack.)
 	return was.empty() ? (rest.count > 0 ? rest : Stack{}) : was;
 }
 

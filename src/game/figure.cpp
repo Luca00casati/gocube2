@@ -72,7 +72,6 @@ void Figure::pose(float dt) {
 	const float walk = amount_;
 	const float run = std::clamp((amount_ - 0.55f) / 0.45f, 0.0f, 1.0f); // past a walk: running
 	const float s = std::sin(phase_), c = std::cos(phase_);
-	const float ninja_run = ninja ? run : 0.0f;
 
 	// Legs swing forward and back; the knee bends as the leg comes forward (more
 	// running); in the air one knee is pulled up.
@@ -87,16 +86,15 @@ void Figure::pose(float dt) {
 		legs[i][0] = swing_leg + air_leg + 0.55f * sneak_;
 		legs[i][1] = knee + air_knee + 0.9f * sneak_;
 	}
-	// Arms swing against the legs; elbows bend more running; a ninja running
-	// sweeps them straight back; in the air they lift out a little.
+	// Arms swing against the legs; elbows bend more running; in the air they
+	// lift out a little.
 	const float arm_amp = 0.7f * walk + 0.4f * run;
 	float arms[2][3];
 	for (int i = 0; i < 2; i++) {
 		const float side = i == 0 ? -1.0f : 1.0f;
-		const float sw = -s * side * arm_amp * (1.0f - ninja_run);
-		arms[i][0] = sw - 1.25f * ninja_run + 0.25f * sneak_;
-		arms[i][1] = side * (0.06f + 0.35f * air_ + 0.25f * ninja_run);
-		arms[i][2] = 0.15f + 0.9f * run * (1.0f - ninja_run) + 0.2f * sneak_;
+		arms[i][0] = -s * side * arm_amp + 0.25f * sneak_;
+		arms[i][1] = side * (0.06f + 0.35f * air_);
+		arms[i][2] = 0.15f + 0.9f * run + 0.2f * sneak_;
 	}
 	// The right arm strikes like an axe blow: winds up (elbow beside the head),
 	// chops down and across, speeding up, then eases back.
@@ -128,7 +126,7 @@ void Figure::pose(float dt) {
 		std::copy(p, p + 3, arms[1]);
 	}
 
-	const float lean = 0.12f * walk + 0.2f * run + 0.45f * ninja_run + 0.5f * sneak_;
+	const float lean = 0.12f * walk + 0.2f * run + 0.5f * sneak_;
 	const float bob = -std::abs(c) * 0.04f * walk - 0.05f * run - 0.16f * sneak_;
 	const float twist = s * 0.12f * walk + twist_swing; // shoulders turn with the stride
 
