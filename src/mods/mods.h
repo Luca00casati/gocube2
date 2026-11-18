@@ -35,7 +35,8 @@
 //              "block_changed" (x, y, z, new block id; any change, told on
 //              the next tick), "creature_hit" (id, damage, x, y, z of the
 //              attacker, attacker's peer)
-//   world      get_block(x, y, z) -> id or nil, set_block(x, y, z, id) -> bool,
+//   world      get_block(x, y, z) -> id or nil, set_block(x, y, z, id) -> bool
+//              (a dyed id, "core:stone#ff8800", sets its dye too),
 //              supported(x, y, z, id) -> whether id could stand there,
 //              drop_item(x, y, z, item, count), grow_tree(x, y, z, tree id) -> bool,
 //              raycast(x, y, z, dx, dy, dz, max) -> {x, y, z, id, distance} or nil,

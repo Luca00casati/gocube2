@@ -1,4 +1,4 @@
-// Block images: PPM files (magenta is see-through) and faces painted from a
+// Block images: PNG files and faces painted from a
 // colour and noise (content/image.h), and the base game's atlas made of them.
 
 #include "content/content.h"
@@ -19,30 +19,24 @@ const uint8_t *at(const gc::Image &im, int x, int y) {
 
 } // namespace
 
-TEST_CASE("PPM: binary and text, magenta is see-through, anything else is refused") {
+TEST_CASE("PNG: read with its alpha, anything else is refused") {
+	// 3 x 1: an opaque pixel, a clear one and a half see-through one.
+	const std::string png("\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52\x00\x00\x00\x03\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1b\xe0\x14\xb4\x00\x00\x00\x13\x49\x44\x41\x54\x78\xda\x63\x10\x50\x30\xf8\xcf\x00\x04\x27\x52\x8c\x1a\x00\x12\x34\x03\x3e\x74\x0f\x60\x6c\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60\x82", 76);
 	gc::Image im;
-	std::string p6 = "P6\n# a comment\n2 1\n255\n";
-	p6 += std::string("\x10\x20\x30\xff\x00\xff", 6);
-	REQUIRE(gc::parse_ppm(p6, im));
-	CHECK(im.width == 2);
+	REQUIRE(gc::parse_png(png, im));
+	CHECK(im.width == 3);
 	CHECK(im.height == 1);
 	CHECK(at(im, 0, 0)[0] == 0x10);
 	CHECK(at(im, 0, 0)[2] == 0x30);
 	CHECK(at(im, 0, 0)[3] == 255);
-	CHECK(at(im, 1, 0)[3] == 0); // magenta
-	CHECK(at(im, 1, 0)[0] == 0);
+	CHECK(at(im, 1, 0)[3] == 0);
+	CHECK(at(im, 2, 0)[0] == 200); // (not premultiplied)
+	CHECK(at(im, 2, 0)[3] == 128);
 
-	REQUIRE(gc::parse_ppm("P3 1 2 15  15 0 15  0 15 0", im)); // maxval 15: scaled to 255
-	CHECK(at(im, 0, 0)[3] == 0);
-	CHECK(at(im, 0, 1)[1] == 255);
-	CHECK(at(im, 0, 1)[3] == 255);
-
-	CHECK_FALSE(gc::parse_ppm("", im));
-	CHECK_FALSE(gc::parse_ppm("P5 1 1 255 x", im));            // greyscale: not PPM
-	CHECK_FALSE(gc::parse_ppm("P6 2 2 255\nabc", im));         // too short
-	CHECK_FALSE(gc::parse_ppm("P6 1 1 65535\nabcdef", im));    // 16-bit
-	CHECK_FALSE(gc::parse_ppm("P6 99999 1 255\nabc", im));     // too big
-	CHECK_FALSE(gc::parse_ppm("P3 1 1 255 1 2", im));          // missing a value
+	CHECK_FALSE(gc::parse_png("", im));
+	CHECK_FALSE(gc::parse_png("P6 1 1 255 abc", im));     // not a PNG
+	CHECK_FALSE(gc::parse_png(png.substr(0, 40), im));   // cut short
+	CHECK_FALSE(gc::parse_png(png.substr(0, 8) + std::string(60, 'x'), im)); // a PNG's start, then rubbish
 }
 
 TEST_CASE("painted faces: the same spec gives the same pixels, they tile, and each feature shows") {
@@ -101,7 +95,7 @@ TEST_CASE("painted faces: the same spec gives the same pixels, they tile, and ea
 	CHECK(gc::paint_face(bad, 32).rgba.size() == 32 * 32 * 4);
 }
 
-TEST_CASE("the base game's atlas: painted faces and PPM images, no missing ones") {
+TEST_CASE("the base game's atlas: painted faces and PNG images, no missing ones") {
 	gc::Content content;
 	load_base_game(content);
 	content.freeze();
@@ -127,7 +121,7 @@ TEST_CASE("the base game's atlas: painted faces and PPM images, no missing ones"
 	CHECK(info("core:bed").tiles[0] == info("core:bed_n_head").tiles[0]); // (the same sides)
 	CHECK_FALSE(info("core:stone").cutout);
 	CHECK_FALSE(info("core:leaves").cutout);
-	// Drawn (PPM): torches and glass are see-through in places.
+	// Drawn (PNG): torches and glass are see-through in places.
 	CHECK(info("core:torch").cutout);
 	// A torch on a wall stands against it, but is textured as the one in the
 	// middle of the floor (the drawn torch is there: elsewhere the image is see-through).

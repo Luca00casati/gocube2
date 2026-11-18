@@ -111,12 +111,13 @@ void DrawList::text(Vec2 at, Color c, std::string_view text, float size, float w
 	cmds.push_back(std::move(d));
 }
 
-void DrawList::image(Rect r, int tile) {
+void DrawList::image(Rect r, int tile, uint32_t dye) {
 	DrawCmd d;
 	d.type = DrawCmd::IMAGE;
 	d.rect = r;
 	d.color = with_alpha(rgba(255, 255, 255), alpha);
 	d.image = tile;
+	d.dye = dye;
 	cmds.push_back(std::move(d));
 }
 

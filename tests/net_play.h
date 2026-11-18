@@ -150,6 +150,7 @@ struct NetPlay {
 		input.captured = true;
 		p.game->update(dt, input);
 		input.break_pressed = input.use_pressed = input.pick_pressed = false; // (clicks last one frame)
+		input.throw_pressed = input.throw_stack = false;
 		input.number_key = 0;
 		p.game->tick(dt);
 		day.update(dt);

@@ -197,9 +197,11 @@ const gc::Recipe *find_recipe(gc::Game &game, const std::string &id) {
 
 } // namespace
 
-TEST_CASE("the base game has no crafting, smelting, tools, weapons or armour") {
+TEST_CASE("the base game's only crafting is planks and the dye vat; no smelting, tools, weapons or armour") {
 	Play p;
-	CHECK(p.game->hand_recipes().empty());
+	REQUIRE(p.game->hand_recipes().size() == 2);
+	CHECK(p.game->hand_recipes()[0].output == "core:planks");
+	CHECK(p.game->hand_recipes()[1].output == "core:dye_vat");
 	CHECK(p.content.recipes.empty());
 	CHECK_FALSE(p.game->block_entities().smelting("core:iron_ore"));
 	CHECK(p.game->block_entities().fuel_seconds("core:coal") == 0);

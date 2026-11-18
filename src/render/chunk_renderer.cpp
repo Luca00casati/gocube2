@@ -163,8 +163,9 @@ bool ChunkRenderer::init(ID3D11Device *device, const Atlas &atlas) {
 			{"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, offsetof(Vertex, normal), D3D11_INPUT_PER_VERTEX_DATA, 0},
 			{"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, offsetof(Vertex, uv), D3D11_INPUT_PER_VERTEX_DATA, 0},
 			{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, offsetof(Vertex, color), D3D11_INPUT_PER_VERTEX_DATA, 0},
+			{"COLOR", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, offsetof(Vertex, dye), D3D11_INPUT_PER_VERTEX_DATA, 0},
 	};
-	if (!ok(device->CreateInputLayout(layout, 4, g_chunk_vs, sizeof(g_chunk_vs), &layout_), "CreateInputLayout")) {
+	if (!ok(device->CreateInputLayout(layout, 5, g_chunk_vs, sizeof(g_chunk_vs), &layout_), "CreateInputLayout")) {
 		return false;
 	}
 
@@ -625,6 +626,7 @@ bool ChunkRenderer::make_surface(ID3D11Device *device, const gocube::Surface &s,
 		std::memcpy(v.normal, &s.normals[i * 3], sizeof(v.normal));
 		std::memcpy(v.uv, &s.uvs[i * 2], sizeof(v.uv));
 		std::memcpy(v.color, &s.colors[i * 4], sizeof(v.color));
+		v.set_dye(i < s.dyes.size() ? s.dyes[i] : gocube::NO_DYE);
 	}
 	D3D11_BUFFER_DESC bd = {};
 	bd.Usage = D3D11_USAGE_IMMUTABLE;

@@ -270,6 +270,11 @@ bool sun_reaches(const LightRegion &light, const MeshOptions &o, int max_top, in
 	return true;
 }
 
+// The vertices added since the last call get dye `d`.
+void dye_to(Surface &s, Dye d) {
+	s.dyes.resize(s.colors.size() / 4, d);
+}
+
 // Sets the alpha of the vertices from `first` on (see Surface::colors).
 void set_alpha(Surface &s, size_t first, float alpha) {
 	for (size_t v = first; v < s.colors.size() / 4; v++) {
@@ -285,7 +290,7 @@ namespace {
 // flat per face: the cell in front for faces on the block's edge, else the
 // block's own cell (shaped blocks let light in).
 template <typename Sample>
-void emit_shape(Surface &s, const FaceTable &table, const BlockInfo &info, BlockId id, int x, int y, int z,
+void emit_shape(Surface &s, const FaceTable &table, const BlockInfo &info, BlockId id, Dye dye, int x, int y, int z,
 		const std::vector<BlockInfo> &blocks, const AtlasLayout &atlas, const LightRegion *light, Sample sample) {
 	const BlockId count = static_cast<BlockId>(blocks.size());
 	auto light_at = [&](int lx, int ly, int lz, float &sky, float &blk) {
@@ -366,6 +371,7 @@ void emit_shape(Surface &s, const FaceTable &table, const BlockInfo &info, Block
 			const float normal[3] = { float(d.dx), float(d.dy), float(d.dz) };
 			emit_quad(s, pos, st, normal, atlas, info.tiles[f], sky, blk, d.order);
 		}
+		dye_to(s, bx.undyed ? NO_DYE : dye);
 	}
 }
 
@@ -468,12 +474,19 @@ void mesh_chunk(const ChunkData &chunk, const ChunkData *const neighbours[FACE_C
 				}
 				const BlockInfo &info = blocks[id];
 				Surface &opaque = info.cutout ? cutout_out : opaque_out;
+				const Dye dye = chunk.dyes.empty() || info.fluid ? NO_DYE : chunk.dye(x, y, z);
+				if (dye != NO_DYE) {
+					dye_to(opaque, NO_DYE); // (the blocks before)
+				}
 				if (info.shape != SHAPE_CUBE) {
 					const size_t first = opaque.colors.size() / 4;
-					emit_shape(opaque, table, info, id, x, y, z, blocks, atlas, light,
+					emit_shape(opaque, table, info, id, dye, x, y, z, blocks, atlas, light,
 							[&](int nx, int ny, int nz) { return sample(chunk, neighbours, blocks, nx, ny, nz, solid_fallback); });
 					if (shadows && !sun_reaches(*light, options, max_top, x, y, z)) {
 						set_alpha(opaque, first, 0.75f); // shaped blocks: one shadow for the whole block
+					}
+					if (dye != NO_DYE) {
+						dye_to(opaque, dye); // (crossed plants)
 					}
 					continue;
 				}
@@ -541,9 +554,15 @@ void mesh_chunk(const ChunkData &chunk, const ChunkData *const neighbours[FACE_C
 						}
 					}
 				}
+				if (dye != NO_DYE) {
+					dye_to(opaque, dye);
+				}
 			}
 		}
 	}
+	dye_to(opaque_out, NO_DYE);
+	dye_to(cutout_out, NO_DYE);
+	dye_to(fluid, NO_DYE);
 }
 
 } // namespace gocube

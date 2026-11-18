@@ -215,7 +215,63 @@ std::vector<Box> to_boxes(const std::vector<Box16> &in) {
 
 } // namespace
 
-std::string display_name(const Content &content, const std::string &id) {
+std::string undyed(const std::string &id) {
+	const size_t hash = id.find('#');
+	return hash == std::string::npos ? id : id.substr(0, hash);
+}
+
+bool parse_dye(const std::string &hex, gocube::Dye &out) {
+	const size_t start = !hex.empty() && hex[0] == '#' ? 1 : 0;
+	if (hex.size() != start + 6) {
+		return false;
+	}
+	uint32_t v = 0;
+	for (size_t i = start; i < hex.size(); i++) {
+		const char c = hex[i];
+		const int d = c >= '0' && c <= '9' ? c - '0' : (c >= 'a' && c <= 'f' ? c - 'a' + 10 : (c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1));
+		if (d < 0) {
+			return false;
+		}
+		v = v << 4 | uint32_t(d);
+	}
+	out = 0xFF000000u | v;
+	return true;
+}
+
+gocube::Dye dye_of(const std::string &id) {
+	const size_t hash = id.find('#');
+	gocube::Dye d = gocube::NO_DYE;
+	return hash != std::string::npos && parse_dye(id.substr(hash), d) ? d : gocube::NO_DYE;
+}
+
+void dye_pixel(uint8_t rgb[3], gocube::Dye dye) {
+	if (dye == gocube::NO_DYE) {
+		return;
+	}
+	const float lum = (0.299f * rgb[0] + 0.587f * rgb[1] + 0.114f * rgb[2]) / 255.0f;
+	const float k = std::clamp(lum * 1.5f + 0.25f, 0.0f, 1.25f);
+	const int d[3] = {int(dye >> 16 & 255), int(dye >> 8 & 255), int(dye & 255)};
+	for (int c = 0; c < 3; c++) {
+		rgb[c] = uint8_t(std::clamp(int(float(d[c]) * k + 0.5f), 0, 255));
+	}
+}
+
+std::string dye_hex(gocube::Dye dye) {
+	char s[8];
+	std::snprintf(s, sizeof(s), "#%06x", unsigned(dye & 0xFFFFFF));
+	return s;
+}
+
+std::string dyed(const std::string &id, gocube::Dye dye) {
+	const std::string base = undyed(id);
+	return dye == gocube::NO_DYE ? base : base + dye_hex(dye);
+}
+
+std::string display_name(const Content &content, const std::string &dyed_id) {
+	if (const gocube::Dye d = dye_of(dyed_id); d != gocube::NO_DYE) {
+		return display_name(content, undyed(dyed_id)) + " (" + dye_hex(d) + ")";
+	}
+	const std::string id = undyed(dyed_id);
 	for (const auto *table : {&content.items, &content.blocks}) {
 		auto it = table->find(id);
 		if (it != table->end() && it->second.contains("name") && it->second["name"].is_string()) {
@@ -463,10 +519,10 @@ struct AtlasBuilder {
 		return px;
 	}
 
-	// A PPM, resized to TILE x TILE (nearest neighbour).
+	// A PNG, resized to TILE x TILE (nearest neighbour).
 	static bool load_image(const std::filesystem::path &path, Pixels &out) {
 		Image image;
-		if (!read_ppm(path, image)) {
+		if (!read_png(path, image)) {
 			return false;
 		}
 		const size_t w = size_t(image.width), h = size_t(image.height);
@@ -646,6 +702,12 @@ BlockTable build_block_table(const Content &content) {
 			}
 			b.shape = gocube::SHAPE_BOXES;
 			b.model = to_boxes(boxes);
+			// Boxes (1-based) that keep their own colours when the block is dyed.
+			for (const Data &k : def.value("undyed_boxes", Data::array())) {
+				if (k.is_number() && k.get<double>() >= 1 && size_t(k.get<double>()) <= b.model.size()) {
+					b.model[size_t(k.get<double>()) - 1].undyed = true;
+				}
+			}
 			b.collision = is_not_solid_shape(shape) ? std::vector<Box>{} : b.model;
 			has_collision = true;
 		} else if (es == gocube::SHAPE_CROSS) {

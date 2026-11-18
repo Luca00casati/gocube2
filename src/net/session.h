@@ -79,7 +79,7 @@ struct Avatar {
 
 class Session : public Remote {
 public:
-	static constexpr int PROTOCOL = 5; // (any change to the messages: one more)
+	static constexpr int PROTOCOL = 6; // (any change to the messages: one more)
 	static constexpr int DEFAULT_PORT = 24680;
 	static constexpr int MAX_PLAYERS = 8;
 	static constexpr int HOST_ID = 1;
@@ -207,6 +207,7 @@ public:
 	void request_break(const BlockPos &p, int slot) override;
 	void request_use(const float eye[3], const float dir[3], int slot, const std::string &item, bool sneak) override;
 	void request_eat(int slot) override;
+	void request_throw(const float eye[3], const float dir[3], int slot, const std::string &item, bool whole) override;
 	void hit_creature(int id) override;
 	void inventory_action(const Data &action) override;
 	void set_bed(const BlockPos &head) override;

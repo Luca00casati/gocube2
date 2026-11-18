@@ -44,12 +44,20 @@ struct ChunkMesh {
 };
 
 // A vertex of the world's meshes (chunk.hlsl's input): position, normal, uv,
-// colour (sky light, block light, occlusion, marks).
+// colour (sky light, block light, occlusion, marks), dye (rgb 0..1, a = 1 if
+// dyed).
 struct WorldVertex {
 	float pos[3];
 	float normal[3];
 	float uv[2];
 	float color[4];
+	float dye[4] = {0, 0, 0, 0};
+	void set_dye(gocube::Dye d) {
+		dye[0] = float((d >> 16) & 255) / 255.0f;
+		dye[1] = float((d >> 8) & 255) / 255.0f;
+		dye[2] = float(d & 255) / 255.0f;
+		dye[3] = d != gocube::NO_DYE ? 1.0f : 0.0f;
+	}
 };
 
 struct WorldStats {
@@ -120,6 +128,8 @@ public:
 	int block_id_at(int x, int y, int z) const;
 	// The same with AIR for unloaded chunks.
 	gocube::BlockId block_at(int x, int y, int z) const;
+	// A block's dye (NO_DYE: undyed, or not loaded).
+	gocube::Dye dye_at(int x, int y, int z) const;
 	bool is_loaded(int x, int y, int z) const;
 	// Sky and block light (0..15 each) at a block, as of its chunk's last
 	// mesh; open sky where it isn't known.
@@ -129,10 +139,12 @@ public:
 	// of `size` blocks from `origin`: a level per block, indexed
 	// (y * size + z) * size + x.
 	std::vector<uint8_t> held_light(const BlockPos &origin, int size, const std::vector<std::array<float, 4>> &lights) const;
-	// Told about every block change (position, the new block), after it happened.
+	// Told about every block change (position, the new block), after it
+	// happened (a dye changing too: dye_at has it).
 	std::function<void(const BlockPos &, gocube::BlockId)> on_block_changed;
-	// Changes a block; false if its chunk isn't loaded.
-	bool set_block(const BlockPos &p, gocube::BlockId id);
+	// Changes a block (and its dye: a new block is undyed unless given one);
+	// false if its chunk isn't loaded.
+	bool set_block(const BlockPos &p, gocube::BlockId id, gocube::Dye dye = gocube::NO_DYE);
 	// Goes up with every block changed, and every chunk loaded or forgotten.
 	uint64_t revision() const { return revision_; }
 	// Writes every edited chunk to its file; returns how many.

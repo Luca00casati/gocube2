@@ -24,7 +24,7 @@ std::string kind_of(const Content &content, const std::string &block) {
 BlockEntity BlockEntities::make(const std::string &type) {
 	BlockEntity e;
 	e.type = type;
-	e.slots.resize(type == "chest" ? CHEST_SLOTS : 3);
+	e.slots.resize(type == "chest" ? CHEST_SLOTS : (type == "vat" ? VAT_KINDS : 3));
 	return e;
 }
 
@@ -73,7 +73,7 @@ std::optional<Stack> BlockEntities::smelting(const std::string &input) {
 
 Stack BlockEntities::click(const BlockPos &p, int slot, const Stack &held) {
 	BlockEntity *e = at(p);
-	if (!e || slot < 0 || slot >= int(e->slots.size())) {
+	if (!e || slot < 0 || slot >= int(e->slots.size()) || e->type == "vat") { // (a vat's gems are its dye)
 		return held;
 	}
 	if (e->type == "furnace") {
@@ -165,7 +165,8 @@ Data BlockEntities::serialize() const {
 			slots.push_back(s.empty() ? Data(false) : Data::array({s.id, s.count}));
 		}
 		out[std::to_string(x) + "," + std::to_string(y) + "," + std::to_string(z)] = {
-				{"type", e.type}, {"slots", slots}, {"burn", e.burn}, {"burn_total", e.burn_total}, {"progress", e.progress}};
+				{"type", e.type}, {"slots", slots}, {"burn", e.burn}, {"burn_total", e.burn_total}, {"progress", e.progress},
+				{"charge", e.charge}};
 	}
 	return out;
 }
@@ -180,7 +181,7 @@ Data BlockEntities::entity_data(const BlockPos &p) const {
 		slots.push_back(s.empty() ? Data(false) : Data::array({s.id, s.count}));
 	}
 	return {{"type", it->second.type}, {"slots", slots}, {"burn", it->second.burn},
-			{"burn_total", it->second.burn_total}, {"progress", it->second.progress}};
+			{"burn_total", it->second.burn_total}, {"progress", it->second.progress}, {"charge", it->second.charge}};
 }
 
 void BlockEntities::set_entity_data(const BlockPos &p, const Data &d) {
@@ -214,7 +215,7 @@ void BlockEntities::deserialize(const Data &data) {
 			continue;
 		}
 		const std::string type = d.value("type", "chest");
-		if (type != "chest" && type != "furnace") {
+		if (type != "chest" && type != "furnace" && type != "vat") {
 			continue;
 		}
 		BlockEntity e = make(type);
@@ -222,13 +223,14 @@ void BlockEntities::deserialize(const Data &data) {
 		for (size_t i = 0; i < saved.size() && i < e.slots.size(); i++) {
 			const Data &s = saved[i];
 			if (s.is_array() && s.size() == 2 && s[0].is_string() && s[1].is_number() &&
-					(content_.items.count(s[0].get<std::string>()) || content_.blocks.count(s[0].get<std::string>()))) {
+					(content_.items.count(s[0].get<std::string>()) || content_.blocks.count(undyed(s[0].get<std::string>())))) {
 				e.slots[i] = {s[0].get<std::string>(), int(s[1].get<double>())};
 			}
 		}
 		e.burn = d.value("burn", 0.0);
 		e.burn_total = d.value("burn_total", 0.0);
 		e.progress = d.value("progress", 0.0);
+		e.charge = std::max(0, int(d.value("charge", 0.0)));
 		entities_[{x, y, z}] = std::move(e);
 	}
 }

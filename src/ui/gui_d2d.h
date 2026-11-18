@@ -55,6 +55,10 @@ private:
 	std::unordered_map<std::string, Layout> layouts_;
 	Microsoft::WRL::ComPtr<ID2D1Bitmap1> icons_;
 	std::vector<D2D1_RECT_F> tiles_; // each tile's rectangle in it
+	// Dyed blocks' icons, made when first drawn: by tile and dye.
+	ID2D1Bitmap1 *dyed_icon(int tile, uint32_t dye);
+	std::vector<std::vector<uint8_t>> tile_pixels_; // RGBA, Atlas::TILE square
+	std::unordered_map<uint64_t, Microsoft::WRL::ComPtr<ID2D1Bitmap1>> dyed_;
 	int frame_ = 0;
 };
 

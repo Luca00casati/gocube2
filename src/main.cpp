@@ -15,8 +15,8 @@
 //                    a new one is made if it doesn't exist)
 // Mods are found in mods\ next to the game (built-in, the base game first) and
 // in %APPDATA%\GoCube\mods (one folder per mod). Your skin, as others see you:
-// %APPDATA%\GoCube\skin.ppm (the usual 64x64 or 64x32 skin layout as a PPM,
-// magenta see-through), else the base game's (mods\core\textures\player.ppm).
+// %APPDATA%\GoCube\skin.png (the usual 64x64 or 64x32 skin layout, with its
+// see-through parts), else the base game's (mods\core\textures\player.png).
 //
 //   --world-dir=DIR  play the world in this folder
 //                    Without either, the world isn't saved.
@@ -43,7 +43,7 @@
 //                    over the settings (%APPDATA%\GoCube\settings.lua, which
 //                    --hidden doesn't read: tests play with the defaults)
 //   --screen=inventory|settings|chat  a screen open at the start (screenshots)
-//   --say=LINE       type LINE into the chat at the start (a "/" command too;
+//   --say=LINE       type LINE into the chat once the world around has loaded (a "/" command too;
 //                    give it more than once for more lines)
 //   --host[=PORT]    open the world to other players (default port 24680)
 //   --join=ADDRESS[:PORT]  play in someone else's world
@@ -503,7 +503,7 @@ void draw_hud(const gc::Game &game, const gc::BlockTable &table, const gc::Block
 		dl.fill(r, gc::ui::rgba(0, 0, 0, 115));
 		const gc::Stack &s = game.inventory().slots[i];
 		if (!s.empty()) {
-			dl.image({r.x0 + 8, r.y0 + 8, r.x1 - 8, r.y1 - 8}, table.icon(s.id));
+			dl.image({r.x0 + 8, r.y0 + 8, r.x1 - 8, r.y1 - 8}, table.icon(gc::undyed(s.id)), gc::dye_of(s.id));
 			if (!game.creative() && s.count > 1) {
 				const std::string n = std::to_string(s.count);
 				const gc::ui::Vec2 size = g.text_size(n);
@@ -1101,22 +1101,22 @@ bool title_menu(const Options &options, gc::Window &window, gc::Renderer &render
 	return false;
 }
 
-// Our skin (RGBA, SKIN_BYTES): %APPDATA%\GoCube\skin.ppm if it's one (not
+// Our skin (RGBA, SKIN_BYTES): %APPDATA%\GoCube\skin.png if it's one (not
 // with --hidden: tests play with the defaults), else the base game's.
 std::vector<uint8_t> load_skin(const Options &options, const std::filesystem::path &builtin_mods) {
 	gc::Image image, skin;
-	const std::filesystem::path mine = user_dir() / "skin.ppm";
+	const std::filesystem::path mine = user_dir() / "skin.png";
 	std::error_code ec;
 	if (!options.hidden && std::filesystem::exists(mine, ec)) {
-		if (gc::read_ppm(mine, image) && gc::to_skin(image, skin)) {
+		if (gc::read_png(mine, image) && gc::to_skin(image, skin)) {
 			return skin.rgba;
 		}
-		gc::log("%%APPDATA%%\\GoCube\\skin.ppm isn't a skin (a 64x64 or 64x32 PPM): the default one instead");
+		gc::log("%%APPDATA%%\\GoCube\\skin.png isn't a skin (a 64x64 or 64x32 PNG): the default one instead");
 	}
-	if (gc::read_ppm(builtin_mods / "core" / "textures" / "player.ppm", image) && gc::to_skin(image, skin)) {
+	if (gc::read_png(builtin_mods / "core" / "textures" / "player.png", image) && gc::to_skin(image, skin)) {
 		return skin.rgba;
 	}
-	gc::log("The base game's skin (textures\\player.ppm) is missing");
+	gc::log("The base game's skin (textures\\player.png) is missing");
 	return std::vector<uint8_t>(gc::SKIN_BYTES, 255); // (white)
 }
 
@@ -1429,9 +1429,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	if (session.mode() == gc::Session::Mode::OFFLINE) {
 		session.attach(attach); // (alone: chat and commands still go through it)
 	}
-	for (const std::string &line : options.say) {
-		session.chat(line);
-	}
+	std::vector<std::string> say = options.say; // (typed once the world around has loaded)
 	const bool online = session.mode() != gc::Session::Mode::OFFLINE;
 	float sleeping = -1; // seconds asleep (-1: awake)
 	double frame_time_total = 0; // (mining: the arm keeps swinging for others to see)
@@ -1607,6 +1605,8 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		gin.sneak = window.key_down(VK_SHIFT);
 		gin.wheel = -int(wheel); // (rolled towards you: the next slot)
 		gin.number_key = number_pressed(window, controls);
+		gin.throw_pressed = controls.pressed(window, settings.key("throw")) && captured;
+		gin.throw_stack = gin.throw_pressed && window.key_down(VK_CONTROL);
 		{
 			GC_PROFILE("game (mining, using, time)");
 			if (!paused) {
@@ -1680,7 +1680,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		hand.update(paused ? 0.0f : dt, game.mining_progress() > 0.0f, walking);
 		// A light-giving block in hand (a torch) lights the world around.
 		std::vector<std::array<float, 4>> held_lights;
-		if (auto it = content.blocks.find(game.selected_item()); !game.dead() && it != content.blocks.end()) {
+		if (auto it = content.blocks.find(gc::undyed(game.selected_item())); !game.dead() && it != content.blocks.end()) {
 			const float level = float(it->second.value("light", 0.0));
 			if (level > 0) {
 				held_lights.push_back({camera.position.x, camera.position.y, camera.position.z, level});
@@ -1931,8 +1931,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 				if (!a.item.empty()) {
 					// A block: a small cube in the fist; a flat item held by its
 					// lower corner, tip forward and up.
-					const bool block = content.blocks.count(a.item) > 0 && rules.is_placeable(a.item) &&
-							rules.def(gocube::BlockId(std::max(0, content.block_index(a.item)))).value("shape", "") != "cross";
+					const bool block = rules.is_placeable(a.item) && rules.def(a.item).value("shape", "") != "cross";
 					const DirectX::XMMATRIX local = block
 							? DirectX::XMMatrixScaling(0.9f, 0.9f, 0.9f) * DirectX::XMMatrixRotationY(0.6f) *
 									DirectX::XMMatrixTranslation(0, -0.08f, -0.06f)
@@ -1950,6 +1949,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 						std::copy(mv.uv, mv.uv + 2, w.uv);
 						std::copy(lit, lit + 3, w.color);
 						w.color[3] = 1;
+						w.set_dye(gc::dye_of(a.item));
 						held_by_others.push_back(w);
 					}
 				}
@@ -2026,6 +2026,11 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		rest_timer.reset();
 		// With a screenshot, count frames once the world around has loaded.
 		const gc::WorldStats ws = world->stats();
+		if (!say.empty() && (ws.settled || sky.time > 60.0f)) {
+			for (const std::string &line : std::exchange(say, {})) {
+				session.chat(line);
+			}
+		}
 		bool counting = options.screenshot.empty() || ws.settled;
 		if (!counting && sky.time > 60.0f) {
 			static bool warned = false;

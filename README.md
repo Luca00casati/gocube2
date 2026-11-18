@@ -11,8 +11,8 @@ fog, block shadows, light from torches (placed and held), dropped items and a
 first-person arm in your skin.
 The terrain comes from 3D noise: hills, cliffs, overhangs, seas with sand and
 gravel beaches, caves, lava deep down, ore veins. Players wear skins in the
-usual box-figure layout (`%APPDATA%\GoCube\skin.ppm`, 64x64 or 64x32, as a
-PPM: magenta is see-through), and everyone sees each player's. The rules of the game
+usual box-figure layout (`%APPDATA%\GoCube\skin.png`, 64x64 or 64x32, a
+PNG with see-through parts), and everyone sees each player's. The rules of the game
 and its content are the base game's Lua (`mods/core`), sandboxed like every mod;
 every data file (a mod's manifest, a world's `world.lua`) is a Lua data table.
 
@@ -60,14 +60,16 @@ survival or creative). Or straight into a world:
 | Left button | Break the block aimed at (hold it in survival; doors and beds go whole) |
 | Right button | Place the held block; open a chest, use a door or bed, eat (sneak to place against them) |
 | 1-9, wheel | Choose a hotbar slot |
-| Middle button | Creative: take the block aimed at |
+| Middle button | Creative: take the block aimed at (dyed too) |
 | E | Inventory (creative: every block and item) |
+| Q | Throw what you hold (Ctrl+Q: the whole stack) |
 | T, / | Chat (/ starts a command); Enter sends, Esc closes, up and down for what you sent, Tab completes a command |
 | Esc | Pause menu (settings; save and quit) |
 
-Survival without tools, weapons, armour, crafting or smelting: everything is
+Survival without tools, weapons, armour or smelting, and only two recipes
+(planks from a log, a dye vat from planks): everything is
 mined by hand (hardness x 0.375 s) and drops itself
-(or what it gives: stone gives cobblestone, coal ore coal), chests, health
+(or what it gives: stone gives cobblestone, coal ore coal, gem ores their gems), chests, health
 (falls, lava, drowning, falling out of the world; no bar: the screen reddens the lower it is,
 and healing with time fades it), death and respawn at your bed or the world spawn, a day that
 lasts a real day by default and a bed to sleep through the night, falling sand,
@@ -108,7 +110,7 @@ host's mods.
 | `--details` | Start with the details screen (F3) open: frame times by part (the profiler) |
 | `--profile` | When the world ends, log the frame times by part, the GPU's and the world threads' (with `--frames`, `--no-vsync`: measure what's slow) |
 | `--screen=inventory\|settings\|chat` | Open the inventory, the settings or the chat at the start (screenshots) |
-| `--say=LINE` | Type LINE into the chat at the start (a command too; once per line) |
+| `--say=LINE` | Type LINE into the chat once the world around has loaded (a command too; once per line) |
 | `--menu` | The title menu even with testing options (`--frames`, `--screenshot` apply to it) |
 | `--warp` | Render on WARP, Windows' software adapter (no GPU needed) |
 | `--hidden` | Don't show the window (tests; the settings file isn't read: the defaults) |
@@ -122,6 +124,19 @@ host's mods.
 | `--no-sound` | Play without sound (`--hidden` never plays any) |
 | `--no-vsync` | Present as fast as possible |
 | `--debug`, `--no-debug` | Force the Direct3D 11 debug layer on or off (default: on in debug builds) |
+
+## Dyeing
+Any block can be any colour. Five gem ores (red, green and blue the commonest,
+white deeper, black deepest and rarest) drop gems; throw gems (Q) into a dye
+vat to make its dye, then throw blocks in: they come back that colour, one
+charge each (a gem gives 8; a vat holds 16 gems). Red, green and blue choose
+the hue, mixed like light (red and green make yellow, 2 red and 1 green
+orange); white and black make it lighter or darker by their share (red and
+white make pink, blue and black navy; white and black alone, greys). A right
+click on the vat with an empty hand tips the dye out. A dyed block keeps its
+texture in the dye's colour, and stays dyed when it's broken and placed again.
+As an item its id has the colour after it: `core:stone#ff8800` (also in
+commands: `/give @s stone#ff8800 64`, `/setblock ~ ~ ~ planks#3366cc`).
 
 ## Chat and commands
 T opens the chat; a line starting with `/` is a command. Whoever plays the
@@ -137,7 +152,7 @@ gives others the right with `/op NAME` (kept with the world). Everyone can use
 | `/list`, `/seed` | Who is playing; the world's seed |
 | `/say <text>` | A message to everyone |
 | `/tp <x y z>`, `/tp <player> [<x y z> or <player>]` | Move (`~` is where you are: `/tp ~ ~10 ~`) |
-| `/give <player> <item> [count]` | Items into a survival player's inventory (`torch` means `core:torch`) |
+| `/give <player> <item> [count]` | Items into a survival player's inventory (`torch` means `core:torch`; `@s` is you; `stone#ff8800` a dyed block) |
 | `/time [set day\|noon\|night\|midnight\|0..1]` | The time of day |
 | `/gamemode [survival\|creative]` | The world's game mode, for everyone (each mode keeps its own inventory) |
 | `/kill [player]` | Ends a survival player's life |
@@ -166,13 +181,17 @@ may run code" off means you only play with servers whose mods are data only.
 (`registry`, `events`, `world`, `game`). The base game is the example: its
 `content/` registers its blocks, items, ores, trees, biome and sounds,
 and its `main.lua` and `rules/` set the game's rules (mining time, drops, fall
-damage, food, plants, fluids) with `game.set_rule`; a mod can replace
+damage, food, plants, fluids, the two recipes) with `game.set_rule`; a mod can replace
 one, or wrap it (`game.rule(name)` gives the one before). The game still
-supports what the base game left out: recipes and the `hand_recipes` rule
-(crafting in the inventory), furnaces (`block_entity = "furnace"`, the `smelting`
+supports what the base game left out: furnaces (`block_entity = "furnace"`, the `smelting`
 and `fuel_seconds` rules), tools and weapons (`damage` on an item), armour, food
 (`food` on an item), and planting and crops (the `use_item` rule, `grows_into`);
-`tests/data/kit_mods/kit` is a small mod that adds them back.
+`tests/data/kit_mods/kit` is a small mod that adds them back. Dyes: an item
+with `dye = "#rrggbb"` is a gem for the dye vat (a grey shades, any other
+colour is a hue); a block with `dye_vat = true` and `block_entity = "vat"`
+is a vat (`full` names its variant with dye in it); `undyed_boxes` lists the
+boxes of a shaped block that keep their own colours when it's dyed;
+`world.set_block` takes a dyed id.
 
 Mods are sandboxed: no files, OS, network or debug access, no bytecode, no
 `load`; a mod's code is stopped when it runs too long or asks for too much
@@ -193,7 +212,7 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
   atlas, item models, skins and the generator's tables.
   Most block faces are painted from a colour and noise (`image.h`; the base game's
   in `mods/core/content/looks.lua`); the few drawn images (torches, doors,
-  beds, chests, items, the default skin) are PPM files, where magenta is see-through.
+  beds, chests, items, the default skin) are PNG files, read by Windows' own decoder (WIC).
 - `src/world/`: chunk streaming on worker threads, editing, the raycast, collision;
   the world folder (`world.lua`, `chunks\`).
 - `src/game/`: the player (movement, breaking, placing), the block rules

@@ -24,7 +24,7 @@ using namespace gocube;
 
 namespace {
 
-constexpr const char *WORLD_FINGERPRINT = "bd803aed75d4246e"; // seed 777
+constexpr const char *WORLD_FINGERPRINT = "79025b3a4669200c"; // seed 777
 constexpr int CHUNK_Y_MIN = -3, CHUNK_Y_MAX = 3;                    // the world's height
 
 struct Sha256 {

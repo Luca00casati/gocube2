@@ -37,7 +37,7 @@ ui::WindowOptions centred(ui::Gui &gui) {
 } // namespace
 
 void UiIcons::draw(ui::DrawList &dl, const std::string &id, ui::Rect r) const {
-	dl.image(r, table->icon(id));
+	dl.image(r, table->icon(undyed(id)), dye_of(id));
 }
 
 bool slot_button(ui::Gui &gui, const char *id, const Stack &stack, const UiIcons &icons, bool highlight,

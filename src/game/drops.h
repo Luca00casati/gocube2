@@ -32,9 +32,15 @@ public:
 		float vel[3] = {0, 0, 0};
 		float age = 0;
 		float turn = 0; // the model's starting spin (radians)
+		float delay = PICKUP_DELAY; // no one picks it up before this age
 	};
 
 	void spawn(const std::string &item, int count, const float at[3]);
+	// Thrown (Q): from `at`, at `vel`, not picked up for THROW_DELAY (it
+	// would come straight back), and never merged into another drop.
+	static constexpr float THROW_DELAY = 1.5f;
+	void throw_item(const std::string &item, int count, const float at[3], const float vel[3]);
+	std::vector<Drop> &all() { return drops_; } // (the dye vats change what's in them)
 	// Someone who picks items up: feet, and the inventory they go into.
 	struct Taker {
 		int peer = 0; // 0: the local player

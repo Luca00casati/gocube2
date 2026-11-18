@@ -2,13 +2,19 @@
 
 #include "data/lua_data.h"
 
+#include <wincodec.h>
+#include <wrl/client.h>
+
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <string>
 
 namespace gc {
+
+using Microsoft::WRL::ComPtr;
 
 // An HTML colour: "#rgb", "#rgba", "#rrggbb" or "#rrggbbaa" ('#' optional).
 bool parse_html_color(std::string s, uint8_t out[4]) {
@@ -39,84 +45,50 @@ bool parse_html_color(std::string s, uint8_t out[4]) {
 	return false;
 }
 
-// --- PPM ---------------------------------------------------------------------------
+// --- PNG (Windows' own decoder: WIC) --------------------------------------------------
 
-bool parse_ppm(std::string_view b, Image &out) {
-	size_t p = 0;
-	auto skip_space = [&] {
-		while (p < b.size()) {
-			if (b[p] == '#') { // a comment, to the end of the line
-				while (p < b.size() && b[p] != '\n') {
-					p++;
-				}
-			} else if (b[p] == ' ' || b[p] == '\t' || b[p] == '\r' || b[p] == '\n') {
-				p++;
-			} else {
-				break;
-			}
-		}
-	};
-	auto number = [&](int &v) {
-		skip_space();
-		v = 0;
-		size_t digits = 0;
-		while (p < b.size() && b[p] >= '0' && b[p] <= '9' && digits < 6) {
-			v = v * 10 + (b[p++] - '0');
-			digits++;
-		}
-		return digits > 0;
-	};
-	if (b.size() < 2 || b[0] != 'P' || (b[1] != '6' && b[1] != '3')) {
+bool parse_png(std::string_view b, Image &out) {
+	static const unsigned char SIGNATURE[8] = {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};
+	if (b.size() < 8 || b.size() > 64u * 1024 * 1024 || std::memcmp(b.data(), SIGNATURE, 8) != 0) {
 		return false;
 	}
-	const bool binary = b[1] == '6';
-	p = 2;
-	int w = 0, h = 0, maxval = 0;
-	if (!number(w) || !number(h) || !number(maxval) || w <= 0 || h <= 0 || w > 4096 || h > 4096 || maxval <= 0 ||
-			maxval > 255) {
+	static thread_local const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); // (once a thread)
+	(void)com;
+	ComPtr<IWICImagingFactory> factory;
+	ComPtr<IWICStream> stream;
+	ComPtr<IWICBitmapDecoder> decoder;
+	ComPtr<IWICBitmapFrameDecode> frame;
+	ComPtr<IWICFormatConverter> rgba;
+	GUID format{};
+	UINT w = 0, h = 0;
+	if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) ||
+			FAILED(factory->CreateStream(&stream)) ||
+			FAILED(stream->InitializeFromMemory(reinterpret_cast<BYTE *>(const_cast<char *>(b.data())), DWORD(b.size()))) ||
+			FAILED(factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, &decoder)) ||
+			FAILED(decoder->GetContainerFormat(&format)) || format != GUID_ContainerFormatPng ||
+			FAILED(decoder->GetFrame(0, &frame)) || FAILED(frame->GetSize(&w, &h)) || w == 0 || h == 0 || w > 4096 ||
+			h > 4096 || FAILED(factory->CreateFormatConverter(&rgba)) ||
+			FAILED(rgba->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0,
+					WICBitmapPaletteTypeCustom))) {
 		return false;
 	}
-	const size_t count = size_t(w) * size_t(h) * 3;
-	std::vector<uint8_t> rgb(count);
-	if (binary) {
-		p++; // the single whitespace after maxval
-		if (b.size() < p + count) {
-			return false;
-		}
-		std::copy(b.begin() + p, b.begin() + p + count, rgb.begin());
-	} else {
-		for (size_t i = 0; i < count; i++) {
-			int v = 0;
-			if (!number(v) || v > maxval) {
-				return false;
-			}
-			rgb[i] = uint8_t(v);
-		}
+	std::vector<uint8_t> px(size_t(w) * h * 4);
+	if (FAILED(rgba->CopyPixels(nullptr, w * 4, UINT(px.size()), px.data()))) {
+		return false;
 	}
-	out.width = w;
-	out.height = h;
-	out.rgba.assign(size_t(w) * size_t(h) * 4, 0);
-	for (size_t i = 0; i < size_t(w) * size_t(h); i++) {
-		uint8_t c[3];
-		for (int k = 0; k < 3; k++) {
-			c[k] = uint8_t((rgb[i * 3 + k] * 255 + maxval / 2) / maxval);
-		}
-		const bool clear = c[0] == 255 && c[1] == 0 && c[2] == 255; // magenta: see-through
-		for (int k = 0; k < 3; k++) {
-			out.rgba[i * 4 + k] = clear ? 0 : c[k];
-		}
-		out.rgba[i * 4 + 3] = clear ? 0 : 255;
-	}
+	out.width = int(w);
+	out.height = int(h);
+	out.rgba = std::move(px);
 	return true;
 }
 
-bool read_ppm(const std::filesystem::path &path, Image &out) {
+bool read_png(const std::filesystem::path &path, Image &out) {
 	std::ifstream f(path, std::ios::binary);
 	if (!f) {
 		return false;
 	}
 	const std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-	return parse_ppm(bytes, out);
+	return parse_png(bytes, out);
 }
 
 // --- Painted faces -----------------------------------------------------------------

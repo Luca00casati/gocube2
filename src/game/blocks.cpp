@@ -58,11 +58,12 @@ const std::string &BlockRules::id_of(int block) const {
 
 const Data &BlockRules::def(const std::string &id) const {
 	static const Data empty = Data::object();
-	auto it = content_.blocks.find(id);
+	auto it = content_.blocks.find(undyed(id)); // (a dyed block's: its block's)
 	return it != content_.blocks.end() ? it->second : empty;
 }
 
-bool BlockRules::is_placeable(const std::string &id) const {
+bool BlockRules::is_placeable(const std::string &dyed_id) const {
+	const std::string id = undyed(dyed_id); // (dyed blocks too)
 	auto it = content_.blocks.find(id);
 	return it != content_.blocks.end() && !it->second.contains("fluid") && id != "core:air" &&
 			!it->second.contains("variant_of") && !flag(it->second, "hidden");

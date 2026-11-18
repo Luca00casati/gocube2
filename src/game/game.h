@@ -74,6 +74,8 @@ public:
 	// a door, using an item (a hoe, seeds).
 	virtual void request_use(const float eye[3], const float dir[3], int slot, const std::string &item, bool sneak) = 0;
 	virtual void request_eat(int slot) = 0;
+	// Q: throwing what is in hand (one, or the whole stack).
+	virtual void request_throw(const float eye[3], const float dir[3], int slot, const std::string &item, bool whole) = 0;
 	virtual void hit_creature(int id) = 0;
 	// Survival: a click in a screen (Game::inventory_action), done here too.
 	virtual void inventory_action(const Data &action) = 0;
@@ -90,6 +92,8 @@ struct GameInput {
 	bool sneak = false;
 	int wheel = 0;            // notches (positive: towards the next slot)
 	int number_key = 0;       // 1..9 pressed this frame, else 0
+	bool throw_pressed = false; // Q: throws one of what is in hand
+	bool throw_stack = false;   // (with Ctrl: the whole stack)
 };
 
 class Game {
@@ -218,6 +222,19 @@ public:
 	// placing) by `who`; false if nothing happened. Survival takes what was
 	// used from its inventory.
 	bool use(const Actor &who, bool sneak);
+	// Throws what `who` holds (one, or the whole stack) from `eye` towards
+	// `dir`; survival takes it from its inventory. False if it holds nothing.
+	bool throw_item(const Actor &who, const float eye[3], const float dir[3], bool whole);
+	static constexpr float THROW_SPEED = 7.0f;
+
+	// The dye vat: each gem thrown in dyes DYE_PER_GEM blocks; it holds
+	// VAT_MAX_GEMS gems at most (more bounce off). Blocks thrown in come out
+	// dyed (one charge each), as many as it has charge for.
+	static constexpr int DYE_PER_GEM = 8, VAT_MAX_GEMS = 16;
+	// The dye in the vat at `p` (NO_DYE: empty).
+	gocube::Dye vat_dye(const BlockPos &p);
+	// Right click with an empty hand: the dye is tipped out.
+	void empty_vat(const BlockPos &p);
 	// The host: the other players (set every frame), and what happens to them
 	// here (a creature hits one, it picks something up), and the sounds and
 	// sights mods make (for everyone to hear and see).
@@ -236,6 +253,8 @@ public:
 
 private:
 	void fill_creative();
+	void dye_in_vats(); // (each physics step: what fell into a vat)
+	void set_vat_block(const BlockPos &p, const BlockEntity &e); // empty or full, the dye's colour
 	Remote *remote_ = nullptr;
 	std::vector<OtherPlayer> others_;
 

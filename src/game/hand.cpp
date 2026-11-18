@@ -212,6 +212,7 @@ void Hand::build(ItemModels &models, const std::string &item, const float light[
 		std::copy(mv.uv, mv.uv + 2, v.uv);
 		std::copy(light, light + 3, v.color);
 		v.color[3] = 1;
+		v.set_dye(dye_of(item));
 		held.push_back(v);
 	}
 }

@@ -109,8 +109,14 @@ Commands::Commands(CommandWorld world) : w_(std::move(world)) {
 	add_builtins();
 }
 
-std::string Commands::full_id(const std::string &id) const {
-	return id.find(':') == std::string::npos ? "core:" + id : id;
+std::string Commands::full_id(const std::string &given) const {
+	std::string id = given.find(':') == std::string::npos ? "core:" + given : given;
+	if (const size_t hash = id.find('#'); hash != std::string::npos) { // a dye: "stone#FF8800" is "core:stone#ff8800"
+		for (size_t i = hash; i < id.size(); i++) {
+			id[i] = char(std::tolower((unsigned char)id[i]));
+		}
+	}
+	return id;
 }
 
 std::optional<CommandPlayer> Commands::find_player(const CommandPlayer &who, const std::string &name) const {

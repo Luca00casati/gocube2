@@ -1,6 +1,6 @@
 #pragma once
 // Player skins: the common box-figure skin layout, 64 x 64 pixels (or the
-// older 64 x 32), read from a PPM (magenta is see-through: the outer layer's
+// older 64 x 32), read from a PNG (see-through pixels: the outer layer's
 // empty parts). game/creature_models.h dresses a player's figure in it; the
 // session sends each player's to everyone (net/session.h).
 

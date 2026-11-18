@@ -1,5 +1,6 @@
 #include "storage.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -33,12 +34,31 @@ bool replace_file(const std::string &from, const std::string &to) {
 }
 
 // File layout (little-endian):
-//   "GCC1"                     magic + format version
+//   "GCC2"                     magic + format version ("GCC1": no dyes)
 //   u8   uniform               1 = every block is `value`
 //   u16  value                 (uniform only)
 //   u32  run_count             (non-uniform only)
 //   run_count x { u16 length, u16 id }   runs over ChunkData::index order
-constexpr char MAGIC[4] = { 'G', 'C', 'C', '1' };
+//   u32  dye_count
+//   dye_count x { u16 index, u8 r, u8 g, u8 b }   dyed blocks, by index
+constexpr char MAGIC[4] = { 'G', 'C', 'C', '2' };
+constexpr char MAGIC_V1[4] = { 'G', 'C', 'C', '1' };
+
+void put_dyes(std::vector<uint8_t> &out, const ChunkData &chunk) {
+	std::vector<std::pair<uint16_t, Dye>> dyes(chunk.dyes.begin(), chunk.dyes.end());
+	std::sort(dyes.begin(), dyes.end()); // (the same chunk: the same bytes)
+	const uint32_t n = uint32_t(dyes.size());
+	for (int k = 0; k < 4; k++) {
+		out.push_back(uint8_t(n >> (8 * k)));
+	}
+	for (const auto &[index, d] : dyes) {
+		out.push_back(uint8_t(index & 0xFF));
+		out.push_back(uint8_t(index >> 8));
+		out.push_back(uint8_t(d >> 16));
+		out.push_back(uint8_t(d >> 8));
+		out.push_back(uint8_t(d));
+	}
+}
 
 } // namespace
 
@@ -55,6 +75,7 @@ std::vector<uint8_t> encode_chunk(const ChunkData &chunk) {
 	out.push_back(chunk.uniform ? 1 : 0);
 	if (chunk.uniform) {
 		put16(chunk.uniform_value);
+		put_dyes(out, chunk);
 		return out;
 	}
 	std::vector<uint16_t> runs; // pairs: length, id
@@ -76,6 +97,7 @@ std::vector<uint8_t> encode_chunk(const ChunkData &chunk) {
 	for (uint16_t v : runs) {
 		put16(v);
 	}
+	put_dyes(out, chunk);
 	return out;
 }
 
@@ -87,7 +109,8 @@ bool decode_chunk(const uint8_t *data, size_t size, ChunkData &chunk) {
 		pos += 2;
 		return true;
 	};
-	if (size < 5 || std::memcmp(data, MAGIC, 4) != 0) {
+	const bool v1 = size >= 4 && std::memcmp(data, MAGIC_V1, 4) == 0;
+	if (size < 5 || (!v1 && std::memcmp(data, MAGIC, 4) != 0)) {
 		return false;
 	}
 	pos = 4;
@@ -112,6 +135,23 @@ bool decode_chunk(const uint8_t *data, size_t size, ChunkData &chunk) {
 		}
 		if (result.blocks.size() != CHUNK_VOLUME) return false;
 	}
+	if (!v1) {
+		uint16_t lo = 0, hi = 0;
+		if (!get16(lo) || !get16(hi)) return false;
+		const uint32_t count = lo | (uint32_t(hi) << 16);
+		if (count > CHUNK_VOLUME || size - pos < size_t(count) * 5) return false;
+		for (uint32_t i = 0; i < count; i++) {
+			const uint16_t index = uint16_t(data[pos] | (data[pos + 1] << 8));
+			const Dye d = make_dye(data[pos + 2], data[pos + 3], data[pos + 4]);
+			pos += 5;
+			if (index >= CHUNK_VOLUME) return false;
+			const BlockId b = result.uniform ? result.uniform_value : result.blocks[index];
+			if (b != AIR) {
+				result.dyes[index] = d;
+			}
+		}
+	}
+	if (pos != size) return false;
 	chunk = std::move(result);
 	return true;
 }

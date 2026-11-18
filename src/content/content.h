@@ -92,8 +92,21 @@ struct BlockTable {
 };
 BlockTable build_block_table(const Content &content);
 
+// Dyed blocks as items: the block's id and its dye, "core:stone#ff8800"
+// (inventories, drops, the network and saves carry them as any other id).
+// The block's own id, without the dye:
+std::string undyed(const std::string &id);
+gocube::Dye dye_of(const std::string &id); // NO_DYE: not dyed
+std::string dyed(const std::string &id, gocube::Dye dye); // (NO_DYE: the id alone)
+std::string dye_hex(gocube::Dye dye);                      // "#ff8800"
+bool parse_dye(const std::string &hex, gocube::Dye &out);  // "#ff8800" or "ff8800"
+// A texture pixel (sRGB numbers) of a dyed block: the dye, lighter and darker
+// as the texture is (as shaders/color.hlsli's apply_dye).
+void dye_pixel(uint8_t rgb[3], gocube::Dye dye);
+
 // What players see an item or block called: its "name", else its id without
-// the mod, words capitalised ("core:wood_pickaxe" -> "Wood Pickaxe").
+// the mod, words capitalised ("core:wood_pickaxe" -> "Wood Pickaxe"); a dyed
+// block's has its colour after it.
 std::string display_name(const Content &content, const std::string &id);
 
 // A string's djb2 hash (the ore salts come from it).

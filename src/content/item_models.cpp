@@ -42,12 +42,14 @@ void model_bounds(const Data &def, float mn[3], float mx[3]) {
 
 } // namespace
 
-bool ItemModels::is_block(const std::string &item) const {
+bool ItemModels::is_block(const std::string &dyed_item) const {
+	const std::string item = undyed(dyed_item);
 	const int index = content_.block_index(item);
 	return index > 0 && (table_.blocks[size_t(index)].solid || content_.blocks.at(item).value("shape", "") == "bed");
 }
 
-const std::vector<ModelVertex> &ItemModels::model(const std::string &item) {
+const std::vector<ModelVertex> &ItemModels::model(const std::string &dyed_item) {
+	const std::string item = undyed(dyed_item); // (the dye is the vertices': WorldVertex::dye)
 	auto it = models_.find(item);
 	if (it != models_.end()) {
 		return it->second;

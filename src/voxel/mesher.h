@@ -42,6 +42,7 @@ struct Surface {
 	// rgba: r = sky light, g = block light (0..1), b = corner occlusion (1 = none),
 	// a = 1 - 0.5 (green varies: grass, leaves) - 0.25 (in a block's shadow).
 	std::vector<float> colors;
+	std::vector<Dye> dyes; // per vertex: its block's dye (NO_DYE: its own colours)
 	std::vector<int32_t> indices;
 
 	bool empty() const { return indices.empty(); }

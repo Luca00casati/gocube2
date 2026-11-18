@@ -19,6 +19,7 @@ const std::vector<Settings::Action> &Settings::actions() {
 			{"sprint", "Sprint", 0x11},                // ctrl
 			{"toggle_fly", "Toggle flying", 'F'},
 			{"inventory", "Inventory", 'E'},
+			{"throw", "Throw (Ctrl: the stack)", 'Q'},
 	};
 	return list;
 }

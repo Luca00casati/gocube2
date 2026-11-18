@@ -68,6 +68,7 @@ struct VSIn {
 	float3 normal : NORMAL;
 	float2 uv : TEXCOORD0;
 	float4 color : COLOR0;
+	float4 dye : COLOR1;   // a dyed block's colour (a = 1), else 0
 };
 
 struct PSIn {
@@ -76,6 +77,7 @@ struct PSIn {
 	float3 normal : TEXCOORD1;
 	float2 uv : TEXCOORD2;
 	float4 color : COLOR0;
+	nointerpolation float4 dye : COLOR1;
 };
 
 PSIn vs_main(VSIn i) {
@@ -85,6 +87,7 @@ PSIn vs_main(VSIn i) {
 	o.normal = i.normal;
 	o.uv = i.uv;
 	o.color = i.color;
+	o.dye = i.dye;
 	return o;
 }
 
@@ -138,10 +141,10 @@ void lights(PSIn i, out float3 shade, out float3 full) {
 float4 shade_terrain(PSIn i, float4 tex) {
 	float3 n = i.normal;
 	float face = n.y > 0.5 ? FACE_LIGHT.x : (n.y < -0.5 ? FACE_LIGHT.w : (abs(n.z) > 0.5 ? FACE_LIGHT.y : FACE_LIGHT.z));
-	float3 base = tex.rgb;
+	float3 base = apply_dye(tex.rgb, i.dye);
 	float marks = round(i.color.a * 4.0); // 4, 3 (shadow), 2 (tinted), 1 (tinted, shadow)
 	float sunlit = 1.0 - fmod(marks, 2.0);
-	if (marks < 2.5) { // grass, leaves: vary only the green pixels (not a grass side's dirt)
+	if (marks < 2.5 && i.dye.a < 0.5) { // grass, leaves: vary only the green pixels (not a grass side's dirt)
 		float green = smoothstep(0.02, 0.08, tex.g - max(tex.r, tex.b));
 		base *= lerp(float3(1.0, 1.0, 1.0), green_variation(i.world.xz), green);
 	}

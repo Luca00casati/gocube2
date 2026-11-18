@@ -254,7 +254,7 @@ TEST_CASE("block shadows: faces the sun can't reach are marked, and moving the s
 TEST_CASE("player skins: the usual layout, 64x64 or the older 64x32; the figure wears it") {
 	// The base game's skin.
 	gc::Image image, skin;
-	REQUIRE(gc::read_ppm(std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods" / "core" / "textures" / "player.ppm", image));
+	REQUIRE(gc::read_png(std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods" / "core" / "textures" / "player.png", image));
 	REQUIRE(gc::to_skin(image, skin));
 	CHECK(skin.rgba.size() == gc::SKIN_BYTES);
 	auto alpha = [&](const gc::Image &im, int x, int y) { return im.rgba[(size_t(y) * size_t(im.width) + size_t(x)) * 4 + 3]; };

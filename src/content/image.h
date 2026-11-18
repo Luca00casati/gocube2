@@ -1,8 +1,8 @@
 #pragma once
-// Block and item images: the few drawn ones are PPM files (binary P6 or text
-// P3, 8-bit), and pure magenta (#ff00ff) in them is see-through (PPM has no
-// alpha); every other face is painted here from a colour and some noise, as a
-// mod's block definition describes it (its `textures` face given as a table).
+// Block and item images: the few drawn ones are PNG files (read by Windows'
+// own decoder, WIC: any PNG, its alpha as it is); every other face is painted
+// here from a colour and some noise, as a mod's block definition describes it
+// (its `textures` face given as a table).
 
 #include "data/data.h"
 
@@ -23,9 +23,9 @@ struct Image {
 	std::vector<uint8_t> rgba;
 };
 
-// Reads a PPM: false if it isn't one (or can't be read).
-bool parse_ppm(std::string_view bytes, Image &out);
-bool read_ppm(const std::filesystem::path &path, Image &out);
+// Reads a PNG (up to 4096 x 4096): false if it isn't one (or can't be read).
+bool parse_png(std::string_view bytes, Image &out);
+bool read_png(const std::filesystem::path &path, Image &out);
 
 // A face painted from `spec`, `size` x `size` texels (a power of two, 8 or
 // more): a grid of "pixels" (default 16 across) of the colour "color", each one

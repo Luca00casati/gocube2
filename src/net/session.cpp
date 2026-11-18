@@ -36,11 +36,12 @@ enum Msg : uint8_t {
 	C_MOD_PART,  // entry, part u32 (a player we offered our mods)
 	C_SKIN,      // bytes (SKIN_BYTES of RGBA)
 	C_CHAT,      // text (a line, or a "/" command)
+	C_THROW,     // eye, dir, slot u8, item, whole bool (Q)
 
 	H_WELCOME = 64, // info (data), chunks (u32 count, position + bytes)
 	H_REJECTED,     // reason
 	H_PLAYERS,      // u16 count, {id u32, name, eye, yaw, pitch, item, flags u8, swings u32, light u8} (unreliable)
-	H_BLOCK,        // block, id u16
+	H_BLOCK,        // block, id u16, dye u32 (gocube::Dye)
 	H_CHUNK,        // chunk position, bytes
 	H_TIME,         // time f64, day_length f64
 	H_CORRECT,      // eye
@@ -148,6 +149,7 @@ struct Session::Peer {
 	double corrected = -1e9;
 	// Survival: its inventory and health as the host keeps them.
 	std::unique_ptr<Inventory> inv;
+	std::unique_ptr<Inventory> scratch; // creative: where what it picks up lands (then it's told)
 	uint32_t done = 0; // the last inventory action of its we did
 	bool inv_changed = false;
 	Vitals vitals;
@@ -177,6 +179,7 @@ struct Session::Peer {
 const std::map<std::string, Session::Rate> &Session::rates() {
 	static const std::map<std::string, Rate> table = {
 			{"edit", {20, 40}}, // breaking and right clicks (creative mines fast)
+			{"throw", {8, 16}}, // Q
 			{"hit", {8, 12}},
 			{"chunk", {30, 120}},
 			{"container", {20, 40}},
@@ -364,7 +367,7 @@ void Session::attach(const Attach &a) {
 			previous_block_hook_(p, id);
 		}
 		Writer w(H_BLOCK);
-		block_pos(w, p).u16(id);
+		block_pos(w, p).u16(id).u32(a_.world->dye_at(p.x, p.y, p.z));
 		to_players(w.bytes);
 	};
 	game.on_damage_peer = [this](int peer, int amount, const std::string &source, const float push[3]) {
@@ -838,7 +841,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 			const bool known = a_.content->items.count(item) || a_.rules->is_placeable(item);
 			p.item = known ? item : "";
 			p.item = held_item(p);
-			auto it = a_.content->blocks.find(p.item);
+			auto it = a_.content->blocks.find(undyed(p.item));
 			p.light = it != a_.content->blocks.end() ? std::clamp(int(it->second.value("light", 0.0)), 0, 15) : 0;
 			if (p.inv) {
 				float feet[3];
@@ -878,6 +881,28 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 				}
 			}
 			do_break(p, pos, slot);
+			break;
+		}
+		case C_THROW: {
+			float eye[3], dir[3];
+			r.vec3(eye);
+			r.vec3(dir);
+			const int slot = r.u8();
+			const std::string item = r.str(128);
+			const bool whole = r.boolean();
+			const float len = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+			if (!r.ok() || !allow(p, "throw") || dead || slot >= Inventory::HOTBAR || len < 0.9f || len > 1.1f ||
+					distance(eye, p.eye) > USE_EYE_SLACK) {
+				p.inv_changed = p.inv != nullptr; // (its copy as it is)
+				return;
+			}
+			Actor who;
+			who.peer = p.id;
+			who.inventory = p.inv.get(); // (survival: from our copy; creative: what it says it holds)
+			who.selected = slot;
+			who.item = item;
+			game.throw_item(who, eye, dir, whole);
+			p.inv_changed = p.inv != nullptr;
 			break;
 		}
 		case C_USE: {
@@ -1218,11 +1243,12 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 		case H_BLOCK: {
 			const BlockPos pos = read_block(r);
 			const gocube::BlockId id = r.u16();
+			const uint32_t dye = r.u32();
 			if (!r.ok()) {
 				return;
 			}
 			const int old = a_.world->block_id_at(pos.x, pos.y, pos.z);
-			if (old < 0 || !a_.world->set_block(pos, id)) {
+			if (old < 0 || !a_.world->set_block(pos, id, (dye >> 24) == 0xFF ? dye : gocube::NO_DYE)) {
 				// Not loaded here: get the whole chunk (else it would come back
 				// as the generator makes it).
 				Writer w(C_CHUNK);
@@ -1348,8 +1374,11 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 			break;
 		}
 		case H_PICKED: {
-			r.str(128);
-			r.u16();
+			const std::string item = r.str(128);
+			const int count = r.u16();
+			if (r.ok() && game.creative() && !item.empty()) { // (survival: the host sends our inventory)
+				game.inventory().add(item, count);
+			}
 			float eye[3];
 			a_.player->eye(eye);
 			game.play_sound("core:effects", "pickup", eye, -8.0f);
@@ -1445,6 +1474,13 @@ void Session::host_update(float dt) {
 		p->feet(o.feet);
 		o.alive = !(p->inv && p->vitals.dead);
 		o.inventory = p->inv.get();
+		if (!p->inv && game.creative()) { // creative: it picks up into its own (H_PICKED)
+			if (!p->scratch) {
+				p->scratch = std::make_unique<Inventory>(*a_.content);
+			}
+			*p->scratch = Inventory(*a_.content);
+			o.inventory = p->scratch.get();
+		}
 		others.push_back(o);
 		viewers.push_back({o.feet[0], o.feet[1], o.feet[2]});
 	}
@@ -1671,8 +1707,14 @@ CommandWorld Session::command_world() {
 		}
 		return out;
 	};
-	w.is_block = [this](const std::string &id) { return a_.content && a_.content->block_index(id) >= 0; };
-	w.is_item = [this](const std::string &id) { return a_.content && a_.content->items.count(id) > 0; };
+	// (Blocks may have a dye after them: "core:stone#ff8800".)
+	auto dye_ok = [](const std::string &id) { return id.find('#') == std::string::npos || dye_of(id) != gocube::NO_DYE; };
+	w.is_block = [this, dye_ok](const std::string &id) {
+		return a_.content && a_.content->block_index(undyed(id)) >= 0 && dye_ok(id);
+	};
+	w.is_item = [this, dye_ok](const std::string &id) {
+		return a_.content && (a_.content->items.count(id) > 0 || (a_.rules && a_.rules->is_placeable(id) && dye_ok(id)));
+	};
 	w.is_creature = [this](const std::string &id) { return a_.content && a_.content->creatures.count(id) > 0; };
 	w.teleport = [this](int peer, const float feet[3]) {
 		if (peer == 0) {
@@ -1767,8 +1809,8 @@ CommandWorld Session::command_world() {
 		}
 	};
 	w.set_block = [this](const BlockPos &pos, const std::string &id) {
-		const int index = a_.content ? a_.content->block_index(id) : -1;
-		return index >= 0 && a_.world && a_.world->set_block(pos, gocube::BlockId(index));
+		const int index = a_.content ? a_.content->block_index(undyed(id)) : -1;
+		return index >= 0 && a_.world && a_.world->set_block(pos, gocube::BlockId(index), dye_of(id));
 	};
 	w.summon = [this](const std::string &kind, const float at[3]) {
 		return a_.game && a_.content && a_.game->creatures().spawn(*a_.content, kind, at) > 0;
@@ -2036,6 +2078,12 @@ void Session::request_use(const float eye[3], const float dir[3], int slot, cons
 void Session::request_eat(int slot) {
 	Writer w(C_EAT);
 	w.u8(uint8_t(std::clamp(slot, 0, 255)));
+	send_host(w.bytes);
+}
+
+void Session::request_throw(const float eye[3], const float dir[3], int slot, const std::string &item, bool whole) {
+	Writer w(C_THROW);
+	w.vec3(eye).vec3(dir).u8(uint8_t(std::clamp(slot, 0, 255))).str(item).boolean(whole);
 	send_host(w.bytes);
 }
 

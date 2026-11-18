@@ -50,7 +50,7 @@ void aim_at_floor(NetPlay &n, int x, int z) {
 TEST_CASE("multiplayer: joining gets the host's world, and block changes go both ways (creative)") {
 	auto host = NetPlay::host(test_port(0), true);
 	const BlockPos before{5, 100, 5}, after{6, 100, 5};
-	host->world().set_block(before, host->play->id("core:lamp"));
+	host->world().set_block(before, host->play->id("core:lamp"), gocube::make_dye(0x20, 0x40, 0x80)); // (dyed)
 	host->game().inventory().slots[0] = {"core:torch", 1}; // (others see its light)
 	auto client = NetPlay::join(test_port(0), "Client", [&] { host->frame(); });
 	REQUIRE(client);
@@ -59,9 +59,12 @@ TEST_CASE("multiplayer: joining gets the host's world, and block changes go both
 	CHECK(c.game().creative());
 	REQUIRE(run_until(both_sides, [&] { return c.world().is_loaded(5, 100, 5); }, 20));
 	CHECK(c.play->block(before) == "core:lamp"); // an edit made before we joined
+	CHECK(c.world().dye_at(before.x, before.y, before.z) == gocube::make_dye(0x20, 0x40, 0x80)); // its dye too
 
 	h.world().set_block(after, h.play->id("core:gold_ore"));
 	CHECK(run_until(both_sides, [&] { return c.play->block(after) == "core:gold_ore"; }, 5)); // and after
+	h.world().set_block(after, h.play->id("core:gold_ore"), gocube::make_dye(255, 0, 0)); // (only its dye changes)
+	CHECK(run_until(both_sides, [&] { return c.world().dye_at(after.x, after.y, after.z) == gocube::make_dye(255, 0, 0); }, 5));
 
 	// Each sees the other, with its name; the host's torch lights our world.
 	CHECK(run_until(both_sides, [&] {
@@ -74,14 +77,16 @@ TEST_CASE("multiplayer: joining gets the host's world, and block changes go both
 	// Positions go by UDP (checked both ways first).
 	CHECK(run_until(both_sides, [&] { return c.session.udp_ready() && h.session.udp_ready(); }, 5));
 
-	// We place a block: the host does it, both worlds have it.
+	// We place a block (a dyed one): the host does it, both worlds have it, dyed.
 	const BlockPos cell{4, 100, 1};
-	c.game().inventory().slots[0] = {"core:planks", 1};
+	c.game().inventory().slots[0] = {"core:planks#3366cc", 1};
 	c.input.number_key = 1;
 	c.frame();
 	aim_at_floor(c, cell.x, cell.z);
 	c.input.use_pressed = true;
 	CHECK(run_until(both_sides, [&] { return both(h, c, cell, "core:planks"); }, 5));
+	CHECK(h.world().dye_at(cell.x, cell.y, cell.z) == gocube::make_dye(0x33, 0x66, 0xcc));
+	CHECK(run_until(both_sides, [&] { return c.world().dye_at(cell.x, cell.y, cell.z) == gocube::make_dye(0x33, 0x66, 0xcc); }, 5));
 	// And break it.
 	c.aim(cell.x + 0.5f, cell.y + 0.5f, cell.z + 0.5f);
 	c.input.break_pressed = true;
@@ -276,6 +281,20 @@ TEST_CASE("multiplayer: a survival client's inventory, placing, mining time, dro
 	const int burnt = c.game().health();
 	CHECK(run_until(both_sides, [&] { return c.game().health() > burnt; }, 9));
 
+	// Throwing (Q): out of the host's copy, a drop in the host's world.
+	auto beds_lying = [&] {
+		int n = 0;
+		for (const auto &d : h.game().drops().drops()) {
+			n += d.item == "core:bed" ? d.count : 0;
+		}
+		return n;
+	};
+	REQUIRE(c.hold("core:bed"));
+	c.frame();
+	c.input.throw_pressed = true;
+	CHECK(run_until(both_sides, [&] { return beds_lying() == 1; }, 5));
+	CHECK(run_until(both_sides, [&] { return inv.count_of("core:bed") == 1; }, 5));
+
 	// The host keeps what we have when we leave.
 	client.reset();
 	REQUIRE(run_until({&h}, [&] { return h.session.avatars().empty(); }, 5));
@@ -283,7 +302,7 @@ TEST_CASE("multiplayer: a survival client's inventory, placing, mining time, dro
 	gc::Inventory kept(content);
 	kept.deserialize(saved["Client"]["inventory"]);
 	CHECK(kept.count_of("core:planks") == 4); // (placed one, mined it back)
-	CHECK(kept.count_of("core:bed") == 2);
+	CHECK(kept.count_of("core:bed") + beds_lying() == 2); // (the thrown one: lying there, or picked up again)
 }
 
 TEST_CASE("multiplayer: chests through the host") {

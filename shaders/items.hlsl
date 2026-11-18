@@ -26,6 +26,7 @@ struct VSIn {
 	float3 normal : NORMAL;
 	float2 uv : TEXCOORD0;
 	float4 color : COLOR0;
+	float4 dye : COLOR1;   // a dyed block's colour (a = 1), else 0
 };
 
 struct PSIn {
@@ -34,6 +35,7 @@ struct PSIn {
 	float3 normal : TEXCOORD1;
 	float2 uv : TEXCOORD2;
 	float4 color : COLOR0;
+	nointerpolation float4 dye : COLOR1;
 };
 
 PSIn vs_main(VSIn i) {
@@ -43,6 +45,7 @@ PSIn vs_main(VSIn i) {
 	o.normal = i.normal;
 	o.uv = i.uv;
 	o.color = i.color;
+	o.dye = i.dye;
 	return o;
 }
 
@@ -51,7 +54,7 @@ float4 ps_main(PSIn i) : SV_Target {
 	clip(c.a - 0.5);
 	float3 n = abs(i.normal);
 	float shade = i.normal.y > 0.5 ? 1.0 : (i.normal.y < -0.5 ? 0.55 : (n.x > 0.5 ? 0.8 : 0.7));
-	float3 color = to_linear(max(c.rgb * shade * i.color.rgb, 0.0));
+	float3 color = to_linear(max(apply_dye(c.rgb, i.dye) * shade * i.color.rgb, 0.0));
 	float d = length(i.place - eye);
 	color = lerp(color, fog_color, pow(smoothstep(fog_start, fog_end, d), 1.6));
 	return float4(to_srgb(color), 1.0);

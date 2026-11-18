@@ -493,6 +493,12 @@ BlockId World::block_at(int x, int y, int z) const {
 	return id < 0 ? AIR : BlockId(id);
 }
 
+Dye World::dye_at(int x, int y, int z) const {
+	int lx, ly, lz;
+	const ChunkData *d = chunk_data_at(x, y, z, lx, ly, lz);
+	return d ? d->dye(lx, ly, lz) : NO_DYE;
+}
+
 void World::light_at(int x, int y, int z, int &sky, int &block) const {
 	const int cx = floor_div(x, CHUNK), cy = floor_div(y, CHUNK), cz = floor_div(z, CHUNK);
 	auto it = chunks_.find(key(cx, cy, cz));
@@ -561,7 +567,7 @@ bool World::is_loaded(int x, int y, int z) const {
 	return chunk_data_at(x, y, z, lx, ly, lz) != nullptr;
 }
 
-bool World::set_block(const BlockPos &p, BlockId id) {
+bool World::set_block(const BlockPos &p, BlockId id, Dye dye) {
 	if (id >= blocks_.size()) {
 		return false;
 	}
@@ -572,12 +578,29 @@ bool World::set_block(const BlockPos &p, BlockId id) {
 	}
 	Chunk &chunk = it->second;
 	const int lx = p.x - cx * CHUNK, ly = p.y - cy * CHUNK, lz = p.z - cz * CHUNK;
+	if (id == AIR) {
+		dye = NO_DYE;
+	}
 	if (chunk.data->get(lx, ly, lz) == id) {
+		if (chunk.data->dye(lx, ly, lz) == dye) {
+			return true;
+		}
+		// Only the dye: this chunk's mesh, nothing else (light doesn't change).
+		auto copy = std::make_shared<ChunkData>(*chunk.data);
+		copy->set_dye(lx, ly, lz, dye);
+		chunk.data = copy;
+		chunk.dirty = true;
+		revision_++;
+		request_remesh(cx, cy, cz);
+		if (on_block_changed) {
+			on_block_changed(p, id);
+		}
 		return true;
 	}
 	// Copy-on-write: mesh jobs may still be reading the old snapshot.
 	auto copy = std::make_shared<ChunkData>(*chunk.data);
 	copy->set(lx, ly, lz, id);
+	copy->set_dye(lx, ly, lz, dye);
 	copy->compact();
 	chunk.data = copy;
 	chunk.dirty = true;

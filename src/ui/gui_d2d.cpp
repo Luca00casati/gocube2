@@ -222,9 +222,39 @@ ui::Vec2 GuiD2D::measure(std::string_view text, float size, float wrap) {
 	return l ? l->size : ui::Vec2{float(text.size()) * size * 0.5f, size * 1.33f};
 }
 
+ID2D1Bitmap1 *GuiD2D::dyed_icon(int tile, uint32_t dye) {
+	const uint64_t key = uint64_t(uint32_t(tile)) << 32 | dye;
+	if (auto it = dyed_.find(key); it != dyed_.end()) {
+		return it->second.Get();
+	}
+	if (dyed_.size() > 1024) {
+		dyed_.clear(); // (a few hundred dyes on screen at most)
+	}
+	const std::vector<uint8_t> &src = tile_pixels_[size_t(tile)];
+	std::vector<uint8_t> px(src.size());
+	for (size_t i = 0; i + 3 < px.size(); i += 4) {
+		uint8_t rgb[3] = {src[i], src[i + 1], src[i + 2]};
+		dye_pixel(rgb, dye);
+		const unsigned a = src[i + 3];
+		for (int k = 0; k < 3; k++) {
+			px[i + k] = uint8_t((rgb[k] * a + 127) / 255);
+		}
+		px[i + 3] = uint8_t(a);
+	}
+	ComPtr<ID2D1Bitmap1> bitmap;
+	const D2D1_BITMAP_PROPERTIES1 props = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_NONE,
+			D2D1::PixelFormat(DXGI_FORMAT_R8G8B8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96, 96);
+	if (FAILED(dc_->CreateBitmap(D2D1::SizeU(Atlas::TILE, Atlas::TILE), px.data(), Atlas::TILE * 4, props, &bitmap))) {
+		return nullptr;
+	}
+	return (dyed_[key] = bitmap).Get();
+}
+
 void GuiD2D::set_icons(const Atlas &atlas) {
 	icons_.Reset();
 	tiles_.clear();
+	dyed_.clear();
+	tile_pixels_ = atlas.tiles;
 	if (!dc_ || atlas.width <= 0 || atlas.height <= 0) {
 		return;
 	}
@@ -311,7 +341,12 @@ void GuiD2D::draw(IDXGISwapChain1 *swap_chain, ID3D11DeviceContext *context, con
 					}
 					break;
 				case ui::DrawCmd::IMAGE:
-					if (icons_ && c.image >= 0 && c.image < int(tiles_.size())) {
+					if (c.dye != 0 && c.image >= 0 && c.image < int(tile_pixels_.size()) &&
+							tile_pixels_[size_t(c.image)].size() == size_t(Atlas::TILE * Atlas::TILE * 4)) {
+						if (ID2D1Bitmap1 *b = dyed_icon(c.image, c.dye)) {
+							dc_->DrawBitmap(b, rect(c.rect), c.color.a / 255.0f, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+						}
+					} else if (icons_ && c.image >= 0 && c.image < int(tiles_.size())) {
 						dc_->DrawBitmap(icons_.Get(), rect(c.rect), c.color.a / 255.0f,
 								D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, &tiles_[size_t(c.image)]);
 					}

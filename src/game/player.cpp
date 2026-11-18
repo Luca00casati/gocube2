@@ -172,8 +172,10 @@ bool Player::overlaps_block(const float feet[3], const BlockPos &cell) {
 	return true;
 }
 
-bool Player::use_or_place(World &world, const BlockRules &rules, const std::string &block, bool sneak,
+bool Player::use_or_place(World &world, const BlockRules &rules, const std::string &dyed_block, bool sneak,
 		std::vector<BlockChange> *changes, const std::function<bool(const BlockPos &)> &occupied) const {
+	const std::string block = undyed(dyed_block); // (placed with its dye)
+	const gocube::Dye dye = dye_of(dyed_block);
 	RayHit hit = target(world);
 	if (!hit.hit) {
 		return false;
@@ -182,8 +184,8 @@ bool Player::use_or_place(World &world, const BlockRules &rules, const std::stri
 	if (!sneak) {
 		const auto toggle = rules.toggle_door(rules.id_of(hit.block), hit.position);
 		if (!toggle.empty()) {
-			for (const auto &[cell, id] : toggle) {
-				world.set_block(cell, gocube::BlockId(std::max(0, rules.index_of(id))));
+			for (const auto &[cell, id] : toggle) { // (a dyed door stays dyed)
+				world.set_block(cell, gocube::BlockId(std::max(0, rules.index_of(id))), world.dye_at(cell.x, cell.y, cell.z));
 			}
 			return true;
 		}
@@ -227,7 +229,7 @@ bool Player::use_or_place(World &world, const BlockRules &rules, const std::stri
 	for (const auto &[cell, id] : places) {
 		const int index = rules.index_of(id);
 		if (index > 0) {
-			world.set_block(cell, gocube::BlockId(index));
+			world.set_block(cell, gocube::BlockId(index), dye);
 			if (changes) {
 				changes->push_back({cell, id, true});
 			}

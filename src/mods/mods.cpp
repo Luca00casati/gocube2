@@ -583,11 +583,11 @@ struct Mods::Lua {
 		World *w = need_world(L);
 		const BlockPos p{int(luaL_checkinteger(L, 1)), int(luaL_checkinteger(L, 2)), int(luaL_checkinteger(L, 3))};
 		const char *id = luaL_checkstring(L, 4);
-		const int index = of(L)->content.block_index(id);
+		const int index = of(L)->content.block_index(undyed(id)); // ("core:stone#ff8800": dyed)
 		if (index < 0) {
 			return luaL_error(L, "no block '%s'", id);
 		}
-		lua_pushboolean(L, w->set_block(p, gocube::BlockId(index)));
+		lua_pushboolean(L, w->set_block(p, gocube::BlockId(index), dye_of(id)));
 		return 1;
 	}
 
@@ -608,7 +608,7 @@ struct Mods::Lua {
 		const BlockPos p = check_pos(L);
 		const std::string item = luaL_checkstring(L, 4);
 		const int count = int(luaL_optinteger(L, 5, 1));
-		if (!h->content.items.count(item) && !h->content.blocks.count(item)) {
+		if (!h->content.items.count(item) && !h->content.blocks.count(undyed(item))) {
 			return luaL_error(L, "no item '%s'", item.c_str());
 		}
 		if (h->hooks.drop_item && count > 0) {

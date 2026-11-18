@@ -399,6 +399,11 @@ bool Game::use(const Actor &who, bool sneak) {
 	if (!hit.hit) {
 		return false;
 	}
+	// A dye vat, with an empty hand: its dye is tipped out.
+	if (who.item.empty() && !sneak && rules_.def(hit.block).value("dye_vat", false)) {
+		empty_vat(hit.position);
+		return true;
+	}
 	// Hoes, seeds: the use_item rule.
 	if (!who.item.empty()) {
 		const std::optional<Data> r = mods_.rule("use_item", Data::array({who.item, hit.position.x, hit.position.y,
@@ -506,6 +511,7 @@ void Game::break_block(const BlockPos &p, const std::string &tool) {
 	if (broken.empty() || broken == "core:air" || rules_.is_fluid(world_.block_at(p.x, p.y, p.z))) {
 		return;
 	}
+	const gocube::Dye dye = world_.dye_at(p.x, p.y, p.z);
 	world_.set_block(p, 0);
 	std::vector<BlockChange> changes = {{p, broken, false}};
 	if (auto other = rules_.other_part(broken, p)) { // a door or bed goes as a whole
@@ -517,8 +523,9 @@ void Game::break_block(const BlockPos &p, const std::string &tool) {
 	}
 	if (!creative_) {
 		const float at[3] = {p.x + 0.5f, p.y + 0.3f, p.z + 0.5f};
+		const bool keeps_dye = dye != gocube::NO_DYE && !rules_.def(broken).value("dye_vat", false); // (a vat's is its dye's)
 		for (const std::string &item : drops_of(broken, tool)) {
-			drops_.spawn(item, 1, at);
+			drops_.spawn(keeps_dye && rules_.is_placeable(item) ? dyed(item, dye) : item, 1, at); // (dyed stays dyed)
 		}
 	}
 	for (const BlockChange &c : changes) {
@@ -612,7 +619,7 @@ void Game::update(float dt, const GameInput &in) {
 		// for now; the host sends what's in it.
 		entities_.block_changed(hit.position, rules_.id_of(hit.block));
 	}
-	if (in.use_pressed && hit.hit && !in.sneak && entities_.at(hit.position)) {
+	if (in.use_pressed && hit.hit && !in.sneak && entities_.at(hit.position) && !target_def.value("dye_vat", false)) {
 		opened_ = hit.position;
 	} else if (in.use_pressed && hit.hit && !in.sneak && target_def.value("bed", false)) {
 		// The head part is the one you lie on.
@@ -663,12 +670,40 @@ void Game::update(float dt, const GameInput &in) {
 		}
 	}
 
-	// Creative: middle click puts the block aimed at in the hand.
+	// Creative: middle click puts the block aimed at in the hand (dyed too).
 	if (in.pick_pressed && creative_ && hit.hit) {
 		const std::string base = rules_.base_of(rules_.id_of(hit.block));
 		if (rules_.is_placeable(base)) {
-			inventory_.slots[selected_] = {base, 1};
+			const gocube::Dye dye = target_def.value("dye_vat", false)
+					? gocube::NO_DYE
+					: world_.dye_at(hit.position.x, hit.position.y, hit.position.z);
+			inventory_.slots[selected_] = {dyed(base, dye), 1};
 		}
+	}
+
+	// Q: throwing what is in hand (Ctrl: the whole stack).
+	if (in.throw_pressed && !dead_ && !selected_item().empty()) {
+		float eye[3], dir[3];
+		player_.eye(eye);
+		player_.look(dir);
+		if (remote_) {
+			remote_->request_throw(eye, dir, selected_, selected_item(), in.throw_stack);
+			if (!creative_) { // (the host sends our inventory as it then is)
+				Stack &s = inventory_.slots[size_t(selected_)];
+				s.count -= in.throw_stack ? s.count : 1;
+				if (s.count <= 0) {
+					s = {};
+				}
+			}
+		} else {
+			Actor me;
+			me.body = &player_;
+			me.inventory = &inventory_;
+			me.selected = selected_;
+			me.item = selected_item();
+			throw_item(me, eye, dir, in.throw_stack);
+		}
+		swings_++;
 	}
 }
 
@@ -734,7 +769,9 @@ void Game::physics_step(float dt) {
 		takers.push_back(t);
 	}
 	bool picked = false;
-	for (const ItemDrops::Picked &p : drops_.step(dt, world_, takers)) {
+	const std::vector<ItemDrops::Picked> got = drops_.step(dt, world_, takers);
+	dye_in_vats();
+	for (const ItemDrops::Picked &p : got) {
 		if (p.peer == 0) {
 			picked = true;
 		} else if (on_pickup) {

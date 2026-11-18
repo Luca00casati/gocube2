@@ -4,11 +4,11 @@
 
 namespace gc {
 
-const Data *Inventory::item_def(const std::string &id) const {
-	if (auto it = content_->items.find(id); it != content_->items.end()) {
+const Data *Inventory::item_def(const std::string &dyed_id) const {
+	if (auto it = content_->items.find(dyed_id); it != content_->items.end()) {
 		return &it->second;
 	}
-	if (auto it = content_->blocks.find(id); it != content_->blocks.end()) {
+	if (auto it = content_->blocks.find(undyed(dyed_id)); it != content_->blocks.end()) { // (dyed blocks too)
 		return &it->second;
 	}
 	return nullptr;

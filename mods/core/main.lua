@@ -21,6 +21,14 @@ require("rules.plants")
 require("rules.fluids")
 require("rules.creatures")
 
+-- The only crafting: planks from logs, and the dye vat from planks.
+game.set_rule("hand_recipes", function()
+	return {
+		{id = "planks", output = "core:planks", count = 4, ingredients = {["core:log"] = 1}},
+		{id = "dye_vat", output = "core:dye_vat", count = 1, ingredients = {["core:planks"] = 6}},
+	}
+end)
+
 -- What a new survival player starts with: a torch, in hand.
 game.set_rule("starting_items", function()
 	return {{id = "core:torch", count = 1}}

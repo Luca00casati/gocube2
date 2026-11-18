@@ -8,7 +8,16 @@ registry.register_ore("iron", {block = "core:iron_ore", min_y = -96, max_y = 8, 
 
 registry.register_ore("gold", {block = "core:gold_ore", min_y = -96, max_y = -28, veins_per_chunk = 4, size = {3, 7}})
 
-registry.register_ore("crystal", {block = "core:crystal_ore", min_y = -96, max_y = -56, veins_per_chunk = 2, size = {2, 5}})
+-- Gems: red, green and blue the commonest, white deeper, black deepest and rarest.
+registry.register_ore("red_gem", {block = "core:red_gem_ore", min_y = -96, max_y = 0, veins_per_chunk = 3, size = {2, 5}})
+
+registry.register_ore("green_gem", {block = "core:green_gem_ore", min_y = -96, max_y = 0, veins_per_chunk = 3, size = {2, 5}})
+
+registry.register_ore("blue_gem", {block = "core:blue_gem_ore", min_y = -96, max_y = 0, veins_per_chunk = 3, size = {2, 5}})
+
+registry.register_ore("white_gem", {block = "core:white_gem_ore", min_y = -96, max_y = -40, veins_per_chunk = 2, size = {2, 5}})
+
+registry.register_ore("black_gem", {block = "core:black_gem_ore", min_y = -96, max_y = -64, veins_per_chunk = 1, size = {2, 4}})
 
 registry.register_tree("oak", {log = "core:log", leaves = "core:leaves", trunk = {4, 6}, style = "oak"})
 

@@ -112,13 +112,28 @@ registry.register_block("gold_ore", {
 	random_rotation = true,
 })
 
+-- (Older worlds' crystal ore: no longer made; it gives a white gem.)
 registry.register_block("crystal_ore", {
 	hardness = 3.0,
 	color = "#5aa8b0",
 	textures = {all = looks.crystal_ore},
 	sound = "core:stone",
+	drops = "core:white_gem",
+	hidden = true,
 	random_rotation = true,
 })
+
+-- Gem ores: each drops its gem (items.lua), which colours the dye vat's dye.
+for _, gem in ipairs({"white", "red", "green", "blue", "black"}) do
+	registry.register_block(gem .. "_gem_ore", {
+		hardness = 3.0,
+		color = "#75787e",
+		textures = {all = looks[gem .. "_gem_ore"]},
+		sound = "core:stone",
+		drops = "core:" .. gem .. "_gem",
+		random_rotation = true,
+	})
+end
 
 registry.register_block("water", {solid = false, fluid = "water", color = "#3f76d6b3", level = 8})
 
@@ -126,7 +141,7 @@ registry.register_block("lamp", {
 	hardness = 0.3,
 	light = 14,
 	color = "#f2c25a",
-	textures = {all = "textures/lamp.ppm"},
+	textures = {all = "textures/lamp.png"},
 	sound = "core:stone",
 })
 
@@ -149,7 +164,7 @@ registry.register_block("furnace", {
 	sound = "core:stone",
 	color = "#6a6a6a",
 	textures = {
-		side = "textures/furnace_side.ppm",
+		side = "textures/furnace_side.png",
 		top = looks.stone,
 		bottom = looks.stone,
 	},
@@ -161,8 +176,8 @@ registry.register_block("chest", {
 	color = "#9a7448",
 	block_entity = "chest",
 	textures = {
-		side = "textures/chest_side.ppm",
-		top = "textures/chest_top.ppm",
+		side = "textures/chest_side.png",
+		top = "textures/chest_top.png",
 		bottom = looks.planks,
 	},
 })
@@ -173,7 +188,7 @@ registry.register_block("torch", {
 	hardness = 0.1,
 	sound = "core:wood",
 	color = "#e0a040",
-	textures = {all = "textures/torch.ppm"},
+	textures = {all = "textures/torch.png"},
 	needs_support = true,
 })
 
@@ -183,7 +198,7 @@ registry.register_block("ladder", {
 	hardness = 0.6,
 	sound = "core:wood",
 	color = "#93683d",
-	textures = {all = "textures/ladder.ppm"},
+	textures = {all = "textures/ladder.png"},
 	needs_support = true,
 })
 
@@ -193,7 +208,7 @@ registry.register_block("glass", {
 	sound = "core:stone",
 	color = "#cfe3ec",
 	drops = "",
-	textures = {all = "textures/glass.ppm"},
+	textures = {all = "textures/glass.png"},
 })
 
 registry.register_block("wood_door", {
@@ -201,9 +216,9 @@ registry.register_block("wood_door", {
 	hardness = 1.5,
 	sound = "core:wood",
 	color = "#93683d",
-	textures = {all = "textures/door_lower.ppm"},
-	textures_upper = {all = "textures/door_upper.ppm"},
-	icon = "textures/door_upper.ppm",
+	textures = {all = "textures/door_lower.png"},
+	textures_upper = {all = "textures/door_upper.png"},
+	icon = "textures/door_upper.png",
 	needs_support = true,
 })
 
@@ -371,14 +386,14 @@ registry.register_block("bed", {
 	sound = "core:wood",
 	color = "#b43a36",
 	textures = {
-		top = "textures/bed_foot_top.ppm",
-		side = "textures/bed_side.ppm",
+		top = "textures/bed_foot_top.png",
+		side = "textures/bed_side.png",
 		bottom = looks.planks,
 	},
 	-- The head half: a pillow, the blanket running on into the foot's.
 	textures_head = {
-		top = "textures/bed_head_top.ppm",
-		side = "textures/bed_side.ppm",
+		top = "textures/bed_head_top.png",
+		side = "textures/bed_side.png",
 		bottom = looks.planks,
 	},
 	bed = true,
@@ -396,3 +411,39 @@ registry.register_block("snow", {
 	needs_support = true,
 	drops = "core:snowball",
 })
+
+-- The dye vat: throw gems in (Q) to make a dye, then blocks: they come out
+-- that colour. Empty, and with dye in it (the dye's surface takes the
+-- dye's colour; the tub keeps its own: undyed_boxes).
+local VAT_TUB = {
+	{0, 0, 0, 16, 2, 16},
+	{0, 2, 0, 16, 14, 2}, {0, 2, 14, 16, 14, 16},
+	{0, 2, 2, 2, 14, 14}, {14, 2, 2, 16, 14, 14},
+}
+local function vat(extra)
+	local def = {
+		hardness = 2.0,
+		flammable = true,
+		sound = "core:wood",
+		color = "#93683d",
+		shape = "boxes",
+		transparent = true, -- (light gets in: an open tub)
+		boxes = {},
+		undyed_boxes = {1, 2, 3, 4, 5},
+		block_entity = "vat",
+		dye_vat = true,
+		textures = {top = looks.vat_top, bottom = looks.planks, side = looks.planks},
+		icon = "textures/dye_vat.png",
+	}
+	for i, b in ipairs(VAT_TUB) do
+		def.boxes[i] = b
+	end
+	for k, v in pairs(extra) do
+		def[k] = v
+	end
+	return def
+end
+registry.register_block("dye_vat", vat({full = "core:dye_vat_full"}))
+local full = vat({variant_of = "core:dye_vat"})
+full.boxes[#full.boxes + 1] = {2, 2, 2, 14, 12, 14} -- the dye
+registry.register_block("dye_vat_full", full)

@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 namespace gocube {
@@ -13,6 +14,13 @@ constexpr int CHUNK_VOLUME = CHUNK * CHUNK * CHUNK;
 
 using BlockId = uint16_t;
 constexpr BlockId AIR = 0;
+
+// A block's dye (from the dye vat): 0xFFRRGGBB, or NO_DYE (its own colours).
+using Dye = uint32_t;
+constexpr Dye NO_DYE = 0;
+inline Dye make_dye(int r, int g, int b) {
+	return 0xFF000000u | uint32_t(r & 255) << 16 | uint32_t(g & 255) << 8 | uint32_t(b & 255);
+}
 
 // Face order used everywhere: +X, -X, +Y, -Y, +Z, -Z.
 enum Face { FACE_PX, FACE_NX, FACE_PY, FACE_NY, FACE_PZ, FACE_NZ, FACE_COUNT };
@@ -32,6 +40,7 @@ struct Box {
 	float mx[3];
 	float ty = 0.0f; // texture offset up: side faces are textured as if the box sat ty lower
 	float tx = 0.0f, tz = 0.0f; // and across: as if it sat tx, tz further along x, z (a wall torch: as if in the middle)
+	bool undyed = false; // keeps its own colours when the block is dyed (the dye vat's tub)
 };
 
 struct BlockInfo {
@@ -78,10 +87,12 @@ inline void fence_boxes(bool north, bool east, bool south, bool west, bool for_c
 }
 
 // 32^3 block ids. Uniform chunks (all air, all stone...) store a single value.
+// Dyed blocks' colours, by index (few: most chunks have none).
 struct ChunkData {
 	bool uniform = true;
 	BlockId uniform_value = AIR;
 	std::vector<BlockId> blocks;
+	std::unordered_map<uint16_t, Dye> dyes;
 
 	static inline int index(int x, int y, int z) {
 		return (y * CHUNK + z) * CHUNK + x;
@@ -91,7 +102,28 @@ struct ChunkData {
 		return uniform ? uniform_value : blocks[index(x, y, z)];
 	}
 
+	inline Dye dye(int x, int y, int z) const {
+		if (dyes.empty()) {
+			return NO_DYE;
+		}
+		auto it = dyes.find(uint16_t(index(x, y, z)));
+		return it == dyes.end() ? NO_DYE : it->second;
+	}
+
+	// (A dye on air is dropped.)
+	inline void set_dye(int x, int y, int z, Dye d) {
+		if (d == NO_DYE || get(x, y, z) == AIR) {
+			dyes.erase(uint16_t(index(x, y, z)));
+		} else {
+			dyes[uint16_t(index(x, y, z))] = d;
+		}
+	}
+
+	// A new block there loses the dye of the one before.
 	inline void set(int x, int y, int z, BlockId v) {
+		if (!dyes.empty()) {
+			dyes.erase(uint16_t(index(x, y, z)));
+		}
 		if (uniform) {
 			if (v == uniform_value) {
 				return;

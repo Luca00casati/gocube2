@@ -78,6 +78,9 @@ target_sources(gocube_core PRIVATE
 	src/game/drops.h
 	src/game/game.cpp
 	src/game/game_health.cpp
+	src/game/game_dye.cpp
+	src/game/dye.cpp
+	src/game/dye.h
 	src/game/game.h
 	src/game/hand.cpp
 	src/game/hand.h
@@ -109,7 +112,7 @@ target_sources(gocube_core PRIVATE
 	src/ui/gui.h
 )
 target_include_directories(gocube_core PUBLIC src)
-target_link_libraries(gocube_core PRIVATE lua bcrypt ws2_32 PUBLIC winmm cabinet) # (winmm: platform/fine_sleep.h; cabinet: platform/compression.h)
+target_link_libraries(gocube_core PRIVATE lua bcrypt ws2_32 PUBLIC winmm cabinet windowscodecs ole32) # (winmm: platform/fine_sleep.h; cabinet: platform/compression.h; windowscodecs, ole32: PNG, content/image.h)
 target_compile_definitions(gocube_core PUBLIC ${GOCUBE_DEFINES})
 target_compile_options(gocube_core PRIVATE ${GOCUBE_OPTIONS})
 
@@ -189,6 +192,7 @@ add_executable(gocube_tests
 	tests/play.h
 	tests/test_audio.cpp
 	tests/test_commands.cpp
+	tests/test_dye.cpp
 	tests/test_gui.cpp
 	tests/test_image.cpp
 	tests/test_mods.cpp

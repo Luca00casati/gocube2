@@ -51,6 +51,7 @@ struct DrawCmd {
 	float wrap = 0;        // TEXT: wrap width (0: one line)
 	std::string text;
 	int image = -1;        // IMAGE: an item icon (an atlas tile)
+	uint32_t dye = 0;      // IMAGE: a dyed block's (gocube::Dye: 0xFFRRGGBB, 0 none)
 };
 
 class DrawList {
@@ -59,7 +60,7 @@ public:
 	void stroke(Rect r, Color c, float rounding = 0, float thickness = 1);
 	void gradient(Rect r, Color from, Color to, bool vertical);
 	void text(Vec2 at, Color c, std::string_view text, float size, float wrap = 0);
-	void image(Rect r, int tile);
+	void image(Rect r, int tile, uint32_t dye = 0);
 	void clip(Rect r);
 	void unclip();
 	// Text with a black outline (the HUD's).

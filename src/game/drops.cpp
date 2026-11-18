@@ -28,6 +28,20 @@ void ItemDrops::spawn(const std::string &item, int count, const float at[3]) {
 	drops_.push_back(d);
 }
 
+void ItemDrops::throw_item(const std::string &item, int count, const float at[3], const float vel[3]) {
+	if (count <= 0 || item.empty()) {
+		return;
+	}
+	Drop d;
+	d.item = item;
+	d.count = count;
+	std::copy(at, at + 3, d.pos);
+	std::copy(vel, vel + 3, d.vel);
+	d.delay = THROW_DELAY;
+	d.turn = std::uniform_real_distribution<float>(0.0f, 6.2831853f)(random_);
+	drops_.push_back(d);
+}
+
 std::vector<Stack> ItemDrops::step(float dt, const World &world, const float player[3], bool player_alive,
 		Inventory &inventory) {
 	Taker t;
@@ -54,7 +68,7 @@ std::vector<ItemDrops::Picked> ItemDrops::step(float dt, const World &world, con
 		float to[3] = {0, 0, 0};
 		float dist = 1e9f;
 		const Taker *taker = nullptr; // the nearest one with room for it
-		if (d.age > PICKUP_DELAY) {
+		if (d.age > d.delay) {
 			for (const Taker &t : takers) {
 				if (!t.alive || !t.inventory || !t.inventory->can_fit(d.item)) {
 					continue;
@@ -122,6 +136,7 @@ void ItemDrops::build_mesh(ItemModels &models, const std::function<void(const fl
 			std::copy(mv.uv, mv.uv + 2, w.uv);
 			std::copy(lit, lit + 3, w.color);
 			w.color[3] = 1;
+			w.set_dye(dye_of(d.item));
 			out.push_back(w);
 		}
 	}

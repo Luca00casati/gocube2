@@ -1,9 +1,11 @@
 #pragma once
-// Data attached to some blocks: chests (27 slots) and furnaces (input, fuel,
-// output; burning and smelting). A block gets one when it appears, if its
-// definition has "block_entity": "chest" or "furnace"; when it goes, its
-// contents spill. Saved in world.lua's block_entities:
-//   {["x,y,z"] = {type, slots = {{id, count} or false, ...}, burn, burn_total, progress}}
+// Data attached to some blocks: chests (27 slots), furnaces (input, fuel,
+// output; burning and smelting) and dye vats (the gems in its dye, one slot
+// per kind, and how many blocks it can still dye: "charge"). A block gets one
+// when it appears, if its definition has "block_entity": "chest", "furnace"
+// or "vat"; when it goes, its contents spill. Saved in world.lua's
+// block_entities:
+//   {["x,y,z"] = {type, slots = {{id, count} or false, ...}, burn, burn_total, progress, charge}}
 // Furnaces ask the mods' smelting and fuel_seconds rules.
 
 #include "content/content.h"
@@ -22,15 +24,17 @@ namespace gc {
 class Mods;
 
 struct BlockEntity {
-	std::string type; // "chest", "furnace"
+	std::string type; // "chest", "furnace", "vat"
 	std::vector<Stack> slots;
 	double burn = 0, burn_total = 0, progress = 0; // furnaces: seconds
+	int charge = 0; // vats: blocks it can still dye
 };
 
 class BlockEntities {
 public:
 	static constexpr int CHEST_SLOTS = 27;
 	static constexpr int FURNACE_INPUT = 0, FURNACE_FUEL = 1, FURNACE_OUTPUT = 2;
+	static constexpr int VAT_KINDS = 8; // kinds of gem in one dye
 	static constexpr double SMELT_SECONDS = 5.0;
 	static constexpr double TICK = 0.25;
 
