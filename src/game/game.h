@@ -105,9 +105,7 @@ public:
 	Game &operator=(const Game &) = delete;
 
 	bool creative() const { return creative_; }
-	// Changes the game mode (/gamemode). Each mode keeps its own inventory: the
-	// other one's comes back (or, the first time, the palette or the starting
-	// items; a client's survival inventory comes from its host).
+	// Changes the game mode (/gamemode); the inventory stays as it is.
 	void set_creative(bool on);
 	Inventory &inventory() { return inventory_; }
 	const Inventory &inventory() const { return inventory_; }
@@ -140,8 +138,8 @@ public:
 	// A block's sound of `kind` ("step", "break", "place"), from its "sound".
 	void play_block_sound(const std::string &block, const std::string &kind, const float at[3], float volume_db = 0);
 
-	// A brand-new player: survival gets the starting items, creative the
-	// placeable blocks.
+	// A brand-new player: survival gets the starting items, creative starts
+	// empty (the inventory screen's palette has everything).
 	void start_new_player();
 	void give_starting_items(Inventory &inv); // (the starting_items rule)
 	void load_player(const Data &saved); // world.lua's player
@@ -223,7 +221,7 @@ public:
 	// used from its inventory.
 	bool use(const Actor &who, bool sneak);
 	// Throws what `who` holds (one, or the whole stack) from `eye` towards
-	// `dir`; survival takes it from its inventory. False if it holds nothing.
+	// `dir`, out of its inventory (in creative too). False if it holds nothing.
 	bool throw_item(const Actor &who, const float eye[3], const float dir[3], bool whole);
 	static constexpr float THROW_SPEED = 7.0f;
 
@@ -252,8 +250,8 @@ public:
 	std::vector<std::string> drops_of(const std::string &block, const std::string &tool);
 
 private:
-	void fill_creative();
 	void dye_in_vats(); // (each physics step: what fell into a vat)
+	std::optional<std::vector<gocube::Dye>> dye_palette_; // (the "dye_palette" rule's, asked once)
 	void set_vat_block(const BlockPos &p, const BlockEntity &e); // empty or full, the dye's colour
 	Remote *remote_ = nullptr;
 	std::vector<OtherPlayer> others_;
@@ -266,7 +264,6 @@ private:
 	Player &player_;
 	bool creative_;
 	Inventory inventory_;
-	std::optional<Inventory> other_inventory_; // the other game mode's
 	int selected_ = 0;
 	ItemDrops drops_;
 	BlockEntities entities_;

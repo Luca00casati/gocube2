@@ -20,7 +20,7 @@ int floor_int(float v) {
 bool Game::throw_item(const Actor &who, const float eye[3], const float dir[3], bool whole) {
 	std::string item;
 	int count = 1;
-	if (!creative_ && who.inventory) { // survival: out of its inventory
+	if (who.inventory) { // out of its inventory (creative too: throwing gives it away)
 		if (who.selected < 0 || who.selected >= Inventory::HOTBAR) {
 			return false;
 		}
@@ -34,12 +34,11 @@ bool Game::throw_item(const Actor &who, const float eye[3], const float dir[3], 
 		if (s.count <= 0) {
 			s = {};
 		}
-	} else { // creative: items never run out
+	} else { // (no inventory: what it says it holds)
 		item = who.item;
 		if (item.empty() || (!content_.items.count(item) && !rules_.is_placeable(item))) {
 			return false;
 		}
-		count = whole ? who.inventory ? who.inventory->max_stack(item) : 1 : 1;
 	}
 	const float len = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
 	if (len < 1e-4f) {
@@ -65,7 +64,17 @@ gocube::Dye Game::vat_dye(const BlockPos &p) {
 			pigments.push_back({color, s.count});
 		}
 	}
-	return mix_dye(pigments);
+	if (!dye_palette_) { // the natural tones mixes snap to (none: any colour)
+		dye_palette_.emplace();
+		const std::optional<Data> list = mods_.rule("dye_palette", Data::array());
+		for (const Data &c : list && list->is_array() ? *list : Data::array()) {
+			gocube::Dye d = gocube::NO_DYE;
+			if (c.is_string() && parse_dye(c.get<std::string>(), d)) {
+				dye_palette_->push_back(d);
+			}
+		}
+	}
+	return snap_dye(mix_dye(pigments), *dye_palette_);
 }
 
 void Game::set_vat_block(const BlockPos &p, const BlockEntity &e) {

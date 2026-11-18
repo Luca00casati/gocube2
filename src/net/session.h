@@ -288,7 +288,8 @@ private:
 	std::vector<std::string> chat_in_, ops_;
 	std::string local_name_ = "Player";
 	void handle_chat(int peer, const std::string &text); // the host: peer 0 is us
-	void start_survival(Peer &p); // the host: a joined player starts (or goes back to) survival
+	void load_player(Peer &p); // the host: a joined player's inventory and health
+	bool survival() const;      // the game isn't in creative (health, mining time count)
 	void chat_to(int peer, const std::string &line);
 	void chat_all(const std::string &line);
 	CommandWorld command_world();

@@ -54,7 +54,8 @@ float4 ps_main(PSIn i) : SV_Target {
 	clip(c.a - 0.5);
 	float3 n = abs(i.normal);
 	float shade = i.normal.y > 0.5 ? 1.0 : (i.normal.y < -0.5 ? 0.55 : (n.x > 0.5 ? 0.8 : 0.7));
-	float3 color = to_linear(max(apply_dye(c.rgb, i.dye) * shade * i.color.rgb, 0.0));
+	float3 avg = albedo.SampleLevel(nearest_mip, i.uv, TILE_AVERAGE_MIP).rgb;
+	float3 color = to_linear(max(apply_dye(c.rgb, avg, i.dye) * shade * i.color.rgb, 0.0));
 	float d = length(i.place - eye);
 	color = lerp(color, fog_color, pow(smoothstep(fog_start, fog_end, d), 1.6));
 	return float4(to_srgb(color), 1.0);

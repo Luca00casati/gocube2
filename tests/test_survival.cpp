@@ -1132,24 +1132,37 @@ TEST_CASE("no enemies: nights stay empty and nothing hurts the player") {
 	CHECK(p.game->health() == gc::Game::MAX_HEALTH);
 }
 
-TEST_CASE("game mode: each keeps its own inventory, also saved") {
+TEST_CASE("game mode: one inventory in both; creative starts empty, picks things up, uses nothing up") {
 	Play p; // (survival: the starting items)
 	gc::Game &g = *p.game;
 	g.inventory().slots[0] = {"core:torch", 7};
 	g.set_creative(true);
 	CHECK(g.creative());
-	CHECK(g.inventory().count_of("core:torch") <= 1); // (the palette: one of each block)
-	CHECK_FALSE(g.inventory().slots[0].empty());
+	CHECK(g.inventory().count_of("core:torch") == 7); // (as it was)
 	g.set_creative(false);
 	CHECK(g.inventory().count_of("core:torch") == 7);
 	CHECK(g.health() == gc::Game::MAX_HEALTH);
-	// The other mode's inventory is saved with the player.
-	const gc::Data saved = g.save_player();
-	CHECK(saved.contains("other_inventory"));
-	Play q;
-	q.game->load_player(saved);
-	CHECK(q.game->inventory().count_of("core:torch") == 7);
-	q.game->set_creative(true);
-	CHECK(q.game->inventory().count_of("core:torch") <= 1); // (creative's, as saved)
-	CHECK_FALSE(q.game->inventory().slots[0].empty());
+
+	// A new creative player: nothing in hand; the palette gives one of anything.
+	Play c(true);
+	gc::Inventory &inv = c.game->inventory();
+	CHECK(std::all_of(inv.slots.begin(), inv.slots.end(), [](const Stack &s) { return s.empty(); }));
+	c.game->inventory_action(gc::Data::array({"pick", "core:planks"}));
+	CHECK(inv.cursor == Stack{"core:planks", 1});
+	c.game->inventory_action(gc::Data::array({"click", 0}));
+	CHECK(inv.slots[0] == Stack{"core:planks", 1});
+	// It picks up what lies around.
+	c.player.position[1] = 80.0f;
+	c.player.flying = true;
+	const float near[3] = {c.player.position[0], c.player.position[1] + 0.5f, c.player.position[2]};
+	c.game->drop_item("core:coal", 3, near);
+	for (int i = 0; i < 120; i++) {
+		c.game->physics_step(1.0f / 60.0f);
+	}
+	CHECK(inv.count_of("core:coal") == 3);
+	// Saved and loaded as it is.
+	Play again(true);
+	again.game->load_player(c.game->save_player());
+	CHECK(again.game->inventory().count_of("core:coal") == 3);
+	CHECK(again.game->inventory().count_of("core:planks") == 1);
 }

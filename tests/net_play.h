@@ -185,6 +185,13 @@ struct NetPlay {
 	}
 
 	// Puts this item in the hotbar slot it's in (the first), selected. False if none.
+	// Creative: takes `item` from the palette into hotbar slot `slot` (as a
+	// player does in the inventory screen: the host keeps the inventory too).
+	void take_from_palette(const std::string &item, int slot) {
+		game().inventory_action(gc::Data::array({"pick", item}));
+		game().inventory_action(gc::Data::array({"click", slot}));
+	}
+
 	bool hold(const std::string &item) {
 		for (int i = 0; i < gc::Inventory::HOTBAR; i++) {
 			if (game().inventory().slots[i].id == item) {

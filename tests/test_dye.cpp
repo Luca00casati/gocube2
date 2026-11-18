@@ -21,7 +21,8 @@ using gocube::make_dye;
 
 namespace {
 
-constexpr gocube::Dye RED = 0xFFFF0000u, GREEN = 0xFF00FF00u, BLUE = 0xFF0000FFu, WHITE = 0xFFFFFFFFu, BLACK = 0xFF000000u;
+constexpr gocube::Dye RED = 0xFFFF0000u, GREEN = 0xFF00FF00u, BLUE = 0xFF0000FFu, WHITE = 0xFFFFFFFFu, BLACK = 0xFF000000u,
+		PINK = 0xFFFF8080u;
 
 } // namespace
 
@@ -41,6 +42,31 @@ TEST_CASE("dye: gems mix like light, white and black shade; only the counts matt
 	CHECK(gc::mix_dye({{RED, 0}}) == gocube::NO_DYE);
 }
 
+TEST_CASE("dye: mixes snap to the nearest natural tone (the base game's dye_palette)") {
+	const std::vector<gocube::Dye> palette = {make_dye(0xb8, 0x39, 0x2f), make_dye(0x3d, 0x62, 0xa8), make_dye(0xec, 0xeb, 0xe6),
+			make_dye(0x23, 0x23, 0x25)};
+	CHECK(gc::snap_dye(RED, palette) == palette[0]);
+	CHECK(gc::snap_dye(BLUE, palette) == palette[1]);
+	CHECK(gc::snap_dye(WHITE, palette) == palette[2]);
+	CHECK(gc::snap_dye(BLACK, palette) == palette[3]);
+	CHECK(gc::snap_dye(palette[1], palette) == palette[1]);
+	CHECK(gc::snap_dye(RED, {}) == RED); // (no palette: any colour)
+	CHECK(gc::snap_dye(gocube::NO_DYE, palette) == gocube::NO_DYE);
+	// The base game's: every mix of the five gems lands on one of its tones.
+	Play p;
+	const std::optional<gc::Data> list = p.mods.rule("dye_palette", gc::Data::array());
+	REQUIRE(list);
+	std::vector<gocube::Dye> tones;
+	for (const gc::Data &c : *list) {
+		gocube::Dye d = gocube::NO_DYE;
+		REQUIRE(gc::parse_dye(c.get<std::string>(), d));
+		tones.push_back(d);
+	}
+	CHECK(tones.size() >= 24);
+	const gocube::Dye mixed = gc::snap_dye(gc::mix_dye({{RED, 2}, {GREEN, 1}, {WHITE, 1}}), tones);
+	CHECK(std::find(tones.begin(), tones.end(), mixed) != tones.end());
+}
+
 TEST_CASE("dye: a dyed block's item id") {
 	CHECK(gc::undyed("core:stone#ff8800") == "core:stone");
 	CHECK(gc::undyed("core:stone") == "core:stone");
@@ -57,12 +83,15 @@ TEST_CASE("dye: a dyed block's item id") {
 	content.freeze();
 	CHECK(gc::display_name(content, "core:stone#ff8800") == "Stone (#ff8800)");
 	// A pixel: the dye, lighter and darker as the texture is.
-	uint8_t mid[3] = {128, 128, 128}, dark[3] = {20, 20, 20};
-	gc::dye_pixel(mid, make_dye(200, 100, 0));
-	gc::dye_pixel(dark, make_dye(200, 100, 0));
-	CHECK(mid[0] > dark[0]);
-	CHECK(mid[2] == 0);
-	CHECK(mid[0] > mid[1]);
+	// A pixel, stained: the dye where the texture is at its average, lighter
+	// and darker as it is, a little of its own colour showing through.
+	uint8_t mid[3] = {128, 128, 128}, dark[3] = {64, 64, 64};
+	const float average = gc::pixel_lum(mid);
+	gc::dye_pixel(mid, average, make_dye(200, 100, 0));
+	gc::dye_pixel(dark, average, make_dye(200, 100, 0));
+	CHECK(mid[0] == int(200 * 0.8f + 128 * 0.2f + 0.5f));
+	CHECK(mid[2] == int(128 * 0.2f + 0.5f));
+	CHECK(dark[0] < mid[0]);
 }
 
 TEST_CASE("dye: chunks keep their dyed blocks (files, the network); a new block loses the dye") {
@@ -180,6 +209,17 @@ struct VatRoom {
 		steps(60);
 	}
 	gocube::Dye dye() const { return p.world->dye_at(vat.x, vat.y, vat.z); }
+	// What a mix comes out as: the base game's nearest tone.
+	gocube::Dye tone(gocube::Dye mixed) {
+		std::vector<gocube::Dye> tones;
+		const std::optional<gc::Data> list = p.mods.rule("dye_palette", gc::Data::array()); // (kept: not a temporary's)
+		for (const gc::Data &c : *list) {
+			gocube::Dye d = gocube::NO_DYE;
+			gc::parse_dye(c.get<std::string>(), d);
+			tones.push_back(d);
+		}
+		return gc::snap_dye(mixed, tones);
+	}
 	int lying(const std::string &item) const {
 		int n = 0;
 		for (const auto &d : p.game->drops().drops()) {
@@ -194,24 +234,25 @@ struct VatRoom {
 TEST_CASE("dye vat: gems make its dye; blocks thrown in come out that colour, and stay dyed placed and broken") {
 	VatRoom r;
 	Play &p = r.p;
+	const std::string pink_dirt = gc::dyed("core:dirt", r.tone(PINK));
 	REQUIRE(p.game->block_entities().at(r.vat));
 	CHECK(r.dye() == gocube::NO_DYE);
 
 	r.in_vat("core:red_gem", 1);
 	CHECK(p.block(r.vat) == "core:dye_vat_full");
-	CHECK(r.dye() == make_dye(255, 0, 0));
+	CHECK(r.dye() == r.tone(RED));
 	r.in_vat("core:white_gem", 1);
-	CHECK(r.dye() == make_dye(255, 128, 128));
+	CHECK(r.dye() == r.tone(PINK));
 	CHECK(p.game->block_entities().at(r.vat)->charge == 2 * gc::Game::DYE_PER_GEM);
 	CHECK(p.game->drops().drops().empty()); // (the gems went into the dye)
 
 	// Blocks: dyed, one charge each.
 	r.in_vat("core:dirt", 3);
-	CHECK(r.lying("core:dirt#ff8080") == 3);
+	CHECK(r.lying(pink_dirt) == 3);
 	CHECK(r.lying("core:dirt") == 0);
 	CHECK(p.game->block_entities().at(r.vat)->charge == 2 * gc::Game::DYE_PER_GEM - 3);
 	r.steps(60);
-	CHECK(r.lying("core:dirt#ff8080") == 3); // (not dyed again: it's that colour already)
+	CHECK(r.lying(pink_dirt) == 3); // (not dyed again: it's that colour already)
 	// Items that aren't blocks stay as they are.
 	r.in_vat("core:coal", 1);
 	CHECK(r.lying("core:coal") == 1);
@@ -219,15 +260,15 @@ TEST_CASE("dye vat: gems make its dye; blocks thrown in come out that colour, an
 	// The player comes for them.
 	r.collect();
 	gc::Inventory &inv = p.game->inventory();
-	CHECK(inv.count_of("core:dirt#ff8080") == 3);
+	CHECK(inv.count_of(pink_dirt) == 3);
 	CHECK(inv.count_of("core:dirt") == 0);
-	CHECK(inv.can_fit("core:dirt#ff8080"));
+	CHECK(inv.can_fit(pink_dirt));
 
 	// Placed: the world has it dyed. (Looking down ahead: at (0, 41, -2).)
 	const BlockPos placed{0, VatRoom::H + 1, -2};
 	p.player.position[0] = 0.5f;
 	p.player.position[2] = 0.5f;
-	inv.slots[0] = {"core:dirt#ff8080", 3};
+	inv.slots[0] = {pink_dirt, 3};
 	p.player.yaw = 0;
 	p.player.pitch = -std::atan2(1.62f, 2.0f);
 	gc::GameInput in;
@@ -236,11 +277,11 @@ TEST_CASE("dye vat: gems make its dye; blocks thrown in come out that colour, an
 	in.use_pressed = true;
 	p.game->update(0.016f, in);
 	REQUIRE(p.block(placed) == "core:dirt");
-	CHECK(p.world->dye_at(placed.x, placed.y, placed.z) == make_dye(255, 128, 128));
+	CHECK(p.world->dye_at(placed.x, placed.y, placed.z) == r.tone(PINK));
 	CHECK(inv.slots[0].count == 2);
 	// Broken: it drops dyed.
 	p.game->break_block(placed, "");
-	CHECK(r.lying("core:dirt#ff8080") == 1);
+	CHECK(r.lying(pink_dirt) == 1);
 	CHECK(p.world->dye_at(placed.x, placed.y, placed.z) == gocube::NO_DYE);
 
 	// Tipped out (a right click with an empty hand): the vat is empty again.
@@ -260,20 +301,21 @@ TEST_CASE("dye vat: gems make its dye; blocks thrown in come out that colour, an
 TEST_CASE("dye vat: it runs dry; it holds so many gems; the vat itself isn't dyed") {
 	VatRoom r;
 	Play &p = r.p;
+	const std::string blue_planks = gc::dyed("core:planks", r.tone(BLUE));
 	r.in_vat("core:blue_gem", 1);
 	r.in_vat("core:planks", gc::Game::DYE_PER_GEM + 2);
-	CHECK(r.lying("core:planks#0000ff") == gc::Game::DYE_PER_GEM);
+	CHECK(r.lying(blue_planks) == gc::Game::DYE_PER_GEM);
 	CHECK(r.lying("core:planks") == 2); // (no dye left for these)
 	CHECK(p.block(r.vat) == "core:dye_vat"); // dry
 	CHECK(p.game->block_entities().at(r.vat)->charge == 0);
 	r.collect(); // (else the next dye would dye them)
-	CHECK(p.game->inventory().count_of("core:planks#0000ff") == gc::Game::DYE_PER_GEM);
+	CHECK(p.game->inventory().count_of(blue_planks) == gc::Game::DYE_PER_GEM);
 	CHECK(p.game->inventory().count_of("core:planks") == 2);
 
 	r.in_vat("core:green_gem", gc::Game::VAT_MAX_GEMS + 3);
 	CHECK(r.lying("core:green_gem") == 3); // (more than it holds: left there)
 	CHECK(p.game->block_entities().at(r.vat)->charge == gc::Game::VAT_MAX_GEMS * gc::Game::DYE_PER_GEM);
-	CHECK(r.dye() == make_dye(0, 255, 0));
+	CHECK(r.dye() == r.tone(GREEN));
 
 	// Broken: its gems come back, and the vat isn't dyed.
 	p.game->break_block(r.vat, "");
@@ -281,7 +323,7 @@ TEST_CASE("dye vat: it runs dry; it holds so many gems; the vat itself isn't dye
 	CHECK(r.lying("core:green_gem") == 3 + gc::Game::VAT_MAX_GEMS);
 }
 
-TEST_CASE("throwing (Q): one, or the whole stack (Ctrl); creative's never run out") {
+TEST_CASE("throwing (Q): one, or the whole stack (Ctrl), out of the inventory (creative too)") {
 	for (const bool creative : {false, true}) {
 		CAPTURE(creative);
 		Play p(creative);
@@ -299,13 +341,11 @@ TEST_CASE("throwing (Q): one, or the whole stack (Ctrl); creative's never run ou
 		CHECK(d.count == 1);
 		CHECK(d.delay == gc::ItemDrops::THROW_DELAY);
 		CHECK(std::hypot(d.vel[0], d.vel[2]) > 3.0f); // (away, where we look)
-		CHECK(p.game->inventory().slots[0].count == (creative ? 5 : 4));
+		CHECK(p.game->inventory().slots[0].count == 4);
 		in.number_key = 0;
 		in.throw_stack = true;
 		p.game->update(0.016f, in);
-		if (!creative) {
-			CHECK(p.game->inventory().slots[0].empty());
-			CHECK(p.game->drops().drops().back().count == 4);
-		}
+		CHECK(p.game->inventory().slots[0].empty());
+		CHECK(p.game->drops().drops().back().count == 4);
 	}
 }

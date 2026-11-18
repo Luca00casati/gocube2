@@ -20,4 +20,9 @@ struct Pigment {
 // The dye they make; NO_DYE for none.
 gocube::Dye mix_dye(const std::vector<Pigment> &pigments);
 
+// The colour of `palette` nearest to `dye` as the eye sees it (CIELAB); the
+// dye as it is when the palette is empty (or it is NO_DYE). The dye vat's
+// mixes snap to the base game's natural tones (the "dye_palette" rule).
+gocube::Dye snap_dye(gocube::Dye dye, const std::vector<gocube::Dye> &palette);
+
 } // namespace gc

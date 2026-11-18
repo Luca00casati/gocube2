@@ -307,7 +307,7 @@ void Commands::add_builtins() {
 				out.push_back("Moved " + target.name + " to " + where + ".");
 			}};
 
-	builtins_["give"] = {"<player> <item> [count]", "puts items in a player's inventory (survival)", true,
+	builtins_["give"] = {"<player> <item> [count]", "puts items in a player's inventory", true,
 			[this, usage](const CommandPlayer &who, const std::vector<std::string> &args, std::vector<std::string> &out) {
 				if (args.size() < 2 || args.size() > 3) {
 					return usage("give", out);
@@ -327,7 +327,7 @@ void Commands::add_builtins() {
 				count = std::min(count, MAX_GIVE);
 				const int given = w_.give ? w_.give(to->peer, item, count) : 0;
 				if (given <= 0) {
-					return out.push_back(to->name + " has no room for " + item + " (or plays in creative).");
+					return out.push_back(to->name + " has no room for " + item + ".");
 				}
 				out.push_back("Gave " + std::to_string(given) + " " + item + " to " + to->name + ".");
 			}};

@@ -100,9 +100,13 @@ gocube::Dye dye_of(const std::string &id); // NO_DYE: not dyed
 std::string dyed(const std::string &id, gocube::Dye dye); // (NO_DYE: the id alone)
 std::string dye_hex(gocube::Dye dye);                      // "#ff8800"
 bool parse_dye(const std::string &hex, gocube::Dye &out);  // "#ff8800" or "ff8800"
-// A texture pixel (sRGB numbers) of a dyed block: the dye, lighter and darker
-// as the texture is (as shaders/color.hlsli's apply_dye).
-void dye_pixel(uint8_t rgb[3], gocube::Dye dye);
+// A texture pixel (sRGB numbers) of a dyed block, stained: the dye where the
+// texture is as bright as `average_lum` (its tile's average, 0..1), lighter
+// and darker as it is, with DYE_SHOW of its own colour showing through (as
+// shaders/color.hlsli's apply_dye).
+constexpr float DYE_SHOW = 0.2f;
+void dye_pixel(uint8_t rgb[3], float average_lum, gocube::Dye dye);
+float pixel_lum(const uint8_t rgb[3]); // 0..1
 
 // What players see an item or block called: its "name", else its id without
 // the mod, words capitalised ("core:wood_pickaxe" -> "Wood Pickaxe"); a dyed

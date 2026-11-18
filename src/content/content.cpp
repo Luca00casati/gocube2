@@ -244,15 +244,19 @@ gocube::Dye dye_of(const std::string &id) {
 	return hash != std::string::npos && parse_dye(id.substr(hash), d) ? d : gocube::NO_DYE;
 }
 
-void dye_pixel(uint8_t rgb[3], gocube::Dye dye) {
+float pixel_lum(const uint8_t rgb[3]) {
+	return (0.299f * rgb[0] + 0.587f * rgb[1] + 0.114f * rgb[2]) / 255.0f;
+}
+
+void dye_pixel(uint8_t rgb[3], float average_lum, gocube::Dye dye) {
 	if (dye == gocube::NO_DYE) {
 		return;
 	}
-	const float lum = (0.299f * rgb[0] + 0.587f * rgb[1] + 0.114f * rgb[2]) / 255.0f;
-	const float k = std::clamp(lum * 1.5f + 0.25f, 0.0f, 1.25f);
+	const float k = std::clamp(pixel_lum(rgb) / std::max(average_lum, 0.04f), 0.0f, 1.6f);
 	const int d[3] = {int(dye >> 16 & 255), int(dye >> 8 & 255), int(dye & 255)};
 	for (int c = 0; c < 3; c++) {
-		rgb[c] = uint8_t(std::clamp(int(float(d[c]) * k + 0.5f), 0, 255));
+		const float stained = float(d[c]) * k * (1.0f - DYE_SHOW) + float(rgb[c]) * DYE_SHOW;
+		rgb[c] = uint8_t(std::clamp(int(stained + 0.5f), 0, 255));
 	}
 }
 

@@ -61,7 +61,7 @@ survival or creative). Or straight into a world:
 | Right button | Place the held block; open a chest, use a door or bed, eat (sneak to place against them) |
 | 1-9, wheel | Choose a hotbar slot |
 | Middle button | Creative: take the block aimed at (dyed too) |
-| E | Inventory (creative: every block and item) |
+| E | Inventory (creative: every block and item to take from) |
 | Q | Throw what you hold (Ctrl+Q: the whole stack) |
 | T, / | Chat (/ starts a command); Enter sends, Esc closes, up and down for what you sent, Tab completes a command |
 | Esc | Pause menu (settings; save and quit) |
@@ -76,6 +76,10 @@ lasts a real day by default and a bed to sleep through the night, falling sand,
 trees sprouting on grass, decaying leaves. One kind of grass and of wood (oak), no
 saplings, no small plants (flowers, tall grass), no farming and no food. The world is saved every minute and
 when you quit.
+
+Creative uses the same inventory as survival (a new creative player starts
+with it empty): take blocks and items from the inventory screen's palette,
+pick up what lies around; placing never uses anything up, and nothing hurts.
 
 Settings (the title menu's Settings button, or the pause menu's): view distance,
 mouse sensitivity, frame rate limit, vsync, smooth lighting, sun shadows,
@@ -152,9 +156,9 @@ gives others the right with `/op NAME` (kept with the world). Everyone can use
 | `/list`, `/seed` | Who is playing; the world's seed |
 | `/say <text>` | A message to everyone |
 | `/tp <x y z>`, `/tp <player> [<x y z> or <player>]` | Move (`~` is where you are: `/tp ~ ~10 ~`) |
-| `/give <player> <item> [count]` | Items into a survival player's inventory (`torch` means `core:torch`; `@s` is you; `stone#ff8800` a dyed block) |
+| `/give <player> <item> [count]` | Items into a player's inventory (`torch` means `core:torch`; `@s` is you; `stone#ff8800` a dyed block) |
 | `/time [set day\|noon\|night\|midnight\|0..1]` | The time of day |
-| `/gamemode [survival\|creative]` | The world's game mode, for everyone (each mode keeps its own inventory) |
+| `/gamemode [survival\|creative]` | The world's game mode, for everyone (inventories stay as they are) |
 | `/kill [player]` | Ends a survival player's life |
 | `/spawnpoint` | The world's spawn where you stand |
 | `/setblock <x y z> <block>`, `/fill <x1 y1 z1> <x2 y2 z2> <block>` | Change blocks (a fill: 32768 at most) |

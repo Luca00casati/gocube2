@@ -141,7 +141,7 @@ void lights(PSIn i, out float3 shade, out float3 full) {
 float4 shade_terrain(PSIn i, float4 tex) {
 	float3 n = i.normal;
 	float face = n.y > 0.5 ? FACE_LIGHT.x : (n.y < -0.5 ? FACE_LIGHT.w : (abs(n.z) > 0.5 ? FACE_LIGHT.y : FACE_LIGHT.z));
-	float3 base = apply_dye(tex.rgb, i.dye);
+	float3 base = apply_dye(tex.rgb, albedo.SampleLevel(nearest_mip, i.uv, TILE_AVERAGE_MIP).rgb, i.dye);
 	float marks = round(i.color.a * 4.0); // 4, 3 (shadow), 2 (tinted), 1 (tinted, shadow)
 	float sunlit = 1.0 - fmod(marks, 2.0);
 	if (marks < 2.5 && i.dye.a < 0.5) { // grass, leaves: vary only the green pixels (not a grass side's dirt)

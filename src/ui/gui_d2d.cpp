@@ -231,10 +231,18 @@ ID2D1Bitmap1 *GuiD2D::dyed_icon(int tile, uint32_t dye) {
 		dyed_.clear(); // (a few hundred dyes on screen at most)
 	}
 	const std::vector<uint8_t> &src = tile_pixels_[size_t(tile)];
+	float sum = 0, seen = 0; // the tile's average brightness (its seen pixels)
+	for (size_t i = 0; i + 3 < src.size(); i += 4) {
+		if (src[i + 3] > 0) {
+			sum += pixel_lum(&src[i]);
+			seen++;
+		}
+	}
+	const float average = seen > 0 ? sum / seen : 0.5f;
 	std::vector<uint8_t> px(src.size());
 	for (size_t i = 0; i + 3 < px.size(); i += 4) {
 		uint8_t rgb[3] = {src[i], src[i + 1], src[i + 2]};
-		dye_pixel(rgb, dye);
+		dye_pixel(rgb, average, dye);
 		const unsigned a = src[i + 3];
 		for (int k = 0; k < 3; k++) {
 			px[i + k] = uint8_t((rgb[k] * a + 127) / 255);

@@ -145,32 +145,11 @@ void Game::load_plants(const Data &data) {
 	}
 }
 
-void Game::fill_creative() {
-	// One of every placeable block (counts are never used up).
-	const auto &ids = rules_.placeable();
-	for (int i = 0; i < Inventory::SIZE && i < int(ids.size()); i++) {
-		inventory_.slots[i] = {ids[i], 1};
-	}
-}
-
 void Game::set_creative(bool on) {
 	if (on == creative_) {
 		return;
 	}
-	creative_ = on;
-	Inventory was = std::move(inventory_);
-	if (!was.cursor.empty()) { // (what the mouse held goes back in)
-		was.add(was.cursor.id, was.cursor.count);
-		was.cursor = {};
-	}
-	inventory_ = other_inventory_ ? std::move(*other_inventory_) : Inventory(content_);
-	const bool first = !other_inventory_;
-	other_inventory_ = std::move(was);
-	if (first && creative_) {
-		fill_creative();
-	} else if (first && !remote_) {
-		give_starting_items(inventory_);
-	}
+	creative_ = on; // (the inventory stays as it is)
 	mining_progress_ = 0;
 	if (!creative_) {
 		health_ = MAX_HEALTH;
@@ -182,11 +161,9 @@ void Game::set_creative(bool on) {
 void Game::start_new_player() {
 	inventory_ = Inventory(content_);
 	selected_ = 0;
-	if (creative_) {
-		fill_creative();
-		return;
+	if (!creative_) { // (creative starts empty: the palette has everything)
+		give_starting_items(inventory_);
 	}
-	give_starting_items(inventory_);
 }
 
 void Game::give_starting_items(Inventory &inv) {
@@ -207,27 +184,17 @@ void Game::load_player(const Data &saved) {
 		return;
 	}
 	inventory_.deserialize(saved["inventory"]);
-	if (saved.contains("other_inventory")) {
-		other_inventory_.emplace(content_);
-		other_inventory_->deserialize(saved["other_inventory"]);
-	}
 	selected_ = std::clamp(int(saved.value("selected", 0.0)), 0, Inventory::HOTBAR - 1);
 	health_ = std::clamp(int(saved.value("health", double(MAX_HEALTH))), 1, MAX_HEALTH);
 	const Data bed = saved.value("bed", Data());
 	if (bed.is_array() && bed.size() == 3 && bed[0].is_number()) {
 		bed_ = BlockPos{int(bed[0].get<double>()), int(bed[1].get<double>()), int(bed[2].get<double>())};
 	}
-	if (creative_ && std::all_of(inventory_.slots.begin(), inventory_.slots.end(), [](const Stack &s) { return s.empty(); })) {
-		fill_creative();
-	}
 }
 
 Data Game::save_player() const {
 	Data s = Data::object();
 	s["inventory"] = inventory_.serialize();
-	if (other_inventory_) {
-		s["other_inventory"] = other_inventory_->serialize();
-	}
 	s["selected"] = selected_;
 	if (!creative_) {
 		s["health"] = health_;
@@ -300,8 +267,8 @@ bool Game::craft(Inventory &inv, const Recipe &r) {
 
 void Game::inventory_action(const Data &action) {
 	const float at[3] = {player_.position[0], player_.position[1], player_.position[2]};
-	if (apply_inventory_action(inventory_, action, at) && remote_ && !creative_) {
-		remote_->inventory_action(action); // (the host keeps a survival player's inventory)
+	if (apply_inventory_action(inventory_, action, at) && remote_) {
+		remote_->inventory_action(action); // (the host keeps our inventory)
 	}
 }
 
@@ -688,12 +655,10 @@ void Game::update(float dt, const GameInput &in) {
 		player_.look(dir);
 		if (remote_) {
 			remote_->request_throw(eye, dir, selected_, selected_item(), in.throw_stack);
-			if (!creative_) { // (the host sends our inventory as it then is)
-				Stack &s = inventory_.slots[size_t(selected_)];
-				s.count -= in.throw_stack ? s.count : 1;
-				if (s.count <= 0) {
-					s = {};
-				}
+			Stack &s = inventory_.slots[size_t(selected_)]; // (the host sends our inventory as it then is)
+			s.count -= in.throw_stack ? s.count : 1;
+			if (s.count <= 0) {
+				s = {};
 			}
 		} else {
 			Actor me;

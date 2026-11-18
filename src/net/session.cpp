@@ -147,9 +147,8 @@ struct Session::Peer {
 	double time = 0;
 	std::optional<std::array<float, 3>> stuck_at;
 	double corrected = -1e9;
-	// Survival: its inventory and health as the host keeps them.
+	// Its inventory as the host keeps it (both modes), and its health (survival).
 	std::unique_ptr<Inventory> inv;
-	std::unique_ptr<Inventory> scratch; // creative: where what it picks up lands (then it's told)
 	uint32_t done = 0; // the last inventory action of its we did
 	bool inv_changed = false;
 	Vitals vitals;
@@ -619,9 +618,7 @@ void Session::hello(Peer &p, const uint8_t *data, size_t size) {
 	for (int k = 0; k < 3; k++) {
 		p.budget[k] = speeds[k] * MOVE_BURST + MOVE_SLACK;
 	}
-	if (!a_.game->creative()) {
-		start_survival(p);
-	}
+	load_player(p);
 	Data info = world_info_;
 	info["id"] = p.id;
 	info["mode"] = a_.game->creative() ? "creative" : "survival";
@@ -756,7 +753,7 @@ bool Session::way_clear(const float from[3], const float to[3], Peer &p) {
 
 void Session::do_break(Peer &p, const BlockPos &pos, int slot) {
 	const float center[3] = {pos.x + 0.5f, pos.y + 0.5f, pos.z + 0.5f};
-	if (p.vitals.dead && p.inv) {
+	if (p.vitals.dead && survival()) {
 		return;
 	}
 	if (distance(p.eye, center) > EDIT_REACH) {
@@ -808,7 +805,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 		return;
 	}
 	Game &game = *a_.game;
-	const bool dead = p.inv && p.vitals.dead;
+	const bool dead = survival() && p.vitals.dead;
 	switch (type) {
 		case C_STATE: {
 			float eye[3];
@@ -843,7 +840,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 			p.item = held_item(p);
 			auto it = a_.content->blocks.find(undyed(p.item));
 			p.light = it != a_.content->blocks.end() ? std::clamp(int(it->second.value("light", 0.0)), 0, 15) : 0;
-			if (p.inv) {
+			if (survival()) {
 				float feet[3];
 				p.feet(feet);
 				p.vitals.moved(*a_.world, *a_.rules, *a_.mods, feet, (p.flags & (FLAG_FLY | FLAG_SLEEP)) != 0);
@@ -865,7 +862,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 			if (!r.ok() || !allow(p, "edit") || dead) {
 				return;
 			}
-			if (p.inv) { // survival: no sooner than its mining time after it started
+			if (survival()) { // no sooner than its mining time after it started
 				const std::optional<BlockPos> m = std::exchange(p.mining, std::nullopt);
 				const int old = a_.world->block_id_at(pos.x, pos.y, pos.z);
 				if (!m || !(*m == pos) || old <= 0) {
@@ -898,7 +895,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 			}
 			Actor who;
 			who.peer = p.id;
-			who.inventory = p.inv.get(); // (survival: from our copy; creative: what it says it holds)
+			who.inventory = p.inv.get(); // (from our copy)
 			who.selected = slot;
 			who.item = item;
 			game.throw_item(who, eye, dir, whole);
@@ -941,7 +938,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 		}
 		case C_EAT: {
 			const int slot = r.u8();
-			if (!r.ok() || !p.inv || !allow(p, "inventory") || slot >= Inventory::HOTBAR) {
+			if (!r.ok() || !p.inv || !survival() || !allow(p, "inventory") || slot >= Inventory::HOTBAR) {
 				return;
 			}
 			p.inv_changed = true;
@@ -1045,7 +1042,7 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 			break;
 		}
 		case C_RESPAWNED:
-			if (p.inv && p.vitals.dead) {
+			if (survival() && p.vitals.dead) {
 				p.vitals.respawn();
 			}
 			break;
@@ -1374,11 +1371,8 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 			break;
 		}
 		case H_PICKED: {
-			const std::string item = r.str(128);
-			const int count = r.u16();
-			if (r.ok() && game.creative() && !item.empty()) { // (survival: the host sends our inventory)
-				game.inventory().add(item, count);
-			}
+			r.str(128); // (the host sends our inventory as it now is)
+			r.u16();
 			float eye[3];
 			a_.player->eye(eye);
 			game.play_sound("core:effects", "pickup", eye, -8.0f);
@@ -1472,15 +1466,8 @@ void Session::host_update(float dt) {
 		OtherPlayer o;
 		o.peer = p->id;
 		p->feet(o.feet);
-		o.alive = !(p->inv && p->vitals.dead);
+		o.alive = !(survival() && p->vitals.dead);
 		o.inventory = p->inv.get();
-		if (!p->inv && game.creative()) { // creative: it picks up into its own (H_PICKED)
-			if (!p->scratch) {
-				p->scratch = std::make_unique<Inventory>(*a_.content);
-			}
-			*p->scratch = Inventory(*a_.content);
-			o.inventory = p->scratch.get();
-		}
 		others.push_back(o);
 		viewers.push_back({o.feet[0], o.feet[1], o.feet[2]});
 	}
@@ -1500,7 +1487,9 @@ void Session::host_update(float dt) {
 		if (p->inv) {
 			float feet[3];
 			p->feet(feet);
-			p->vitals.tick(*a_.world, *a_.rules, *a_.mods, feet, (p->flags & FLAG_SLEEP) != 0, dt);
+			if (survival()) {
+				p->vitals.tick(*a_.world, *a_.rules, *a_.mods, feet, (p->flags & FLAG_SLEEP) != 0, dt);
+			}
 			if (p->vitals.changed) {
 				p->vitals.changed = false;
 				Writer w(H_HEALTH);
@@ -1743,7 +1732,7 @@ CommandWorld Session::command_world() {
 		if (peer == 0) {
 			inv = a_.game ? &a_.game->inventory() : nullptr;
 		} else if (Peer *p = peer_by_id(peer)) {
-			inv = p->inv.get(); // (null in creative: its own palette)
+			inv = p->inv.get();
 			p->inv_changed = inv != nullptr;
 		}
 		return inv ? count - inv->add(item, count) : 0;
@@ -1757,7 +1746,7 @@ CommandWorld Session::command_world() {
 			return true;
 		}
 		Peer *p = peer_by_id(peer);
-		if (!p || !p->inv) {
+		if (!p || !survival()) {
 			return false;
 		}
 		p->vitals.hurt(1 << 20);
@@ -1778,10 +1767,7 @@ CommandWorld Session::command_world() {
 		if (!a_.game || a_.game->creative() == on) {
 			return;
 		}
-		if (on) {
-			saved_players(); // (survival players' inventories, for when it comes back)
-		}
-		a_.game->set_creative(on);
+		a_.game->set_creative(on); // (inventories stay as they are)
 		if (!is_host()) {
 			return;
 		}
@@ -1789,13 +1775,9 @@ CommandWorld Session::command_world() {
 			if (!p->joined) {
 				continue;
 			}
-			if (on) {
-				p->inv.reset(); // (creative: its own palette)
-				p->waiting.reset();
-				p->vitals = Vitals();
-			} else {
-				start_survival(*p);
-			}
+			p->waiting.reset();
+			p->vitals = Vitals(); // (full health)
+			p->vitals.changed = true;
 		}
 		Writer w(H_MODE);
 		w.u8(on ? 1 : 0);
@@ -1980,14 +1962,19 @@ void Session::night_skipped() {
 	to_players(Writer(H_WAKE).bytes);
 }
 
-// Survival: we keep its inventory and health (back from last time).
-void Session::start_survival(Peer &p) {
+bool Session::survival() const {
+	return a_.game && !a_.game->creative();
+}
+
+// We keep its inventory and health (back from last time); a new player gets
+// the starting items (survival) or nothing (creative).
+void Session::load_player(Peer &p) {
 	p.inv = std::make_unique<Inventory>(*a_.content);
 	p.vitals = Vitals();
 	const Data saved = saved_players_.value(p.name, Data::object());
 	if (saved.is_object() && saved.contains("inventory")) {
 		p.inv->deserialize(saved["inventory"]);
-	} else {
+	} else if (survival()) {
 		a_.game->give_starting_items(*p.inv);
 	}
 	if (saved.is_object() && saved.contains("health") && saved["health"].is_number()) {

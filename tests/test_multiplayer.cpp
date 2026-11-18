@@ -79,7 +79,7 @@ TEST_CASE("multiplayer: joining gets the host's world, and block changes go both
 
 	// We place a block (a dyed one): the host does it, both worlds have it, dyed.
 	const BlockPos cell{4, 100, 1};
-	c.game().inventory().slots[0] = {"core:planks#3366cc", 1};
+	c.take_from_palette("core:planks#3366cc", 0);
 	c.input.number_key = 1;
 	c.frame();
 	aim_at_floor(c, cell.x, cell.z);
@@ -157,7 +157,7 @@ TEST_CASE("multiplayer: with UDP blocked, everything goes over TCP") {
 	CHECK_FALSE(h.session.udp_ready());
 	// A change goes through the host.
 	const BlockPos cell{4, 100, 1};
-	c.game().inventory().slots[0] = {"core:planks", 1};
+	c.take_from_palette("core:planks", 0);
 	c.input.number_key = 1;
 	c.frame();
 	aim_at_floor(c, cell.x, cell.z);
@@ -490,16 +490,21 @@ TEST_CASE("multiplayer: chat and commands through the host") {
 	CHECK(wait_for(client_lines, "[Host -> you] psst"));
 	CHECK_FALSE(seen(client_lines, "<Host>"));
 
-	// /gamemode: for everyone; each mode keeps its own inventory.
+	// /gamemode: for everyone; inventories stay as they are.
 	run_for(both_sides, 3.0f); // (the chat allowance comes back)
 	c.session.chat("/gamemode creative");
 	CHECK(wait_for(host_lines, "The game is now in creative (Client)"));
 	CHECK(run_until(both_sides, [&] { return c.game().creative() && h.game().creative(); }, 5));
-	CHECK(inv.count_of("core:torch") <= 1); // (the palette: one of each block)
+	run_for(both_sides, 0.5f);
+	CHECK(inv.count_of("core:torch") == torches + 3);
 	CHECK(c.game().health() == gc::Game::MAX_HEALTH);
+	// Creative: the host still keeps the inventory (/give reaches it).
+	c.session.chat("/give Client core:planks 2");
+	CHECK(run_until(both_sides, [&] { return inv.count_of("core:planks") == 2; }, 5));
 	h.session.chat("/gamemode survival");
 	CHECK(run_until(both_sides, [&] { return !c.game().creative() && !h.game().creative(); }, 5));
-	CHECK(run_until(both_sides, [&] { return inv.count_of("core:torch") == torches + 3; }, 5)); // (back, from the host)
+	CHECK(inv.count_of("core:torch") == torches + 3);
+	CHECK(inv.count_of("core:planks") == 2);
 	c.session.chat("/gamemode");
 	CHECK(wait_for(client_lines, "The game is in survival."));
 
