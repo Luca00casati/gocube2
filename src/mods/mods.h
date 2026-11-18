@@ -1,8 +1,7 @@
 #pragma once
 // Mods: found in folders, loaded in dependency order (the base game, "core",
-// first), each with a Lua entry script, run in a sandbox. Content (blocks,
-// items, recipes, ...) is registered from Lua; there are no data-only content
-// files.
+// first). A mod can be data only (content as a data table, chat command
+// files: nothing of it runs) or have a Lua entry script, run in a sandbox.
 //
 // A mod is a folder with mod.lua, its manifest: a Lua data table, read in an
 // empty Lua state (data/lua_data.h: nothing in it can run):
@@ -10,9 +9,17 @@
 //     id = "mymod",                        required, a-z 0-9 _
 //     name = "My Mod", version = "1.0.0",
 //     dependencies = {"othermod"},         "core" is implicit
+//     content = "content.lua",             content as data (optional): a table
+//                                          {blocks = {[id] = def}, items = ...,
+//                                          recipes, ores, trees, biomes,
+//                                          sound_sets, creatures}, read like this one
 //     entry = "main.lua",                  code (optional), see below
 //     api_version = 1,                     the modding API it was written for
 //   }
+// Command files: functions/NAME.txt (folders too), a chat command a line ("#"
+// starts a comment); /run mod:NAME runs one, as whoever ran /run. Data and
+// command files can't do anything a command doesn't allow, so a player can
+// play only with servers whose mods are data (Settings::server_mod_code).
 // The entry script runs once at load, in the mod's own environment: Lua's
 // string (without dump), table, math (without random) and utf8 libraries,
 // the safe basic functions, and
@@ -46,7 +53,13 @@
 //              their files). Rules the game asks: see Mods::rule.
 //              While playing: players() -> {{peer, x, y, z, survival, alive}},
 //              day() -> 0..1, damage_player(peer, amount, source [, push xyz]),
-//              play_sound(set, kind, x, y, z [, dB]), effect("smoke", x, y, z)
+//              play_sound(set, kind, x, y, z [, dB]), effect("smoke", x, y, z),
+//              command(line) -> {reply lines}: a chat command, run as the
+//              world itself (an operator)
+//   commands   register(name, {usage=, help=, op=true}, function(who, args)):
+//              a chat command /name (a-z 0-9 _); `who` {peer, name, x, y, z,
+//              op}, `args` its words; what it returns (a string) is the
+//              answer. op = false: anyone may run it.
 //   mod        {id, version}
 //   print      to the game's log
 //   require    another .lua file of this mod (text only)
@@ -63,6 +76,7 @@
 // only on its files.
 
 #include "content/content.h"
+#include "game/commands.h"
 #include "world/world.h"
 
 #include <filesystem>
@@ -110,6 +124,18 @@ public:
 	// Mods the player turned off (not the base game): skipped by load_all
 	// unless they're the host's (`only`).
 	void set_disabled(std::vector<std::string> ids) { disabled_ = std::move(ids); }
+	// Mods in these folders may not run code (an "entry" script): they fail
+	// to load, unless they're data only (content and command files).
+	void set_code_forbidden_in(std::vector<std::filesystem::path> folders) { code_forbidden_ = std::move(folders); }
+
+	// Mods' commands (commands.register), running one as `who` with these
+	// arguments (what it answers, "" for nothing; nullopt if it failed or
+	// ran too long), and their command files (functions/NAME.txt, by
+	// "mod:NAME"; null if none).
+	std::vector<ModCommand> commands() const;
+	std::optional<std::string> run_command(const std::string &name, const CommandPlayer &who,
+			const std::vector<std::string> &args);
+	const std::vector<std::string> *function(const std::string &name) const;
 	const std::vector<ModInfo> &loaded() const { return loaded_; }
 	// Why mods didn't load, or were turned off: mod id (or folder) -> reason.
 	const std::map<std::string, std::string> &problems() const { return problems_; }
@@ -136,6 +162,9 @@ public:
 		std::function<void(const std::string &name, const float at[3])> effect; // "smoke"
 	};
 	void set_world_hooks(WorldHooks hooks);
+	// game.command(line): runs a command as the world itself (an operator);
+	// what it says. Set by whoever runs commands (the session).
+	void set_command_runner(std::function<std::vector<std::string>(const std::string &line)> run);
 	void block_changed(const BlockPos &p, const std::string &id);
 	void tick(double dt);
 	void block_placed(const BlockPos &p, const std::string &id);
@@ -169,6 +198,10 @@ private:
 	std::vector<ModInfo> loaded_;
 	std::map<std::string, std::string> problems_;
 	std::vector<std::string> disabled_;
+	std::vector<std::filesystem::path> code_forbidden_;
+	std::string load_data_content(const std::filesystem::path &dir, const Data &manifest, const std::string &id,
+			Content &content);
+	void load_functions(const std::filesystem::path &dir, const std::string &id);
 };
 
 // A short hash of every file in a mod folder (names and contents, dot-names

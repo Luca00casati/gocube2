@@ -258,6 +258,7 @@ TEST_CASE("settings: saved and read back; what's missing or wrong is the default
 	s.mouse_sensitivity = 0.0052f;
 	s.max_fps = 60;
 	s.vsync = false;
+	s.server_mod_code = false;
 	s.smooth_lighting = false;
 	s.shadow_mode = "off";
 	s.render_scale = 0.75f;
@@ -275,6 +276,7 @@ TEST_CASE("settings: saved and read back; what's missing or wrong is the default
 	CHECK(back.mouse_sensitivity == doctest::Approx(0.0052f));
 	CHECK(back.max_fps == 60);
 	CHECK_FALSE(back.vsync);
+	CHECK_FALSE(back.server_mod_code);
 	CHECK_FALSE(back.smooth_lighting);
 	CHECK(back.shadow_mode == "off");
 	CHECK(back.render_scale == doctest::Approx(0.75f));

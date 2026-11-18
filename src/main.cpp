@@ -42,7 +42,9 @@
 //                    1, 0.85, 0.75 and 0.5). --view and --render-scale win
 //                    over the settings (%APPDATA%\GoCube\settings.lua, which
 //                    --hidden doesn't read: tests play with the defaults)
-//   --screen=inventory|settings  a screen open at the start (screenshots)
+//   --screen=inventory|settings|chat  a screen open at the start (screenshots)
+//   --say=LINE       type LINE into the chat at the start (a "/" command too;
+//                    give it more than once for more lines)
 //   --host[=PORT]    open the world to other players (default port 24680)
 //   --join=ADDRESS[:PORT]  play in someone else's world
 //   --name=NAME      the name others see (default "Player")
@@ -125,6 +127,7 @@ struct Options {
 	std::string screen;            // a screen open at the start ("inventory")
 	bool mannequin = false;        // our figure in front of us (screenshots)
 	bool details = false;          // --details: the F3 screen open
+	std::vector<std::string> say;  // --say: lines typed into the chat at the start (commands too)
 	bool profile = false;          // --profile: the frame times in the log at the end
 	double time = -1;              // time of day to start at (0..1; -1: the world's)
 	bool menu = false;             // the title menu even with testing options (--frames, --screenshot: of it)
@@ -200,6 +203,8 @@ Options parse(int argc, char **argv) {
 			o.time = strtod(v, nullptr);
 		} else if ((v = value("--screen="))) {
 			o.screen = v;
+		} else if ((v = value("--say="))) {
+			o.say.push_back(v);
 		} else if ((v = value("--mode="))) {
 			o.mode = v;
 		} else if ((v = value("--view="))) {
@@ -299,7 +304,24 @@ struct Controls {
 	}
 };
 
-enum class Screen { NONE, INVENTORY, CONTAINER, PAUSE, SETTINGS };
+enum class Screen { NONE, INVENTORY, CONTAINER, PAUSE, SETTINGS, CHAT };
+
+// The chat: the lines that came (each fades CHAT_FADE seconds after), what's
+// being typed, and what was sent (up and down go through it).
+struct ChatState {
+	static constexpr double CHAT_FADE = 10.0;
+	static constexpr int SHOWN = 10;
+	struct Line {
+		std::string text;
+		double at;
+	};
+	std::vector<Line> lines; // (the latest 100)
+	std::string typing;
+	std::vector<std::string> sent; // (the latest 50)
+	int sent_at = -1;              // -1: not going through them
+	int frames_open = 0;
+	bool refocus = false;          // the field gets the keyboard back next frame
+};
 
 // Number keys 1..9 pressed this frame (0: none).
 int number_pressed(const gc::Window &window, Controls &controls) {
@@ -728,6 +750,86 @@ PauseChoice pause_menu(bool saved, bool from_menu) {
 	return choice;
 }
 
+// The chat, bottom left above the hotbar: the lines that came lately (they
+// fade), and while it's open the last ones and the line being typed. Enter
+// sends it (the screen handling closes it on Esc), up and down go through what
+// was sent, Tab completes a command's name. False when it was sent.
+bool draw_chat(ChatState &chat, gc::Session &session, bool open, double now) {
+	gc::ui::Gui &g = gui();
+	const float bottom = g.input().height - 96.0f; // (above the hotbar)
+	const float width = std::min(560.0f, g.input().width - 16.0f);
+	float y = bottom - (open ? g.frame_height() + 24.0f : 0.0f);
+	int shown = 0;
+	for (auto it = chat.lines.rbegin(); it != chat.lines.rend() && shown < ChatState::SHOWN; ++it, shown++) {
+		const double age = now - it->at;
+		if (!open && age > ChatState::CHAT_FADE) {
+			break;
+		}
+		const float alpha = open ? 1.0f : float(std::clamp(ChatState::CHAT_FADE - age, 0.0, 1.0));
+		y -= g.line_height() + 2;
+		if (open) {
+			const float w = std::max(width, g.text_size(it->text).x + 8.0f); // (a long line: as long as it)
+			g.background().fill({4, y - 1, 4 + w, y + g.line_height() + 1}, gc::ui::rgba(0, 0, 0, 110));
+		}
+		outlined_text(g.foreground(), {8, y}, gc::ui::rgba(255, 255, 255, int(255 * alpha)), it->text);
+	}
+	if (!open) {
+		return true;
+	}
+	if (++chat.frames_open == 1) {
+		return true; // (the key that opened it isn't typed into it)
+	}
+	const auto &keys = g.input().keys;
+	auto pressed = [&](int vk) { return std::find(keys.begin(), keys.end(), vk) != keys.end(); };
+	if (pressed(VK_UP) && !chat.sent.empty()) {
+		chat.sent_at = std::min(chat.sent_at + 1, int(chat.sent.size()) - 1);
+		chat.typing = chat.sent[chat.sent.size() - 1 - size_t(chat.sent_at)];
+		chat.refocus = true;
+	} else if (pressed(VK_DOWN) && chat.sent_at >= 0) {
+		chat.sent_at--;
+		chat.typing = chat.sent_at >= 0 ? chat.sent[chat.sent.size() - 1 - size_t(chat.sent_at)] : "";
+		chat.refocus = true;
+	}
+	if (pressed(VK_TAB)) {
+		chat.refocus = true; // (Tab takes the keyboard from the field: give it back)
+		if (chat.typing.size() > 1 && chat.typing[0] == '/' && chat.typing.find(' ') == std::string::npos) {
+			const std::vector<std::string> names = session.complete_command(chat.typing.substr(1));
+			if (names.size() == 1) {
+				chat.typing = "/" + names[0] + " ";
+			} else if (!names.empty()) {
+				std::string list;
+				for (const std::string &n : names) {
+					list += (list.empty() ? "/" : ", /") + n;
+				}
+				chat.lines.push_back({list, now});
+			}
+		}
+	}
+	gc::ui::WindowOptions o;
+	o.pos = {4, bottom - g.frame_height() - 20.0f};
+	o.size = {width, g.frame_height() + 2 * g.theme.padding.y};
+	o.alpha = 0.8f;
+	g.begin_window("chat", o);
+	if (chat.frames_open == 2 || std::exchange(chat.refocus, false)) {
+		g.focus_next_field();
+	}
+	g.next_width(-1);
+	g.input_text("##chat", chat.typing, gc::Session::MAX_CHAT, "Say something, or /help");
+	g.end_window();
+	if (pressed(VK_RETURN)) {
+		if (!chat.typing.empty()) {
+			session.chat(chat.typing);
+			chat.sent.push_back(chat.typing);
+			if (chat.sent.size() > 50) {
+				chat.sent.erase(chat.sent.begin());
+			}
+		}
+		chat.typing.clear();
+		return false;
+	}
+	return true;
+}
+
 // A world in the title menu's list.
 struct WorldEntry {
 	std::filesystem::path dir;
@@ -1034,6 +1136,9 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	if (choice.only_mods.empty()) {
 		mods.load_all({builtin_mods, user_dir() / "mods"});
 	} else {
+		if (!settings.server_mod_code) { // (the player only plays with servers' mods that are data)
+			mods.set_code_forbidden_in({user_dir() / "server_mods"});
+		}
 		mods.load_all({builtin_mods, user_dir() / "mods", user_dir() / "server_mods"}, &choice.only_mods);
 	}
 	if (mods.loaded().empty() || mods.loaded().front().id != "core") {
@@ -1094,7 +1199,9 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 					const bool missing = session.missing_mods().count(e) > 0;
 					g.bullet(e.substr(0, e.find('#')) + (missing ? "  (to download)" : ""));
 				}
-				g.text_dim("Mods run in the game's sandbox. They're kept in %APPDATA%\\GoCube\\server_mods.");
+				g.text_dim(settings.server_mod_code
+								? "Mods run in the game's sandbox. They're kept in %APPDATA%\\GoCube\\server_mods."
+								: "Your settings only allow server mods without code: one with code won't load.");
 				const std::string label = session.missing_mods().empty() ? "Play with these mods"
 						: "Download (" + std::to_string(std::max<size_t>(1, bytes >> 10)) + " KB) and play with them";
 				if (g.button(label, {320, 32}) || options.accept_mods) {
@@ -1195,7 +1302,8 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	std::copy(player.position, player.position + 3, previous_position);
 	Controls controls;
 	controls.details = options.details;
-	Screen screen = options.screen == "inventory" ? Screen::INVENTORY : Screen::NONE;
+	ChatState chat;
+	Screen screen = options.screen == "inventory" ? Screen::INVENTORY : options.screen == "chat" ? Screen::CHAT : Screen::NONE;
 	gc::BlockPos container; // (Screen::CONTAINER)
 	const bool creative = (joining ? welcome.value("mode", "survival") : save ? save->mode() : choice.mode) == "creative";
 	gc::Game game(content, table, rules, *world, mods, player, creative);
@@ -1287,6 +1395,19 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	// the host (open to others).
 	gc::Session::Attach attach{&game, world.get(), &player, &content, &rules, &mods, &day};
 	std::string net_problem;
+	session.set_local_name(choice.name);
+	if (save && save->field("ops").is_array()) {
+		std::vector<std::string> ops;
+		for (const gc::Data &name : save->field("ops")) {
+			if (name.is_string()) {
+				ops.push_back(name.get<std::string>());
+			}
+		}
+		session.set_ops(std::move(ops));
+	}
+	if (!joining) {
+		session.set_world_info({{"seed", seed}, {"block_ids", content.block_ids()}});
+	}
 	if (joining) {
 		session.attach(attach);
 	} else if (choice.host_port > 0) {
@@ -1294,7 +1415,6 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			net_problem = e;
 			gc::log("%s", e.c_str());
 		} else {
-			session.set_world_info({{"seed", seed}, {"block_ids", content.block_ids()}});
 			std::map<std::string, std::filesystem::path> folders; // (players with other mods may download ours)
 			for (const gc::ModInfo &m : mods.loaded()) {
 				folders[gc::mod_entry(m)] = m.dir;
@@ -1305,6 +1425,12 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			}
 			session.attach(attach);
 		}
+	}
+	if (session.mode() == gc::Session::Mode::OFFLINE) {
+		session.attach(attach); // (alone: chat and commands still go through it)
+	}
+	for (const std::string &line : options.say) {
+		session.chat(line);
 	}
 	const bool online = session.mode() != gc::Session::Mode::OFFLINE;
 	float sleeping = -1; // seconds asleep (-1: awake)
@@ -1321,6 +1447,14 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			save->set_field("block_entities", game.block_entities().serialize());
 			save->set_field("time", day.time);
 			save->set_field("plants", game.save_plants());
+			save->set_field("mode", game.creative() ? "creative" : "survival");
+			{
+				gc::Data ops = gc::Data::array();
+				for (const std::string &name : session.ops()) {
+					ops.push_back(name);
+				}
+				save->set_field("ops", ops);
+			}
 			if (session.is_host()) {
 				save->set_field("players", session.saved_players()); // joined players' inventories
 			}
@@ -1368,6 +1502,8 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		// held goes back in, or is dropped). While one is open the mouse is free.
 		const bool key_e = controls.pressed(window, settings.key("inventory"));
 		const bool key_esc = controls.pressed(window, VK_ESCAPE);
+		const bool key_chat = controls.pressed(window, 'T');
+		const bool key_command = controls.pressed(window, VK_OEM_2) || controls.pressed(window, VK_DIVIDE); // "/"
 		auto close_screen = [&] {
 			game.inventory_action(gc::Data::array({"close"})); // (what the mouse held goes back in, or is dropped)
 			if (screen == Screen::CONTAINER && joining) {
@@ -1380,6 +1516,12 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			if (key_e && window.mouse_captured()) {
 				screen = Screen::INVENTORY;
 				window.set_mouse_captured(false);
+			} else if ((key_chat || key_command) && window.mouse_captured()) {
+				screen = Screen::CHAT; // (T, or "/" to start a command)
+				chat.typing = key_command ? "/" : "";
+				chat.frames_open = 0;
+				chat.sent_at = -1;
+				window.set_mouse_captured(false);
 			} else if (key_esc && !game.dead()) {
 				screen = Screen::PAUSE;
 				window.set_mouse_captured(false);
@@ -1391,6 +1533,11 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 			}
 		} else if (screen == Screen::SETTINGS) {
 			// (Esc closes it, back to the pause menu: the screen sees it.)
+		} else if (screen == Screen::CHAT) {
+			if (key_esc) {
+				screen = Screen::NONE;
+				window.set_mouse_captured(true);
+			}
 		} else if (key_e || key_esc) {
 			close_screen();
 		}
@@ -1681,6 +1828,16 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 		}
 		if (sleeping >= 0) {
 			gui().foreground().fill(screen_rect(), gc::ui::rgba(0, 0, 0, int(230 * std::min(1.0f, sleeping / 1.5f))));
+		}
+		for (std::string &line : session.take_chat()) {
+			chat.lines.push_back({std::move(line), frame_time_total});
+		}
+		if (chat.lines.size() > 100) {
+			chat.lines.erase(chat.lines.begin(), chat.lines.end() - 100);
+		}
+		if (!draw_chat(chat, session, screen == Screen::CHAT, frame_time_total) && screen == Screen::CHAT) {
+			screen = Screen::NONE; // (sent)
+			window.set_mouse_captured(true);
 		}
 		gc::draw_held(gui(), game.inventory().cursor, icons);
 		end_ui();

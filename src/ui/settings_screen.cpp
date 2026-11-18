@@ -331,6 +331,11 @@ bool SettingsScreen::draw(ui::Gui &gui, Settings &s, const Window &window, bool 
 		gui.tooltip("In use: you're playing with a server's mods.");
 	}
 	gui.text_wrapped("A server's mods are downloaded again if you join it later.", DIM);
+	gui.checkbox("Servers' mods may run code (Lua, in the sandbox)", s.server_mod_code);
+	if (gui.item_hovered()) {
+		gui.tooltip("Off: you only play with servers whose mods are data (content and command files), "
+					"so nothing from a server runs on your computer.");
+	}
 	gui.end_child();
 
 	// Reset keys, Done.

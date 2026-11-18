@@ -71,6 +71,8 @@ target_sources(gocube_core PRIVATE
 	src/game/figure.cpp
 	src/game/figure.h
 	src/game/blocks.cpp
+	src/game/commands.cpp
+	src/game/commands.h
 	src/game/blocks.h
 	src/game/drops.cpp
 	src/game/drops.h
@@ -186,6 +188,7 @@ add_executable(gocube_tests
 	tests/net_play.h
 	tests/play.h
 	tests/test_audio.cpp
+	tests/test_commands.cpp
 	tests/test_gui.cpp
 	tests/test_image.cpp
 	tests/test_mods.cpp

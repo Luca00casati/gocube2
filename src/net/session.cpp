@@ -35,6 +35,7 @@ enum Msg : uint8_t {
 	C_RESPAWNED,
 	C_MOD_PART,  // entry, part u32 (a player we offered our mods)
 	C_SKIN,      // bytes (SKIN_BYTES of RGBA)
+	C_CHAT,      // text (a line, or a "/" command)
 
 	H_WELCOME = 64, // info (data), chunks (u32 count, position + bytes)
 	H_REJECTED,     // reason
@@ -56,6 +57,9 @@ enum Msg : uint8_t {
 	H_OFFER_MODS,   // u16 count, {entry, size u32} (our mods; size 0: the base game)
 	H_MOD_PART,     // entry, part u32, parts u32, bytes
 	H_SKIN,         // id u32, bytes (SKIN_BYTES of RGBA)
+	H_CHAT,         // a line to show
+	H_WORLD_SPAWN,  // feet (a command moved it)
+	H_MODE,         // creative u8 (a command changed it)
 };
 
 // "id@version#fingerprint" -> its parts ("" if it isn't one).
@@ -181,6 +185,7 @@ const std::map<std::string, Session::Rate> &Session::rates() {
 			{"mine", {20, 40}},
 			{"mod", {80, 160}}, // parts of our mods (offered, not joined)
 			{"skin", {0.2f, 2}}, // a player's skin (sent once, maybe again)
+			{"chat", {2, 6}},    // lines and commands typed
 	};
 	return table;
 }
@@ -323,6 +328,21 @@ void Session::attach(const Attach &a) {
 	detach();
 	a_ = a;
 	Game &game = *a_.game;
+	if (!is_client()) {
+		commands_ = std::make_unique<Commands>(command_world());
+		if (a_.mods) {
+			a_.mods->set_command_runner([this](const std::string &line) {
+				CommandPlayer world;
+				world.name = "world";
+				world.op = true;
+				const float *p = a_.player ? a_.player->position : nullptr;
+				if (p) {
+					std::copy(p, p + 3, world.feet);
+				}
+				return commands_->run(world, line);
+			});
+		}
+	}
 	if (is_client()) {
 		game.set_remote(this);
 		for (auto &[pos, bytes] : welcome_chunks_) {
@@ -387,6 +407,10 @@ void Session::detach() {
 	if (!a_.game) {
 		return;
 	}
+	if (a_.mods) {
+		a_.mods->set_command_runner(nullptr);
+	}
+	commands_.reset();
 	if (is_host()) {
 		a_.world->on_block_changed = previous_block_hook_;
 		a_.world->set_extra_viewers({});
@@ -593,18 +617,7 @@ void Session::hello(Peer &p, const uint8_t *data, size_t size) {
 		p.budget[k] = speeds[k] * MOVE_BURST + MOVE_SLACK;
 	}
 	if (!a_.game->creative()) {
-		// Survival: we keep its inventory and health (back from last time).
-		p.inv = std::make_unique<Inventory>(*a_.content);
-		const Data saved = saved_players_.value(name, Data::object());
-		if (saved.is_object() && saved.contains("inventory")) {
-			p.inv->deserialize(saved["inventory"]);
-		} else {
-			a_.game->give_starting_items(*p.inv);
-		}
-		if (saved.is_object() && saved.contains("health") && saved["health"].is_number()) {
-			p.vitals.health = std::clamp(int(saved["health"].get<double>()), 1, Vitals::MAX_HEALTH);
-		}
-		p.inv_changed = true;
+		start_survival(p);
 	}
 	Data info = world_info_;
 	info["id"] = p.id;
@@ -1011,6 +1024,13 @@ void Session::on_host_message(Peer &p, const uint8_t *data, size_t size) {
 				p.vitals.respawn();
 			}
 			break;
+		case C_CHAT: {
+			const std::string text = r.str(MAX_CHAT);
+			if (r.ok() && !text.empty() && allow(p, "chat")) {
+				handle_chat(p.id, text);
+			}
+			break;
+		}
 		case C_SKIN: {
 			std::vector<uint8_t> skin = r.blob(SKIN_BYTES);
 			if (!r.ok() || skin.size() != SKIN_BYTES || !allow(p, "skin")) {
@@ -1127,6 +1147,13 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 		local_mods_[entry] = dir;
 		log("Downloaded the server's mod %s", entry.c_str());
 		mods_ready_ = std::all_of(downloads_.begin(), downloads_.end(), [](const auto &kv) { return kv.second.done; });
+		return;
+	}
+	if (type == H_CHAT) {
+		const std::string line = r.str(MAX_CHAT * 2);
+		if (r.ok() && chat_in_.size() < 200) {
+			chat_in_.push_back(line);
+		}
 		return;
 	}
 	if (type == H_SKIN) { // (may come before we play)
@@ -1350,6 +1377,21 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 		case H_WAKE:
 			woken_ = true;
 			break;
+		case H_WORLD_SPAWN: {
+			float at[3];
+			r.vec3(at);
+			if (r.ok()) {
+				game.set_world_spawn(Data::array({at[0], at[1], at[2]}));
+			}
+			break;
+		}
+		case H_MODE: {
+			const uint8_t on = r.u8();
+			if (r.ok()) {
+				game.set_creative(on != 0); // (survival: the inventory follows from the host)
+			}
+			break;
+		}
 		default:
 			break;
 	}
@@ -1507,6 +1549,259 @@ void Session::host_update(float dt) {
 	}
 }
 
+// --- Chat and commands -------------------------------------------------------------
+
+namespace {
+
+// A typed line, cleaned: no control characters, MAX_CHAT bytes at most.
+std::string clean_chat(const std::string &text) {
+	std::string out;
+	for (char c : text) {
+		if (static_cast<unsigned char>(c) >= 32 && c != 127) {
+			out += c;
+		}
+	}
+	const size_t start = out.find_first_not_of(' ');
+	if (start == std::string::npos) {
+		return "";
+	}
+	out.erase(0, start);
+	if (out.size() > Session::MAX_CHAT) {
+		size_t n = Session::MAX_CHAT;
+		while (n > 0 && (static_cast<unsigned char>(out[n]) & 0xc0) == 0x80) {
+			n--; // (whole UTF-8 characters)
+		}
+		out.resize(n);
+	}
+	return out;
+}
+
+} // namespace
+
+void Session::chat(const std::string &typed) {
+	const std::string text = clean_chat(typed);
+	if (text.empty()) {
+		return;
+	}
+	if (is_client()) {
+		Writer w(C_CHAT);
+		w.str(text);
+		send_host(w.bytes);
+	} else {
+		handle_chat(0, text);
+	}
+}
+
+std::vector<std::string> Session::complete_command(const std::string &typed) const {
+	CommandPlayer me;
+	me.op = true;
+	if (commands_) {
+		return commands_->complete(me, typed);
+	}
+	static Commands builtin{CommandWorld{}}; // (a client: the game's own names)
+	return builtin.complete(me, typed);
+}
+
+void Session::handle_chat(int peer, const std::string &typed) {
+	const std::string text = clean_chat(typed);
+	if (text.empty() || !commands_) {
+		return;
+	}
+	CommandPlayer who;
+	for (const CommandPlayer &p : command_world().players()) {
+		if (p.peer == peer) {
+			who = p;
+		}
+	}
+	if (who.name.empty()) {
+		return; // (gone)
+	}
+	if (text[0] == '/') {
+		log("%s: %s", who.name.c_str(), text.c_str());
+		for (const std::string &line : commands_->run(who, text)) {
+			chat_to(peer, line);
+		}
+	} else {
+		chat_all("<" + who.name + "> " + text);
+	}
+}
+
+void Session::chat_to(int peer, const std::string &line) {
+	if (peer == 0) {
+		chat_in_.push_back(line);
+		return;
+	}
+	if (Peer *p = peer_by_id(peer)) {
+		Writer w(H_CHAT);
+		w.str(line);
+		send(p->conn, w.bytes);
+	}
+}
+
+void Session::chat_all(const std::string &line) {
+	chat_in_.push_back(line);
+	if (is_host()) {
+		Writer w(H_CHAT);
+		w.str(line);
+		to_players(w.bytes);
+	}
+}
+
+// What commands act on: our game and world, and (hosting) the joined players.
+CommandWorld Session::command_world() {
+	CommandWorld w;
+	w.players = [this] {
+		std::vector<CommandPlayer> out;
+		CommandPlayer me;
+		me.name = is_host() ? name_ : local_name_;
+		me.op = true;
+		if (a_.player) {
+			std::copy(a_.player->position, a_.player->position + 3, me.feet);
+		}
+		out.push_back(me);
+		for (auto &p : peers_) {
+			if (p->joined) {
+				CommandPlayer c;
+				c.peer = p->id;
+				c.name = p->name;
+				p->feet(c.feet);
+				c.op = std::find(ops_.begin(), ops_.end(), p->name) != ops_.end();
+				out.push_back(c);
+			}
+		}
+		return out;
+	};
+	w.is_block = [this](const std::string &id) { return a_.content && a_.content->block_index(id) >= 0; };
+	w.is_item = [this](const std::string &id) { return a_.content && a_.content->items.count(id) > 0; };
+	w.is_creature = [this](const std::string &id) { return a_.content && a_.content->creatures.count(id) > 0; };
+	w.teleport = [this](int peer, const float feet[3]) {
+		if (peer == 0) {
+			if (!a_.player) {
+				return false;
+			}
+			std::copy(feet, feet + 3, a_.player->position);
+			std::fill(a_.player->velocity, a_.player->velocity + 3, 0.0f);
+			return true;
+		}
+		Peer *p = peer_by_id(peer);
+		if (!p) {
+			return false;
+		}
+		p->eye[0] = feet[0];
+		p->eye[1] = feet[1] + Player::EYE_HEIGHT;
+		p->eye[2] = feet[2];
+		p->stuck_at.reset();
+		Writer w(H_CORRECT); // (the client goes where we say)
+		w.vec3(p->eye);
+		send(p->conn, w.bytes);
+		return true;
+	};
+	w.give = [this](int peer, const std::string &item, int count) {
+		Inventory *inv = nullptr;
+		if (peer == 0) {
+			inv = a_.game ? &a_.game->inventory() : nullptr;
+		} else if (Peer *p = peer_by_id(peer)) {
+			inv = p->inv.get(); // (null in creative: its own palette)
+			p->inv_changed = inv != nullptr;
+		}
+		return inv ? count - inv->add(item, count) : 0;
+	};
+	w.kill = [this](int peer) {
+		if (peer == 0) {
+			if (!a_.game || a_.game->creative() || a_.game->dead()) {
+				return false;
+			}
+			a_.game->damage(1 << 20, "command");
+			return true;
+		}
+		Peer *p = peer_by_id(peer);
+		if (!p || !p->inv) {
+			return false;
+		}
+		p->vitals.hurt(1 << 20);
+		return true;
+	};
+	w.set_world_spawn = [this](const float feet[3]) {
+		if (a_.game) {
+			a_.game->set_world_spawn(Data::array({feet[0], feet[1], feet[2]}));
+		}
+		if (is_host()) {
+			Writer w(H_WORLD_SPAWN);
+			w.vec3(feet);
+			to_players(w.bytes);
+		}
+	};
+	w.creative = [this] { return a_.game && a_.game->creative(); };
+	w.set_creative = [this](bool on) {
+		if (!a_.game || a_.game->creative() == on) {
+			return;
+		}
+		if (on) {
+			saved_players(); // (survival players' inventories, for when it comes back)
+		}
+		a_.game->set_creative(on);
+		if (!is_host()) {
+			return;
+		}
+		for (auto &p : peers_) {
+			if (!p->joined) {
+				continue;
+			}
+			if (on) {
+				p->inv.reset(); // (creative: its own palette)
+				p->waiting.reset();
+				p->vitals = Vitals();
+			} else {
+				start_survival(*p);
+			}
+		}
+		Writer w(H_MODE);
+		w.u8(on ? 1 : 0);
+		to_players(w.bytes);
+	};
+	w.time = [this] { return a_.day ? a_.day->time : 0.0; };
+	w.set_time = [this](double t) {
+		if (a_.day) {
+			a_.day->time = t;
+			time_timer_ = TIME_SYNC_SECONDS; // (everyone gets it at once)
+		}
+	};
+	w.set_block = [this](const BlockPos &pos, const std::string &id) {
+		const int index = a_.content ? a_.content->block_index(id) : -1;
+		return index >= 0 && a_.world && a_.world->set_block(pos, gocube::BlockId(index));
+	};
+	w.summon = [this](const std::string &kind, const float at[3]) {
+		return a_.game && a_.content && a_.game->creatures().spawn(*a_.content, kind, at) > 0;
+	};
+	w.kick = [this](int peer, const std::string &why) {
+		Peer *p = peer_by_id(peer);
+		if (!p) {
+			return false;
+		}
+		log("Kicked %s: %s", p->name.c_str(), why.c_str());
+		Writer w(H_REJECTED);
+		w.str(why);
+		send(p->conn, w.bytes);
+		net_->disconnect_later(p->conn); // (after the message)
+		return true;
+	};
+	w.set_op = [this](const std::string &name, bool on) {
+		std::erase(ops_, name);
+		if (on) {
+			ops_.push_back(name);
+		}
+	};
+	w.tell = [this](int peer, const std::string &line) { chat_to(peer, line); };
+	w.say_all = [this](const std::string &line) { chat_all(line); };
+	w.seed = uint32_t(world_info_.value("seed", 0.0));
+	w.mod_commands = [this] { return a_.mods ? a_.mods->commands() : std::vector<ModCommand>{}; };
+	w.run_mod_command = [this](const std::string &name, const CommandPlayer &who, const std::vector<std::string> &args) {
+		return a_.mods ? a_.mods->run_command(name, who, args) : std::nullopt;
+	};
+	w.function = [this](const std::string &name) { return a_.mods ? a_.mods->function(name) : nullptr; };
+	return w;
+}
+
 void Session::set_skin(std::vector<uint8_t> rgba) {
 	if (rgba.size() != SKIN_BYTES) {
 		rgba.clear();
@@ -1641,6 +1936,23 @@ void Session::night_skipped() {
 		to_players(w.bytes);
 	}
 	to_players(Writer(H_WAKE).bytes);
+}
+
+// Survival: we keep its inventory and health (back from last time).
+void Session::start_survival(Peer &p) {
+	p.inv = std::make_unique<Inventory>(*a_.content);
+	p.vitals = Vitals();
+	const Data saved = saved_players_.value(p.name, Data::object());
+	if (saved.is_object() && saved.contains("inventory")) {
+		p.inv->deserialize(saved["inventory"]);
+	} else {
+		a_.game->give_starting_items(*p.inv);
+	}
+	if (saved.is_object() && saved.contains("health") && saved["health"].is_number()) {
+		p.vitals.health = std::clamp(int(saved["health"].get<double>()), 1, Vitals::MAX_HEALTH);
+	}
+	p.vitals.changed = true;
+	p.inv_changed = true;
 }
 
 // --- Saved players ------------------------------------------------------------------

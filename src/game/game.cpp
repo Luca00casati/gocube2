@@ -153,6 +153,32 @@ void Game::fill_creative() {
 	}
 }
 
+void Game::set_creative(bool on) {
+	if (on == creative_) {
+		return;
+	}
+	creative_ = on;
+	Inventory was = std::move(inventory_);
+	if (!was.cursor.empty()) { // (what the mouse held goes back in)
+		was.add(was.cursor.id, was.cursor.count);
+		was.cursor = {};
+	}
+	inventory_ = other_inventory_ ? std::move(*other_inventory_) : Inventory(content_);
+	const bool first = !other_inventory_;
+	other_inventory_ = std::move(was);
+	if (first && creative_) {
+		fill_creative();
+	} else if (first && !remote_) {
+		give_starting_items(inventory_);
+	}
+	mining_progress_ = 0;
+	if (!creative_) {
+		health_ = MAX_HEALTH;
+		breath_ = MAX_BREATH;
+		fall_peak_ = player_.position[1];
+	}
+}
+
 void Game::start_new_player() {
 	inventory_ = Inventory(content_);
 	selected_ = 0;
@@ -181,6 +207,10 @@ void Game::load_player(const Data &saved) {
 		return;
 	}
 	inventory_.deserialize(saved["inventory"]);
+	if (saved.contains("other_inventory")) {
+		other_inventory_.emplace(content_);
+		other_inventory_->deserialize(saved["other_inventory"]);
+	}
 	selected_ = std::clamp(int(saved.value("selected", 0.0)), 0, Inventory::HOTBAR - 1);
 	health_ = std::clamp(int(saved.value("health", double(MAX_HEALTH))), 1, MAX_HEALTH);
 	const Data bed = saved.value("bed", Data());
@@ -195,6 +225,9 @@ void Game::load_player(const Data &saved) {
 Data Game::save_player() const {
 	Data s = Data::object();
 	s["inventory"] = inventory_.serialize();
+	if (other_inventory_) {
+		s["other_inventory"] = other_inventory_->serialize();
+	}
 	s["selected"] = selected_;
 	if (!creative_) {
 		s["health"] = health_;

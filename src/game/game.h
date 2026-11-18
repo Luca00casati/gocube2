@@ -101,6 +101,10 @@ public:
 	Game &operator=(const Game &) = delete;
 
 	bool creative() const { return creative_; }
+	// Changes the game mode (/gamemode). Each mode keeps its own inventory: the
+	// other one's comes back (or, the first time, the palette or the starting
+	// items; a client's survival inventory comes from its host).
+	void set_creative(bool on);
 	Inventory &inventory() { return inventory_; }
 	const Inventory &inventory() const { return inventory_; }
 	int selected() const { return selected_; }
@@ -243,6 +247,7 @@ private:
 	Player &player_;
 	bool creative_;
 	Inventory inventory_;
+	std::optional<Inventory> other_inventory_; // the other game mode's
 	int selected_ = 0;
 	ItemDrops drops_;
 	BlockEntities entities_;

@@ -194,6 +194,8 @@ public:
 	bool selectable(std::string_view label, bool selected);
 	bool input_text(std::string_view label, std::string &value, size_t max_bytes, std::string_view hint = {},
 			bool digits_only = false);
+	// The next text field drawn gets the keyboard (the caret at its end).
+	void focus_next_field() { focus_next_ = true; }
 	// About the last item.
 	bool item_hovered() const { return last_hovered_; }
 	bool item_hovered_even_disabled() const { return last_hovered_any_; }
@@ -277,6 +279,7 @@ private:
 	bool focus_claimed_ = false;  // a text field was clicked this frame
 	bool popup_claimed_ = false;  // its drop-down was clicked this frame
 	bool wheel_used_ = false;
+	bool focus_next_ = false;
 };
 
 } // namespace gc::ui

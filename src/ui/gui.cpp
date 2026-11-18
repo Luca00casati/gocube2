@@ -781,6 +781,15 @@ bool Gui::input_text(std::string_view label, std::string &value, size_t max_byte
 	bool held;
 	hit(id, box, held);
 	const float text_x = box.x0 + theme.frame.x;
+	if (focus_next_) {
+		focus_next_ = false;
+		if (focus_ != id) {
+			caret_time_ = 0;
+		}
+		focus_ = id;
+		focus_claimed_ = true;
+		caret_ = value.size();
+	}
 	if (last_hovered_ && in_.clicks[0] > 0) {
 		if (focus_ != id) {
 			caret_time_ = 0;

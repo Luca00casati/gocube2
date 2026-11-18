@@ -12,6 +12,7 @@
 
 #include "platform/compression.h"
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <process.h>
@@ -407,6 +408,94 @@ TEST_CASE("multiplayer: everyone sees each player's skin, through the host") {
 	const int second_id = s.session.my_id();
 	second.reset();
 	CHECK(run_until({&h, &c}, [&] { return !h.session.skin_of(second_id); }, 5));
+}
+
+TEST_CASE("multiplayer: chat and commands through the host") {
+	auto host = NetPlay::host(test_port(1));
+	auto client = NetPlay::join(test_port(1), "Client", [&] { host->frame(); });
+	REQUIRE(client);
+	NetPlay &h = *host, &c = *client;
+	const std::vector<NetPlay *> both_sides = {&h, &c};
+	std::vector<std::string> host_lines, client_lines;
+	auto collect = [&] {
+		for (std::string &l : h.session.take_chat()) {
+			host_lines.push_back(std::move(l));
+		}
+		for (std::string &l : c.session.take_chat()) {
+			client_lines.push_back(std::move(l));
+		}
+	};
+	auto seen = [](const std::vector<std::string> &lines, const std::string &part) {
+		return std::any_of(lines.begin(), lines.end(), [&](const std::string &l) { return l.find(part) != std::string::npos; });
+	};
+	auto wait_for = [&](std::vector<std::string> &lines, const std::string &part) {
+		return run_until(both_sides, [&] {
+			collect();
+			return seen(lines, part);
+		}, 5);
+	};
+
+	// A line goes to everyone, with the player's name.
+	c.session.chat("hello all");
+	CHECK(wait_for(host_lines, "<Client> hello all"));
+	CHECK(wait_for(client_lines, "<Client> hello all"));
+	h.session.chat("hi Client");
+	CHECK(wait_for(client_lines, "<Host> hi Client"));
+
+	// A command: the host runs it as the client; not an operator, it's refused.
+	gc::Inventory &inv = c.game().inventory();
+	const int torches = inv.count_of("core:torch");
+	c.session.chat("/give Client core:torch 3");
+	CHECK(wait_for(client_lines, "Only operators may use /give"));
+	run_for(both_sides, 0.3f);
+	CHECK(inv.count_of("core:torch") == torches);
+	// The host makes it one: now its /give works (the host keeps its survival inventory).
+	h.session.chat("/op Client");
+	c.session.chat("/give Client core:torch 3");
+	CHECK(wait_for(client_lines, "Gave 3 core:torch to Client"));
+	CHECK(run_until(both_sides, [&] { return inv.count_of("core:torch") == torches + 3; }, 5));
+	// /tp: the client goes where the host says.
+	c.session.chat("/tp ~ ~ ~-4");
+	const float z0 = c.player().position[2];
+	CHECK(run_until(both_sides, [&] { return std::abs(c.player().position[2] - (z0 - 4.0f)) < 0.3f; }, 5));
+	// /spawnpoint reaches the client too.
+	c.session.chat("/spawnpoint");
+	CHECK(run_until(both_sides, [&] {
+		const auto &spawn = c.game().world_spawn();
+		return spawn && std::abs((*spawn)[2] - c.player().position[2]) < 0.5f;
+	}, 5));
+	// /msg: only that player sees it.
+	host_lines.clear();
+	client_lines.clear();
+	h.session.chat("/msg Client psst");
+	CHECK(wait_for(client_lines, "[Host -> you] psst"));
+	CHECK_FALSE(seen(client_lines, "<Host>"));
+
+	// /gamemode: for everyone; each mode keeps its own inventory.
+	run_for(both_sides, 3.0f); // (the chat allowance comes back)
+	c.session.chat("/gamemode creative");
+	CHECK(wait_for(host_lines, "The game is now in creative (Client)"));
+	CHECK(run_until(both_sides, [&] { return c.game().creative() && h.game().creative(); }, 5));
+	CHECK(inv.count_of("core:torch") <= 1); // (the palette: one of each block)
+	CHECK(c.game().health() == gc::Game::MAX_HEALTH);
+	h.session.chat("/gamemode survival");
+	CHECK(run_until(both_sides, [&] { return !c.game().creative() && !h.game().creative(); }, 5));
+	CHECK(run_until(both_sides, [&] { return inv.count_of("core:torch") == torches + 3; }, 5)); // (back, from the host)
+	c.session.chat("/gamemode");
+	CHECK(wait_for(client_lines, "The game is in survival."));
+
+	// Flooding: the host takes a few lines at once (6), then about two a second.
+	run_for(both_sides, 3.0f); // (what the lines above used comes back)
+	collect();
+	host_lines.clear();
+	for (int i = 0; i < 30; i++) {
+		c.session.chat("spam " + std::to_string(i));
+	}
+	run_for(both_sides, 1.0f);
+	collect();
+	const auto spam = std::count_if(host_lines.begin(), host_lines.end(), [](const std::string &l) { return l.find("spam") != std::string::npos; });
+	CHECK(spam >= 5);
+	CHECK(spam <= 9);
 }
 
 TEST_CASE("multiplayer: a player with other mods downloads the host's and joins with them") {

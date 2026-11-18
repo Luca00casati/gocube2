@@ -62,6 +62,7 @@ survival or creative). Or straight into a world:
 | 1-9, wheel | Choose a hotbar slot |
 | Middle button | Creative: take the block aimed at |
 | E | Inventory (creative: every block and item) |
+| T, / | Chat (/ starts a command); Enter sends, Esc closes, up and down for what you sent, Tab completes a command |
 | Esc | Pause menu (settings; save and quit) |
 
 Survival without tools, weapons, armour, crafting or smelting: everything is
@@ -106,7 +107,8 @@ host's mods.
 | `--mannequin` | Your own figure, in your skin, in front of you (what others see) |
 | `--details` | Start with the details screen (F3) open: frame times by part (the profiler) |
 | `--profile` | When the world ends, log the frame times by part, the GPU's and the world threads' (with `--frames`, `--no-vsync`: measure what's slow) |
-| `--screen=inventory\|settings` | Open the inventory or the settings at the start (screenshots) |
+| `--screen=inventory\|settings\|chat` | Open the inventory, the settings or the chat at the start (screenshots) |
+| `--say=LINE` | Type LINE into the chat at the start (a command too; once per line) |
 | `--menu` | The title menu even with testing options (`--frames`, `--screenshot` apply to it) |
 | `--warp` | Render on WARP, Windows' software adapter (no GPU needed) |
 | `--hidden` | Don't show the window (tests; the settings file isn't read: the defaults) |
@@ -121,13 +123,45 @@ host's mods.
 | `--no-vsync` | Present as fast as possible |
 | `--debug`, `--no-debug` | Force the Direct3D 11 debug layer on or off (default: on in debug builds) |
 
-## Mods
-A mod is a folder with `mod.lua` (its manifest) and a `main.lua`; the game loads `mods/` next
-to it (the base game first) and `%APPDATA%/GoCube/mods`. Everything a mod adds
-is Lua: content too (`registry.register_block("ruby_ore", {...})`); there are no
-JSON files. A manifest is a data table:
+## Chat and commands
+T opens the chat; a line starting with `/` is a command. Whoever plays the
+world runs them (the host runs a joined player's as that player). Operators
+may change the world: the host, or whoever plays alone, always is one, and
+gives others the right with `/op NAME` (kept with the world). Everyone can use
+`/help`, `/msg`, `/list` and `/seed`.
 
-    return {id = "mymod", name = "My Mod", version = "1.0", entry = "main.lua"}
+| Command | |
+| --- | --- |
+| `/help [command]` | The commands you may use, or what one does |
+| `/msg <player> <text>` | A message only that player sees |
+| `/list`, `/seed` | Who is playing; the world's seed |
+| `/say <text>` | A message to everyone |
+| `/tp <x y z>`, `/tp <player> [<x y z> or <player>]` | Move (`~` is where you are: `/tp ~ ~10 ~`) |
+| `/give <player> <item> [count]` | Items into a survival player's inventory (`torch` means `core:torch`) |
+| `/time [set day\|noon\|night\|midnight\|0..1]` | The time of day |
+| `/gamemode [survival\|creative]` | The world's game mode, for everyone (each mode keeps its own inventory) |
+| `/kill [player]` | Ends a survival player's life |
+| `/spawnpoint` | The world's spawn where you stand |
+| `/setblock <x y z> <block>`, `/fill <x1 y1 z1> <x2 y2 z2> <block>` | Change blocks (a fill: 32768 at most) |
+| `/summon <creature> [x y z]` | A creature |
+| `/kick <player> [reason]`, `/op <player>`, `/deop <player>` | Players |
+| `/run <mod:name>` | A mod's command file |
+
+## Mods
+A mod is a folder with `mod.lua` (its manifest); the game loads `mods/` next
+to it (the base game first) and `%APPDATA%/GoCube/mods`. A manifest is a data
+table:
+
+    return {id = "mymod", name = "My Mod", version = "1.0", content = "content.lua", entry = "main.lua"}
+
+A mod can be **data only**: its content as a data table (`content.lua`:
+`return {blocks = {ruby_ore = {hardness = 3, color = "#c02040"}}, items = {...}}`)
+and chat command files (`functions/NAME.txt`, a command a line, run with
+`/run mymod:NAME`). Nothing of it runs as code. Or it has a Lua entry script
+(`main.lua`), which can also register content, set the game's rules and add
+commands (`commands.register("heal", {usage = "<player>", help = "...", op = true},
+function(who, args) ... return "healed" end)`). In the settings, "Servers' mods
+may run code" off means you only play with servers whose mods are data only.
  `src/mods/mods.h` describes the format and the Lua API
 (`registry`, `events`, `world`, `game`). The base game is the example: its
 `content/` registers its blocks, items, ores, trees, biome and sounds,

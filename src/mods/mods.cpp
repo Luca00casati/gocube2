@@ -53,6 +53,10 @@ std::string utf8(const fs::path &p) {
 	return std::string(u.begin(), u.end());
 }
 
+fs::path utf8_path(const std::string &s) {
+	return fs::path(std::u8string(s.begin(), s.end()));
+}
+
 bool read_file(const fs::path &p, std::string &out) {
 	std::ifstream f(p, std::ios::binary);
 	if (!f) {
@@ -164,11 +168,19 @@ struct Mods::Lua {
 	std::vector<ModState> mods;
 	std::vector<Handler> handlers;
 	std::map<std::string, Rule> game_rules; // game.set_rule
+	struct Command {
+		int mod;
+		int ref;
+		ModCommand info;
+	};
+	std::map<std::string, Command> commands; // commands.register
+	std::map<std::string, std::vector<std::string>> functions; // "mod:name" -> its command file's lines
 	bool registry_open = true;
 	std::mt19937_64 random{std::random_device{}()};
 	World *world = nullptr;
 	const BlockRules *rules = nullptr;
 	Mods::WorldHooks hooks;
+	std::function<std::vector<std::string>(const std::string &)> run_command; // game.command
 
 	// The mod whose code is running (-1: none) and its limits; why it was
 	// stopped ("" while it may go on).
@@ -481,6 +493,50 @@ struct Mods::Lua {
 		}
 		h->game_rules[name] = {mod, luaL_ref(L, LUA_REGISTRYINDEX)};
 		return 0;
+	}
+
+	// commands.register(name, {usage=, help=, op=}, function(who, args) -> reply)
+	static int commands_register(lua_State *L) {
+		Lua *h = of(L);
+		const int mod = int(lua_tointeger(L, lua_upvalueindex(1)));
+		std::string name = luaL_checkstring(L, 1);
+		luaL_checktype(L, 2, LUA_TTABLE);
+		luaL_checktype(L, 3, LUA_TFUNCTION);
+		if (!h->registry_open) {
+			return luaL_error(L, "commands can only be registered while mods load");
+		}
+		if (name.empty() || name.size() > 32 ||
+				name.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos) {
+			return luaL_error(L, "a command's name is a-z 0-9 _ (32 at most): '%s'", name.c_str());
+		}
+		const Data def = lua_to_data(L, 2, 0);
+		ModCommand info;
+		info.name = name;
+		info.usage = def.is_object() ? def.value("usage", "") : "";
+		info.help = def.is_object() ? def.value("help", "") : "";
+		info.op = def.is_object() ? def.value("op", true) : true;
+		lua_pushvalue(L, 3);
+		auto it = h->commands.find(name);
+		if (it != h->commands.end()) {
+			luaL_unref(L, LUA_REGISTRYINDEX, it->second.ref); // (the last mod to register a name wins)
+		}
+		h->commands[name] = {mod, luaL_ref(L, LUA_REGISTRYINDEX), info};
+		return 0;
+	}
+
+	// game.command(line) -> {reply lines}: runs a command as the world itself (an operator).
+	static int game_command(lua_State *L) {
+		need_world(L);
+		Lua *h = of(L);
+		const std::string line = luaL_checkstring(L, 1);
+		Data out = Data::array();
+		if (h->run_command) {
+			for (const std::string &s : h->run_command(line)) {
+				out.push_back(s);
+			}
+		}
+		push_data(L, out);
+		return 1;
 	}
 
 	// game.rule(name): the function set for it so far, or nil.
@@ -803,6 +859,11 @@ struct Mods::Lua {
 		lua_setfield(L, -2, "all");
 		lua_setfield(L, -2, "registry");
 
+		lua_newtable(L); // commands
+		push_closure(&Lua::commands_register, mod);
+		lua_setfield(L, -2, "register");
+		lua_setfield(L, -2, "commands");
+
 		lua_newtable(L); // events
 		push_closure(&Lua::events_on, mod);
 		lua_setfield(L, -2, "on");
@@ -843,6 +904,8 @@ struct Mods::Lua {
 		lua_setfield(L, -2, "set_rule");
 		lua_pushcfunction(L, &Lua::game_rule);
 		lua_setfield(L, -2, "rule");
+		lua_pushcfunction(L, &Lua::game_command);
+		lua_setfield(L, -2, "command");
 		lua_pushcfunction(L, &Lua::game_random);
 		lua_setfield(L, -2, "random");
 		lua_pushcfunction(L, &Lua::game_players);
@@ -904,6 +967,14 @@ struct Mods::Lua {
 			if (it->mod == mod) {
 				luaL_unref(L, LUA_REGISTRYINDEX, it->ref);
 				it = handlers.erase(it);
+			} else {
+				++it;
+			}
+		}
+		for (auto it = commands.begin(); it != commands.end();) {
+			if (it->second.mod == mod) {
+				luaL_unref(L, LUA_REGISTRYINDEX, it->second.ref);
+				it = commands.erase(it);
 			} else {
 				++it;
 			}
@@ -1063,6 +1134,19 @@ void Mods::load_all(const std::vector<fs::path> &dirs, const std::vector<std::st
 			failed.insert(id);
 			continue;
 		}
+		// Mods from where they may not run code (server mods, if the player said so).
+		if (f.manifest.contains("entry")) {
+			bool forbidden = false;
+			for (const fs::path &folder : code_forbidden_) {
+				const std::string a = utf8(fs::weakly_canonical(folder)), b = utf8(fs::weakly_canonical(f.dir));
+				forbidden = forbidden || (b.size() > a.size() && b.compare(0, a.size(), a) == 0);
+			}
+			if (forbidden) {
+				fail(id, "runs code (Lua), and your settings only allow server mods without code");
+				failed.insert(id);
+				continue;
+			}
+		}
 		// What's registered so far, to undo this mod if its entry fails.
 		const Content before = content;
 		ModInfo info;
@@ -1074,6 +1158,17 @@ void Mods::load_all(const std::vector<fs::path> &dirs, const std::vector<std::st
 		content.mod_dirs[id] = f.dir;
 		const int index = int(lua_->mods.size());
 		lua_->mods.push_back({info});
+		// Content as data (no code runs): {blocks = {[id] = def}, items = ..., ...}.
+		if (f.manifest.contains("content")) {
+			const std::string error = load_data_content(f.dir, f.manifest, id, content);
+			if (!error.empty()) {
+				content = before;
+				lua_->drop(index);
+				fail(id, error);
+				failed.insert(id);
+				continue;
+			}
+		}
 		if (f.manifest.contains("entry")) {
 			const std::string error = lua_->run_entry_script(index, f.manifest["entry"].get<std::string>());
 			if (!error.empty()) {
@@ -1084,6 +1179,7 @@ void Mods::load_all(const std::vector<fs::path> &dirs, const std::vector<std::st
 				continue;
 			}
 		}
+		load_functions(f.dir, id);
 		loaded_.push_back(info);
 		log("Mod %s %s loaded (%s)", id.c_str(), info.version.c_str(), info.fingerprint.c_str());
 	}
@@ -1124,6 +1220,123 @@ std::optional<Data> Mods::rule(const std::string &name, const Data &args) {
 	}
 	lua_settop(L, top);
 	return out;
+}
+
+// A mod's `content` file: a data table read without running anything.
+std::string Mods::load_data_content(const fs::path &dir, const Data &manifest, const std::string &id, Content &content) {
+	const Data &file = manifest["content"];
+	if (!file.is_string()) {
+		return "its \"content\" isn't a file name";
+	}
+	const fs::path path = dir / utf8_path(file.get<std::string>());
+	const std::string a = utf8(fs::weakly_canonical(dir)), b = utf8(fs::weakly_canonical(path));
+	if (b.size() <= a.size() || b.compare(0, a.size(), a) != 0) {
+		return "its content file must be inside the mod";
+	}
+	Data data;
+	std::string why;
+	if (!read_lua_data(path, data, why)) {
+		return "its content file can't be read: " + why;
+	}
+	if (!data.is_object()) {
+		return "its content file must be a table of sections (blocks = {...}, items = {...})";
+	}
+	for (const auto &[section, entries] : data.items()) {
+		std::map<std::string, Data> *table = content.table(section);
+		if (!table || !entries.is_object()) {
+			return "its content file has an unknown section \"" + section + "\" (blocks, items, recipes, ores, "
+					"trees, biomes, sound_sets, creatures)";
+		}
+		for (const auto &[entry_id, def] : entries.items()) {
+			if (!def.is_object()) {
+				return "its content file's " + section + "." + entry_id + " isn't a table of named fields";
+			}
+			content.register_entry(*table, id, entry_id, def);
+		}
+	}
+	return "";
+}
+
+// A mod's command files: functions/NAME.txt (in folders too) -> "mod:NAME".
+void Mods::load_functions(const fs::path &dir, const std::string &id) {
+	std::error_code ec;
+	const fs::path root = dir / "functions";
+	if (!fs::is_directory(root, ec)) {
+		return;
+	}
+	for (const std::string &rel : mod_files(root)) {
+		if (rel.size() <= 4 || rel.compare(rel.size() - 4, 4, ".txt") != 0) {
+			continue;
+		}
+		std::string text;
+		if (!read_file(root / utf8_path(rel), text)) {
+			continue;
+		}
+		std::vector<std::string> lines;
+		size_t from = 0;
+		while (from <= text.size() && lines.size() < 10000) {
+			size_t to = text.find('\n', from);
+			to = to == std::string::npos ? text.size() : to;
+			std::string line = text.substr(from, to - from);
+			if (!line.empty() && line.back() == '\r') {
+				line.pop_back();
+			}
+			lines.push_back(line);
+			from = to + 1;
+		}
+		lua_->functions[id + ":" + rel.substr(0, rel.size() - 4)] = std::move(lines);
+	}
+}
+
+std::vector<ModCommand> Mods::commands() const {
+	std::vector<ModCommand> out;
+	for (const auto &[name, c] : lua_->commands) {
+		if (!lua_->mods[c.mod].disabled) {
+			out.push_back(c.info);
+		}
+	}
+	return out;
+}
+
+std::optional<std::string> Mods::run_command(const std::string &name, const CommandPlayer &who,
+		const std::vector<std::string> &args) {
+	Lua &h = *lua_;
+	auto it = h.commands.find(name);
+	if (it == h.commands.end() || h.mods[it->second.mod].disabled) {
+		return std::nullopt;
+	}
+	const int mod = it->second.mod;
+	lua_State *L = h.L;
+	const int top = lua_gettop(L);
+	lua_rawgeti(L, LUA_REGISTRYINDEX, it->second.ref);
+	push_data(L, Data{{"peer", who.peer}, {"name", who.name}, {"x", who.feet[0]}, {"y", who.feet[1]}, {"z", who.feet[2]},
+						 {"op", who.op}});
+	Data list = Data::array();
+	for (const std::string &a : args) {
+		list.push_back(a);
+	}
+	push_data(L, list);
+	const std::string error = h.call(mod, 2, h.limits.callback_ms, 1);
+	if (!error.empty()) {
+		log("Mod '%s': its command /%s failed: %s", h.mods[mod].info.id.c_str(), name.c_str(), error.c_str());
+		lua_settop(L, top);
+		return std::nullopt;
+	}
+	std::string reply;
+	if (lua_type(L, -1) == LUA_TSTRING) {
+		reply = lua_tostring(L, -1);
+	}
+	lua_settop(L, top);
+	return reply;
+}
+
+const std::vector<std::string> *Mods::function(const std::string &name) const {
+	auto it = lua_->functions.find(name);
+	return it != lua_->functions.end() ? &it->second : nullptr;
+}
+
+void Mods::set_command_runner(std::function<std::vector<std::string>(const std::string &line)> run) {
+	lua_->run_command = std::move(run);
 }
 
 void Mods::attach(World *world, const BlockRules *rules) {

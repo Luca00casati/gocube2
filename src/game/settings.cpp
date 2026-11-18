@@ -81,6 +81,7 @@ bool Settings::load(const std::filesystem::path &path, std::string *error) {
 	number("mouse_sensitivity", 0.0005, 0.01, mouse_sensitivity);
 	number("max_fps", 0, 1000, max_fps);
 	boolean("vsync", vsync);
+	boolean("server_mod_code", server_mod_code);
 	boolean("smooth_lighting", smooth_lighting);
 	text("shadow_mode", shadow_mode, 16);
 	if (std::none_of(std::begin(SHADOW_MODES), std::end(SHADOW_MODES), [&](const char *m) { return shadow_mode == m; })) {
@@ -118,7 +119,7 @@ bool Settings::save(const std::filesystem::path &path) const {
 		keys_data[action] = k;
 	}
 	const Data d = {{"view_distance", view_distance}, {"mouse_sensitivity", mouse_sensitivity}, {"max_fps", max_fps},
-			{"vsync", vsync}, {"smooth_lighting", smooth_lighting}, {"shadow_mode", shadow_mode},
+			{"vsync", vsync}, {"server_mod_code", server_mod_code}, {"smooth_lighting", smooth_lighting}, {"shadow_mode", shadow_mode},
 			{"render_scale", render_scale}, {"clock_24h", clock_24h}, {"worker_threads", worker_threads},
 			{"master_volume", master_volume}, {"effects_volume", effects_volume}, {"ambience_volume", ambience_volume},
 			{"keys", keys_data}, {"disabled_mods", disabled_mods}, {"player_name", player_name},

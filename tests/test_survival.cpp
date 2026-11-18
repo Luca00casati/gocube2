@@ -1129,3 +1129,25 @@ TEST_CASE("no enemies: nights stay empty and nothing hurts the player") {
 	CHECK_FALSE(p.game->creatures().all().empty());
 	CHECK(p.game->health() == gc::Game::MAX_HEALTH);
 }
+
+TEST_CASE("game mode: each keeps its own inventory, also saved") {
+	Play p; // (survival: the starting items)
+	gc::Game &g = *p.game;
+	g.inventory().slots[0] = {"core:torch", 7};
+	g.set_creative(true);
+	CHECK(g.creative());
+	CHECK(g.inventory().count_of("core:torch") <= 1); // (the palette: one of each block)
+	CHECK_FALSE(g.inventory().slots[0].empty());
+	g.set_creative(false);
+	CHECK(g.inventory().count_of("core:torch") == 7);
+	CHECK(g.health() == gc::Game::MAX_HEALTH);
+	// The other mode's inventory is saved with the player.
+	const gc::Data saved = g.save_player();
+	CHECK(saved.contains("other_inventory"));
+	Play q;
+	q.game->load_player(saved);
+	CHECK(q.game->inventory().count_of("core:torch") == 7);
+	q.game->set_creative(true);
+	CHECK(q.game->inventory().count_of("core:torch") <= 1); // (creative's, as saved)
+	CHECK_FALSE(q.game->inventory().slots[0].empty());
+}

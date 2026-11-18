@@ -160,7 +160,7 @@ assert(not pcall(world.get_block, 0, 0, 0), 'world before there is one')
 -- Creatures and the playing-only game functions: there, but only with a world.
 for _, f in ipairs({creatures.spawn, creatures.remove, creatures.all, creatures.get, creatures.set,
 		world.raycast, world.box_free, game.players, game.day, game.damage_player, game.play_sound,
-		game.effect}) do
+		game.effect, game.command}) do
 	assert(type(f) == 'function')
 	assert(not pcall(f, 'core:block_eater', 0, 0, 0), 'a playing-only function before there is a world')
 end
@@ -340,4 +340,93 @@ end)
 	CHECK(content.block_ids()[world.block_at(0, 60, 0)] == "core:planks");
 	CHECK(mods.problems().empty());
 	mods.attach(nullptr, nullptr);
+}
+
+TEST_CASE("mods add commands (commands.register), command files, and run commands (game.command)") {
+	const fs::path root = test_dir("commands");
+	make_mod(root, "greeter", R"lua(
+commands.register("greet", {usage = "<name>", help = "says hello", op = false}, function(who, args)
+	return "hello " .. (args[1] or "?") .. " from " .. who.name .. (who.op and " (op)" or "")
+end)
+commands.register("broken", {}, function() error("oops") end)
+commands.register("spin", {}, function() while true do end end)
+assert(not pcall(commands.register, "Bad Name", {}, function() end), "a bad name was taken")
+)lua");
+	write(root / "greeter" / "functions" / "build" / "tower.txt", "# a tower\r\n/setblock 0 0 0 stone\r\n\r\nsay done\n");
+	Loaded l(root, quick());
+	REQUIRE(l.problem("greeter") == "");
+	const std::vector<gc::ModCommand> list = l.mods->commands();
+	REQUIRE(list.size() == 3);
+	CHECK(list[1].name == "greet");
+	CHECK(list[1].usage == "<name>");
+	CHECK_FALSE(list[1].op);
+	CHECK(list[0].op); // (by default: operators only)
+	gc::CommandPlayer ann{2, "Ann", {1, 2, 3}, true};
+	CHECK(l.mods->run_command("greet", ann, {"Bob"}) == std::optional<std::string>("hello Bob from Ann (op)"));
+	CHECK_FALSE(l.mods->run_command("broken", ann, {}).has_value());
+	CHECK_FALSE(l.mods->run_command("spin", ann, {}).has_value()); // (stopped: too long)
+	CHECK_FALSE(l.mods->run_command("nothing", ann, {}).has_value());
+	// Command files: a line each (Windows line ends too), by "mod:path".
+	const std::vector<std::string> *tower = l.mods->function("greeter:build/tower");
+	REQUIRE(tower);
+	CHECK(*tower == std::vector<std::string>{"# a tower", "/setblock 0 0 0 stone", "", "say done", ""});
+	CHECK(l.mods->function("greeter:nothing") == nullptr);
+
+	// game.command: through whatever runs commands (the session), while playing.
+	gc::Content c2;
+	gc::Mods mods(c2, quick());
+	const fs::path root2 = test_dir("commands2");
+	make_mod(root2, "caller", R"(
+game.set_rule("try_command", function(line) return game.command(line) end)
+)");
+	mods.load_all({fs::path(GOCUBE_SOURCE_DIR) / "mods", root2});
+	c2.freeze();
+	const gc::BlockTable table = gc::build_block_table(c2);
+	const gc::BlockRules rules(c2);
+	gocube::Generator generator;
+	gc::configure_generator(generator, c2, 4242);
+	gc::World world(table.blocks, table.atlas.layout, generator);
+	mods.attach(&world, &rules);
+	std::vector<std::string> ran;
+	mods.set_command_runner([&](const std::string &line) {
+		ran.push_back(line);
+		return std::vector<std::string>{"ok: " + line};
+	});
+	const std::optional<Data> r = mods.rule("try_command", Data::array({"/time set noon"}));
+	REQUIRE(r);
+	CHECK(*r == Data::array({"ok: /time set noon"}));
+	CHECK(ran == std::vector<std::string>{"/time set noon"});
+}
+
+TEST_CASE("data-only mods: content from a data file (no code); folders where mods may not run code") {
+	const fs::path root = test_dir("data_only");
+	make_mod(root, "gems", "", {{"content", "content.lua"}});
+	write(root / "gems" / "content.lua", R"(return {
+	blocks = {ruby_ore = {hardness = 3, color = "#c02040"}, ruby_block = {color = "#e03050"}},
+	items = {ruby = {color = "#ff2050"}},
+})");
+	make_mod(root, "badcontent", "", {{"content", "content.lua"}});
+	write(root / "badcontent" / "content.lua", "return {spells = {fire = {}}}");
+	make_mod(root, "runsit", "os.exit(1)", {{"content", "content.lua"}});
+	write(root / "runsit" / "content.lua", "print('hi') return {}"); // (data only: code can't run)
+	make_mod(root, "coder", "registry.register_item('thing', {})\n");
+	Loaded l(root, quick());
+	CHECK(l.problem("gems") == "");
+	CHECK(l.content.blocks.count("gems:ruby_ore"));
+	CHECK(l.content.blocks.at("gems:ruby_ore").value("hardness", 0.0) == 3.0);
+	CHECK(l.content.items.count("gems:ruby"));
+	CHECK(l.problem("badcontent").find("unknown section") != std::string::npos);
+	CHECK(l.problem("runsit").find("can't be read") != std::string::npos);
+	CHECK(l.loaded("coder"));
+
+	// The same folder as one whose mods may not run code: the data-only mod
+	// loads, the one with code doesn't.
+	gc::Content content;
+	gc::Mods mods(content, quick());
+	mods.set_code_forbidden_in({root});
+	mods.load_all({fs::path(GOCUBE_SOURCE_DIR) / "mods", root});
+	CHECK(content.blocks.count("gems:ruby_ore"));
+	CHECK_FALSE(content.items.count("coder:thing"));
+	CHECK(mods.problems().at("coder").find("only allow server mods without code") != std::string::npos);
+	CHECK(content.blocks.count("core:stone")); // (the base game, elsewhere, is fine)
 }

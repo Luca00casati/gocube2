@@ -32,6 +32,7 @@
 
 #include "game/day_cycle.h"
 #include "game/figure.h"
+#include "game/commands.h"
 #include "game/game.h"
 #include "game/vitals.h"
 #include "net/transport.h"
@@ -78,7 +79,7 @@ struct Avatar {
 
 class Session : public Remote {
 public:
-	static constexpr int PROTOCOL = 4; // (any change to the messages: one more)
+	static constexpr int PROTOCOL = 5; // (any change to the messages: one more)
 	static constexpr int DEFAULT_PORT = 24680;
 	static constexpr int MAX_PLAYERS = 8;
 	static constexpr int HOST_ID = 1;
@@ -156,6 +157,24 @@ public:
 	void update(float dt, const LocalPose &pose);
 
 	const std::vector<Avatar> &avatars() const { return avatars_; }
+	// Chat. What the local player typed: a client sends it to the host, the
+	// host (or a world played alone) handles it: a line starting with "/" is
+	// a command (game/commands.h) run as that player, its answer to that
+	// player only; anything else goes to everyone as "<name> text". The
+	// lines to show come out of take_chat(). MAX_CHAT bytes a line; the host
+	// limits how fast each player chats.
+	static constexpr size_t MAX_CHAT = 256;
+	void chat(const std::string &text);
+	std::vector<std::string> take_chat() { return std::exchange(chat_in_, {}); }
+	// Command names starting with `typed` (Tab).
+	std::vector<std::string> complete_command(const std::string &typed) const;
+	// Our name when playing alone (in multiplayer: the one host/join got).
+	void set_local_name(const std::string &name) { local_name_ = name; }
+	// Operators (they may change the world with commands), by name. The
+	// host, or whoever plays alone, always is one. Saved with the world.
+	void set_ops(std::vector<std::string> names) { ops_ = std::move(names); }
+	const std::vector<std::string> &ops() const { return ops_; }
+
 	// Players' skins (content/skin.h: SKIN_BYTES of RGBA). Ours (before or
 	// while playing; any other size: none): a client sends it to the host
 	// once welcomed, the host gives it to everyone who joins. The host passes
@@ -264,6 +283,14 @@ private:
 	std::vector<std::unique_ptr<Peer>> peers_;
 	int next_id_ = HOST_ID + 1;
 	std::vector<Avatar> avatars_;
+	std::unique_ptr<Commands> commands_; // (the host's, or alone: who runs them)
+	std::vector<std::string> chat_in_, ops_;
+	std::string local_name_ = "Player";
+	void handle_chat(int peer, const std::string &text); // the host: peer 0 is us
+	void start_survival(Peer &p); // the host: a joined player starts (or goes back to) survival
+	void chat_to(int peer, const std::string &line);
+	void chat_all(const std::string &line);
+	CommandWorld command_world();
 	std::vector<uint8_t> my_skin_;
 	bool skin_sent_ = false;
 	std::map<int, std::vector<uint8_t>> skins_; // by player id (the host's own too)

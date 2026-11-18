@@ -36,6 +36,9 @@ struct Settings {
 	float mouse_sensitivity = 0.003f; // radians per mouse count
 	int max_fps = 0;
 	bool vsync = true;
+	// Mods downloaded from a server may run code (Lua, in the sandbox); off:
+	// only mods without code (content and command files) are played with.
+	bool server_mod_code = true;
 	bool smooth_lighting = true; // corner shading (ambient occlusion) and soft light
 	std::string shadow_mode = "blocks";
 	float render_scale = 1.0f;
