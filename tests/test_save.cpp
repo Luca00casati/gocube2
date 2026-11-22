@@ -1,17 +1,17 @@
-// A world's folder: world.lua (a Lua data table) and chunk files. A world is
+// A world's folder: world.json (a data table) and chunk files. A world is
 // made, edited and saved, and opens again with its edits and every field it
 // had; worlds that can't be read safely (damaged, newer, the old world.json)
 // are left alone.
 
 #include "content/content.h"
-#include "data/lua_data.h"
+#include "data/json.h"
 #include "helpers.h"
 #include "world/save.h"
 #include "world/world.h"
 
 #include "game/settings.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <windows.h>
 
@@ -37,12 +37,8 @@ fs::path fresh_dir(const char *name) {
 Data read_world(const fs::path &dir) {
 	Data meta;
 	std::string why;
-	REQUIRE_MESSAGE(gc::read_lua_data(dir / "world.lua", meta, why), why);
+	REQUIRE_MESSAGE(gc::read_json_file(dir / "world.json", meta, why), why);
 	return meta;
-}
-
-void write(const fs::path &p, const std::string &text) {
-	std::ofstream(p, std::ios::binary | std::ios::trunc) << text;
 }
 
 std::string utf8(const fs::path &p) {
@@ -88,8 +84,8 @@ struct OpenWorld {
 
 TEST_CASE("a world is made, edited and saved, and opens again with its edits and every field") {
 	const fs::path dir = fresh_dir("edit");
-	// Everything the game keeps, including lists with empty slots (false: a Lua
-	// list can't hold nil) and an empty table.
+	// Everything the game keeps, including lists with empty slots (false, as
+	// worlds have always saved them) and an empty object.
 	const Data inventory = Data::array({Data::array({"core:torch", 1}), false, Data::array({"core:dirt", 64}),
 			Data::object({{"armor", Data::array({"", "", "", ""})}})});
 	const Data chests = {{"1,2,3", {{"type", "chest"}, {"slots", Data::array({false, Data::array({"core:coal", 4})})}}}};
@@ -113,8 +109,7 @@ TEST_CASE("a world is made, edited and saved, and opens again with its edits and
 		player["health"] = 17;
 		CHECK(w.save.save(player));
 	}
-	CHECK(fs::exists(dir / "world.lua"));
-	CHECK_FALSE(fs::exists(dir / "world.json"));
+	CHECK(fs::exists(dir / "world.json"));
 	CHECK(fs::exists(dir / "chunks" / "c.-2.0.0.bin"));
 
 	OpenWorld w(dir);
@@ -125,12 +120,12 @@ TEST_CASE("a world is made, edited and saved, and opens again with its edits and
 	CHECK(w.block(1, 2, 1) == "core:glass");
 	CHECK(w.block(-40, 0, 3) == "core:planks");
 	const Data meta = read_world(dir);
-	CHECK(meta["player"]["position"][0].get<double>() == doctest::Approx(1.5));
+	CHECK(meta["player"]["position"][0].get<double>() == check::Approx(1.5));
 	CHECK(meta["player"]["flying"] == true);
 	CHECK(meta["player"]["health"] == 17);
 	CHECK(meta["player"]["inventory"] == inventory);
 	CHECK(meta["block_entities"] == chests); // (order-free)
-	CHECK(meta["plants"][0][3].get<double>() == doctest::Approx(12.5));
+	CHECK(meta["plants"][0][3].get<double>() == check::Approx(12.5));
 	CHECK(meta["time"].is_number_float());
 	CHECK(meta["from_a_newer_mod"]["keep"] == "me");
 	CHECK(meta["format"] == gc::WorldSave::FORMAT_VERSION);
@@ -145,15 +140,18 @@ TEST_CASE("worlds that can't be read safely are left alone") {
 	}
 	Data meta = read_world(dir);
 	meta["format"] = gc::WorldSave::FORMAT_VERSION + 1;
-	write(dir / "world.lua", gc::write_lua_data(meta));
+	write(dir / "world.json", gc::write_json(meta));
 	gc::WorldSave save;
 	CHECK(save.open(dir, 1).find("newer version") != std::string::npos);
-	write(dir / "world.lua", "return { broken");
+	write(dir / "world.json", R"({"seed": 1,)");
 	CHECK(save.open(dir, 1).find("damaged") != std::string::npos);
-	// A world.lua is data: code in it can't run (there's nothing to call).
-	write(dir / "world.lua", "os.remove('x') return {seed = 1}");
+	// A world.json is data: code in it can't run.
+	write(dir / "world.json", "os.remove('x') return {seed = 1}");
 	CHECK(save.open(dir, 1).find("damaged") != std::string::npos);
-	CHECK(fs::exists(dir / "world.lua")); // (left as it is)
+	CHECK(fs::exists(dir / "world.json")); // (left as it is)
+	// The Godot version's worlds (formats 1 and 2) can't be opened.
+	write(dir / "world.json", R"({"seed": 1, "format": 2})");
+	CHECK(save.open(dir, 1).find("old version") != std::string::npos);
 }
 
 TEST_CASE("a new world gets a seed and the block table") {
@@ -218,38 +216,89 @@ TEST_CASE("data values: brace lists, fields in order, equality, fallbacks") {
 	CHECK(Data(std::vector<std::string>{"a", "b"}) == Data::array({"a", "b"}));
 }
 
-TEST_CASE("Lua data files: written and read back the same; only data") {
+TEST_CASE("JSON: written and read back the same; only data") {
 	const Data data = {
 			{"int", 42}, {"negative", -7}, {"float", 0.1}, {"whole_float", 2.0}, {"big", 4294967295LL},
 			{"text", "quote \" backslash \\ newline \n tab \t bell \a café"}, {"yes", true}, {"no", false},
-			{"list", Data::array({1, "two", Data::array({3.5, false})})},
-			{"needs brackets", 1}, {"end", "a keyword as a key"}, {"9lives", 9},
+			{"nothing", nullptr}, {"list", Data::array({1, "two", nullptr, Data::array({3.5, false})})},
+			{"needs quotes", 1}, {"end", "a keyword as a key"}, {"9lives", 9}, {"empty list", Data::array()},
+			{"empty object", Data::object()},
 			{"nested", {{"deeper", {{"deepest", Data::array({"x"})}}}}},
 	};
-	const std::string text = gc::write_lua_data(data);
-	CHECK(text.rfind("return {", 0) == 0);
+	for (bool compact : {false, true}) {
+		const std::string text = gc::write_json(data, compact);
+		CHECK(text.rfind("{", 0) == 0);
+		CHECK((text.find('\n') == std::string::npos) == compact);
+		Data back;
+		std::string why;
+		REQUIRE_MESSAGE(gc::parse_json(text, "test", back, why), why);
+		CHECK(back == data); // (order-free: written sorted)
+		CHECK(back["float"].is_number_float());
+		CHECK(back["whole_float"].is_number_float());
+		CHECK(back["int"].is_number_integer());
+		CHECK(back["empty list"].is_array());
+		CHECK(back["empty object"].is_object());
+		CHECK(back["list"][2].is_null());
+	}
+	CHECK(gc::write_json(Data::array({1, 2}), true) == "[1,2]");
+	CHECK_THROWS(gc::write_json(Data(std::nan(""))));
+	// Not JSON: code, comments, trailing commas, single quotes.
 	Data back;
 	std::string why;
-	REQUIRE_MESSAGE(gc::parse_lua_data(text, "test", back, why), why);
-	// (Order-free: a Lua table's keys come back in its own order.)
-	CHECK(back == data);
-	CHECK(back["float"].is_number_float());
-	CHECK(back["whole_float"].is_number_float());
-	CHECK(back["int"].is_number_integer());
-	// A list can't hold nil.
-	CHECK_THROWS(gc::write_lua_data(Data::array({1, nullptr, 3})));
-	// Not data: functions, code that calls anything, a script that never ends.
-	CHECK_FALSE(gc::parse_lua_data("return {f = function() end}", "t", back, why));
-	CHECK_FALSE(gc::parse_lua_data("print('hi') return {}", "t", back, why));
-	CHECK_FALSE(gc::parse_lua_data("while true do end", "t", back, why));
-	CHECK(why.find("too long") != std::string::npos);
-	CHECK_FALSE(gc::parse_lua_data("return 5", "t", back, why));
-	CHECK_FALSE(gc::parse_lua_data("\x1bLua", "t", back, why)); // bytecode
+	CHECK_FALSE(gc::parse_json("return {a = 1}", "t", back, why));
+	CHECK_FALSE(gc::parse_json("print('hi') return {}", "t", back, why));
+	CHECK_FALSE(gc::parse_json("{\"a\": 1} // note", "t", back, why));
+	CHECK_FALSE(gc::parse_json("[1, 2,]", "t", back, why));
+	CHECK_FALSE(gc::parse_json("{'a': 1}", "t", back, why));
+	CHECK_FALSE(gc::parse_json("{\"a\": x}", "t", back, why));
+	CHECK(why.find("t:1:") == 0); // (where)
+	CHECK_FALSE(gc::parse_json("{\n\n  \"a\": \"open}", "t", back, why));
+	CHECK(why.find("t:3:") == 0);
+}
+
+TEST_CASE("JSON: what it allows and refuses") {
+	Data d;
+	std::string why;
+	REQUIRE_MESSAGE(gc::parse_json("\xEF\xBB\xBF" R"( {
+	"a": 1, "b": -0.5e1, "c": 1E2, "big": 9223372036854775808,
+	"esc": "\"\\\/\b\f\n\r\t\u0041\u00e9\ud83d\ude00",
+	"twice": 1, "twice": 2,
+	"list": [10, 20, 30], "none": null, "empty": {}, "nothing": []
+})", "t", d, why), why);
+	CHECK(d["a"] == 1);
+	CHECK(d["b"] == -5.0);
+	CHECK(d["c"].is_number_float());
+	CHECK(d["big"].is_number_float()); // (too large for an integer)
+	CHECK(d["esc"] == "\"\\/\b\f\n\r\tA\u00e9\U0001F600");
+	CHECK(d["twice"] == 2); // (the last wins)
+	CHECK(d["list"] == Data::array({10, 20, 30}));
+	CHECK(d.contains("none"));
+	CHECK(d["none"].is_null());
+	CHECK(d["empty"].is_object());
+	CHECK(d["nothing"].is_array());
+	// Fields keep the order they're written in.
+	CHECK(d.items()[0].first == "a");
+	CHECK(d.items()[1].first == "b");
+	// Any value at the top.
+	CHECK(gc::parse_json(" 5 ", "t", d, why));
+	CHECK(d == 5);
+	// Not JSON.
+	for (const char *bad : {"", "{", "[1 2]", "{\"a\" 1}", "{1: 2}", "01", "1.", ".5", "-", "+1", "1e", "0x10",
+				 "\"\\q\"", "\"\\u12\"", "\"\\ud800\"", "\"tab\there\"", "tru", "nul", "1e999", "NaN",
+				 "{\"a\": 1} {}"}) {
+		CAPTURE(bad);
+		CHECK_FALSE(gc::parse_json(bad, "t", d, why));
+	}
+	// Nested too deeply: refused (no stack overflow, whatever the input).
+	CHECK_FALSE(gc::parse_json(std::string(100000, '['), "t", d, why));
+	CHECK(why.find("too deeply") != std::string::npos);
+	const std::string ok = std::string(size_t(gc::MAX_DATA_DEPTH) + 1, '[') + std::string(size_t(gc::MAX_DATA_DEPTH) + 1, ']');
+	CHECK(gc::parse_json(ok, "t", d, why));
 }
 
 TEST_CASE("settings: saved and read back; what's missing or wrong is the default") {
 	const std::filesystem::path file =
-			std::filesystem::temp_directory_path() / ("gocube_settings_" + std::to_string(GetCurrentProcessId()) + ".lua");
+			std::filesystem::temp_directory_path() / ("gocube_settings_" + std::to_string(GetCurrentProcessId()) + ".json");
 	gc::Settings s;
 	CHECK(s.view_distance == 128);
 	CHECK(s.key("move_forward") == 'W');
@@ -258,7 +307,8 @@ TEST_CASE("settings: saved and read back; what's missing or wrong is the default
 	s.mouse_sensitivity = 0.0052f;
 	s.max_fps = 60;
 	s.vsync = false;
-	s.server_mod_code = false;
+	CHECK_FALSE(s.server_mod_code); // (by default: no code from servers)
+	s.server_mod_code = true;
 	s.smooth_lighting = false;
 	s.shadow_mode = "off";
 	s.render_scale = 0.75f;
@@ -273,17 +323,17 @@ TEST_CASE("settings: saved and read back; what's missing or wrong is the default
 	gc::Settings back;
 	REQUIRE(back.load(file));
 	CHECK(back.view_distance == 192);
-	CHECK(back.mouse_sensitivity == doctest::Approx(0.0052f));
+	CHECK(back.mouse_sensitivity == check::Approx(0.0052f));
 	CHECK(back.max_fps == 60);
 	CHECK_FALSE(back.vsync);
-	CHECK_FALSE(back.server_mod_code);
+	CHECK(back.server_mod_code);
 	CHECK_FALSE(back.smooth_lighting);
 	CHECK(back.shadow_mode == "off");
-	CHECK(back.render_scale == doctest::Approx(0.75f));
+	CHECK(back.render_scale == check::Approx(0.75f));
 	CHECK(back.clock_24h);
-	CHECK(back.master_volume == doctest::Approx(0.5f));
-	CHECK(back.effects_volume == doctest::Approx(1.0f));
-	CHECK(back.ambience_volume == doctest::Approx(0.25f));
+	CHECK(back.master_volume == check::Approx(0.5f));
+	CHECK(back.effects_volume == check::Approx(1.0f));
+	CHECK(back.ambience_volume == check::Approx(0.25f));
 	CHECK(back.key("jump") == 'J');
 	CHECK(back.key("sneak") == VK_SHIFT);
 	CHECK(back.disabled_mods == std::vector<std::string>{"lights", "boats"});
@@ -293,23 +343,24 @@ TEST_CASE("settings: saved and read back; what's missing or wrong is the default
 
 	// Out of range, the wrong type, an unknown shadow mode, a key that isn't
 	// one: those settings are the defaults.
-	std::ofstream(file) << "return {view_distance = 100000, mouse_sensitivity = \"fast\", shadow_mode = \"smooth\", "
-						   "render_scale = 0.01, keys = {jump = -3, sprint = 82}, master_volume = 7}\n";
+	std::ofstream(file) << R"({"view_distance": 100000, "mouse_sensitivity": "fast", "shadow_mode": "smooth", )"
+						   R"("render_scale": 0.01, "keys": {"jump": -3, "sprint": 82}, "master_volume": 7})" << "\n";
 	gc::Settings odd;
 	REQUIRE(odd.load(file));
 	CHECK(odd.view_distance == 512);
-	CHECK(odd.mouse_sensitivity == doctest::Approx(0.003f));
+	CHECK(odd.mouse_sensitivity == check::Approx(0.003f));
 	CHECK(odd.shadow_mode == "blocks");
-	CHECK(odd.render_scale == doctest::Approx(0.25f));
+	CHECK(odd.render_scale == check::Approx(0.25f));
 	CHECK(odd.key("jump") == VK_SPACE);
 	CHECK(odd.key("sprint") == 'R');
-	CHECK(odd.master_volume == doctest::Approx(1.0f));
+	CHECK(odd.master_volume == check::Approx(1.0f));
 	// Not a settings file at all: the defaults, and it says so.
-	std::ofstream(file) << "this isn't Lua";
+	std::ofstream(file) << "this isn't JSON";
 	gc::Settings bad;
 	std::string why;
 	CHECK_FALSE(bad.load(file, &why));
 	CHECK_FALSE(why.empty());
 	CHECK(bad.view_distance == 128);
 	std::filesystem::remove(file);
+
 }

@@ -4,7 +4,7 @@
 
 #include "game/commands.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <map>
 #include <string>
@@ -147,7 +147,7 @@ TEST_CASE("commands: places, relative to the player; blocks; the limits") {
 	CHECK(f.blocks.size() == 9); // (nothing of the refused fill)
 
 	CHECK(says(c.run(me, "/time set noon"), "0.500"));
-	CHECK(f.time == doctest::Approx(0.5));
+	CHECK(f.time == check::Approx(0.5));
 	CHECK(says(c.run(me, "/time set 2"), "Usage"));
 	CHECK(says(c.run(me, "/time"), "0.500"));
 	CHECK(c.run(me, "/say hello").empty());

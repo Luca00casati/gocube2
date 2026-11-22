@@ -5,7 +5,7 @@
 
 #include "net_play.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include "content/skin.h"
 #include "mods/mod_pack.h"
@@ -94,11 +94,11 @@ TEST_CASE("multiplayer: joining gets the host's world, and block changes go both
 
 	// A block the host changes in a chunk we haven't loaded comes as the whole
 	// chunk, kept for when we get there.
-	const BlockPos far{900, 60, 900};
-	REQUIRE_FALSE(c.world().is_loaded(far.x, far.y, far.z));
+	const BlockPos far_pos{900, 60, 900};
+	REQUIRE_FALSE(c.world().is_loaded(far_pos.x, far_pos.y, far_pos.z));
 	h.player().position[0] = h.player().position[2] = 900.5f; // (the host goes there: its world loads there)
-	REQUIRE(run_until({&h}, [&] { return h.world().is_loaded(far.x, far.y, far.z); }, 30));
-	REQUIRE(h.world().set_block(far, h.play->id("core:coal_ore")));
+	REQUIRE(run_until({&h}, [&] { return h.world().is_loaded(far_pos.x, far_pos.y, far_pos.z); }, 30));
+	REQUIRE(h.world().set_block(far_pos, h.play->id("core:coal_ore")));
 	CHECK(run_until(both_sides, [&] { return !c.world().chunk_bytes({28, 1, 28}).empty(); }, 5));
 	h.player().position[0] = h.player().position[2] = 0.5f;
 	REQUIRE(run_until(both_sides, [&] { return h.world().is_loaded(-6, 100, -6); }, 30));
@@ -528,8 +528,11 @@ TEST_CASE("multiplayer: a player with other mods downloads the host's and joins 
 	const std::filesystem::path hosts = root / "host_mods", cache = root / "cache";
 	std::filesystem::remove_all(root);
 	std::filesystem::create_directories(hosts / "visitor" / "data");
-	std::ofstream(hosts / "visitor" / "mod.lua") << "return {id = \"visitor\", version = \"1.2.0\", entry = \"main.lua\"}\n";
-	std::ofstream(hosts / "visitor" / "main.lua") << "registry.register_item(\"token\", {max_stack = 8})\n";
+	std::ofstream(hosts / "visitor" / "mod.json")
+			<< R"({"id": "visitor", "version": "1.2.0", "content": "content.json", "entry": "visitor.dll"})" << "\n";
+	std::ofstream(hosts / "visitor" / "content.json") << R"({"items": {"token": {"max_stack": 8}}})" << "\n";
+	// Its code: a test mod's DLL (it registers a block, "ok").
+	std::filesystem::copy_file(std::filesystem::path(GOCUBE_TEST_MODS_DIR) / "dlls" / "fine.dll", hosts / "visitor" / "visitor.dll");
 	std::ofstream(hosts / "visitor" / "data" / "notes.txt") << "kept as it is\n";
 	auto host = NetPlay::host(test_port(5), false, "Host", {hosts});
 	const std::vector<std::string> host_mods = gc::Session::mod_list(host->play->mods.loaded());
@@ -539,7 +542,7 @@ TEST_CASE("multiplayer: a player with other mods downloads the host's and joins 
 	gc::Session s;
 	gc::Content c;
 	gc::Mods m(c);
-	m.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"});
+	m.load_all({std::filesystem::path(GOCUBE_MODS_DIR)});
 	REQUIRE(s.join("127.0.0.1", test_port(5), "Visitor", gc::Session::mod_list(m.loaded())).empty());
 	REQUIRE(run_until({host.get()}, [&] {
 		s.poll();
@@ -565,16 +568,18 @@ TEST_CASE("multiplayer: a player with other mods downloads the host's and joins 
 	auto client = NetPlay::join(test_port(5), "Visitor", [&] { host->frame(); }, nullptr, host_mods, {cache});
 	REQUIRE(client);
 	CHECK(client->play->content.items.count("visitor:token") == 1);
+	CHECK(client->play->content.blocks.count("visitor:ok") == 1); // (its DLL ran, downloaded)
 	client.reset();
 	host.reset();
-	std::filesystem::remove_all(root);
+	std::error_code ec;
+	std::filesystem::remove_all(root, ec);
 }
 
 TEST_CASE("mod packs: only plain paths inside the folder, nothing written if one isn't") {
 	const std::filesystem::path root = std::filesystem::temp_directory_path() / ("gocube_pack_" + std::to_string(_getpid()));
 	std::filesystem::remove_all(root);
 	std::filesystem::create_directories(root / "a" / "sub");
-	std::ofstream(root / "a" / "mod.lua") << "return {id = \"a\"}\n";
+	std::ofstream(root / "a" / "mod.json") << R"({"id": "a"})" << "\n";
 	std::ofstream(root / "a" / "sub" / "x.txt") << "x";
 	std::ofstream(root / "a" / ".hidden") << "not sent";
 	const std::vector<uint8_t> pack = gc::pack_mod(root / "a");

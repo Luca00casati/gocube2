@@ -17,6 +17,10 @@ namespace gc {
 class Vitals {
 public:
 	static constexpr int MAX_HEALTH = 20;
+	// (Game's own health, in single player, heals and drowns the same.)
+	static constexpr float REGEN_DELAY = 4.0f;    // seconds without damage before healing
+	static constexpr float REGEN_INTERVAL = 2.5f; // seconds per health point healed
+	static constexpr int DROWN_DAMAGE = 2;        // per second without breath
 	static constexpr float MAX_BREATH = 10.0f;
 
 	int health = MAX_HEALTH;

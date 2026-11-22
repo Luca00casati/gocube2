@@ -2,6 +2,7 @@
 
 #include "log.h"
 #include "voxel/storage.h"
+#include "maths.h"
 
 #include <algorithm>
 #include <chrono>
@@ -14,9 +15,6 @@ using namespace gocube;
 
 namespace {
 
-int floor_div(int v, int d) {
-	return v >= 0 ? v / d : -((-v + d - 1) / d);
-}
 
 } // namespace
 

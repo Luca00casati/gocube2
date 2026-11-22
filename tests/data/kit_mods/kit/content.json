@@ -1,0 +1,80 @@
+{
+	"blocks": {
+		"crop": {
+			"color": "#c8b040",
+			"drops": "kit:bread",
+			"hardness": 0,
+			"plant_on": ["core:dirt"],
+			"shape": "cross"
+		},
+		"kiln": {"block_entity": "furnace", "color": "#6a6a6a", "hardness": 3.5},
+		"slab": {"color": "#7a7d83", "hardness": 1.5, "shape": "slab"},
+		"sprout": {
+			"color": "#5a9a30",
+			"drops": "kit:seeds",
+			"grow_seconds": 50,
+			"grows_into": "kit:crop",
+			"hardness": 0,
+			"plant_on": ["core:dirt"],
+			"shape": "cross"
+		}
+	},
+	"creatures": {
+		"stalker": {
+			"box": [0.6, 1.8, 0.6],
+			"gravity": 24.0,
+			"jump": 8.0,
+			"jump_when_blocked": true,
+			"light_height": 1.0,
+			"model": "figure",
+			"step_height": 1.0,
+			"turn_rate": 12.0
+		}
+	},
+	"items": {
+		"bread": {"color": "#c08a40", "food": 5},
+		"iron_helmet": {
+			"armor": {"points": 2, "slot": "head"},
+			"color": "#c8c8c8",
+			"max_stack": 1
+		},
+		"iron_ingot": {"color": "#d8d8d8"},
+		"seeds": {
+			"color": "#c8b040",
+			"plant_on": ["core:dirt"],
+			"plants": "kit:sprout"
+		},
+		"stick": {"color": "#8a6a40"},
+		"wood_pickaxe": {"color": "#a07a50", "damage": 3, "max_stack": 1, "tool": "pickaxe"}
+	},
+	"recipes": {
+		"chest": {
+			"key": {"P": "core:planks"},
+			"output": {"item": "core:chest"},
+			"pattern": ["PPP", "P P", "PPP"],
+			"type": "shaped"
+		},
+		"iron_ingot": {
+			"input": "core:iron_ore",
+			"output": {"item": "kit:iron_ingot"},
+			"type": "smelting"
+		},
+		"log_to_planks": {
+			"ingredients": {"core:log": 1},
+			"output": {"count": 4, "item": "core:planks"},
+			"type": "shapeless"
+		},
+		"planks_to_sticks": {
+			"key": {"P": "core:planks"},
+			"output": {"count": 4, "item": "kit:stick"},
+			"pattern": ["P", "P"],
+			"type": "shaped"
+		},
+		"wood_pickaxe": {
+			"key": {"P": "core:planks", "S": "kit:stick"},
+			"output": {"item": "kit:wood_pickaxe"},
+			"pattern": ["PPP", " S ", " S "],
+			"type": "shaped"
+		}
+	}
+}

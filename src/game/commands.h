@@ -1,6 +1,6 @@
 #pragma once
-// Chat commands ("/give Ann core:torch 5"): the game's own and mods' (Lua's
-// commands.register, and mods' command files: functions/*.txt, run with
+// Chat commands ("/give Ann core:torch 5"): the game's own and mods' (their
+// DLLs' GcApi::add_command, and mods' command files: functions/*.txt, run with
 // /run mod:name). Whoever plays the world runs them (the host runs a
 // client's as that player). Each command says who may run it (ops change
 // the world; everyone can /help, /msg, /list, /seed), reads its arguments

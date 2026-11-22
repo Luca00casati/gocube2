@@ -2,6 +2,7 @@
 
 #include "audio/mixing.h"
 #include "log.h"
+#include "platform/utf8.h"
 
 #include <mmdeviceapi.h>
 #include <xapo.h>
@@ -23,14 +24,6 @@ constexpr float MUFFLE_HZ = 700.0f; // the underwater low-pass
 
 float db_to_linear(float db) {
 	return std::pow(10.0f, db / 20.0f);
-}
-
-std::string narrow(const wchar_t *w) {
-	const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
-	std::string s(size_t(std::max(n, 1)), '\0');
-	WideCharToMultiByte(CP_UTF8, 0, w, -1, s.data(), n, nullptr, nullptr);
-	s.resize(std::strlen(s.c_str()));
-	return s;
 }
 
 // --- Underwater: a one-pole low-pass as an XAudio2 effect ---------------------------

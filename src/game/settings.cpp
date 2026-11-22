@@ -1,6 +1,6 @@
 #include "game/settings.h"
 
-#include "data/lua_data.h"
+#include "data/json.h"
 
 #include <algorithm>
 #include <cmath>
@@ -52,14 +52,14 @@ std::vector<std::string> Settings::actions_using(int k) const {
 
 bool Settings::load(const std::filesystem::path &path, std::string *error) {
 	std::error_code ec;
-	if (!std::filesystem::exists(path, ec)) {
-		return true; // (defaults)
-	}
 	Data d;
 	std::string why;
-	if (!read_lua_data(path, d, why) || !d.is_object()) {
+	if (!std::filesystem::exists(path, ec)) {
+		return true; // (the defaults)
+	}
+	if (!read_json_file(path, d, why) || !d.is_object()) {
 		if (error) {
-			*error = why.empty() ? "it isn't a table of settings" : why;
+			*error = why.empty() ? "it isn't an object of settings" : why;
 		}
 		return false;
 	}
@@ -82,7 +82,7 @@ bool Settings::load(const std::filesystem::path &path, std::string *error) {
 	number("mouse_sensitivity", 0.0005, 0.01, mouse_sensitivity);
 	number("max_fps", 0, 1000, max_fps);
 	boolean("vsync", vsync);
-	boolean("server_mod_code", server_mod_code);
+	boolean("server_mod_dlls", server_mod_code);
 	boolean("smooth_lighting", smooth_lighting);
 	text("shadow_mode", shadow_mode, 16);
 	if (std::none_of(std::begin(SHADOW_MODES), std::end(SHADOW_MODES), [&](const char *m) { return shadow_mode == m; })) {
@@ -120,14 +120,14 @@ bool Settings::save(const std::filesystem::path &path) const {
 		keys_data[action] = k;
 	}
 	const Data d = {{"view_distance", view_distance}, {"mouse_sensitivity", mouse_sensitivity}, {"max_fps", max_fps},
-			{"vsync", vsync}, {"server_mod_code", server_mod_code}, {"smooth_lighting", smooth_lighting}, {"shadow_mode", shadow_mode},
+			{"vsync", vsync}, {"server_mod_dlls", server_mod_code}, {"smooth_lighting", smooth_lighting}, {"shadow_mode", shadow_mode},
 			{"render_scale", render_scale}, {"clock_24h", clock_24h}, {"worker_threads", worker_threads},
 			{"master_volume", master_volume}, {"effects_volume", effects_volume}, {"ambience_volume", ambience_volume},
 			{"keys", keys_data}, {"disabled_mods", disabled_mods}, {"player_name", player_name},
 			{"last_address", last_address}};
 	std::error_code ec;
 	std::filesystem::create_directories(path.parent_path(), ec);
-	return save_lua_data(path, d);
+	return save_json_file(path, d);
 }
 
 } // namespace gc

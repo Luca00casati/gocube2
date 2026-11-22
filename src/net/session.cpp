@@ -4,6 +4,8 @@
 #include "mods/mod_pack.h"
 #include "net/wire.h"
 #include "content/skin.h"
+#include "maths.h"
+#include "platform/clock.h"
 
 #include <algorithm>
 #include <chrono>
@@ -93,26 +95,6 @@ bool valid_entry(const std::string &e) {
 
 constexpr size_t MAX_CHUNK_BYTES = 256 * 1024;
 constexpr int MAX_MODS = 256;
-
-double now() {
-	using namespace std::chrono;
-	return duration<double>(steady_clock::now().time_since_epoch()).count();
-}
-
-int floor_div(int v, int d) {
-	return v >= 0 ? v / d : -((-v + d - 1) / d);
-}
-
-float lerp_angle(float from, float to, float w) {
-	constexpr float PI = 3.14159265f;
-	float d = std::fmod(to - from, 2 * PI);
-	if (d > PI) {
-		d -= 2 * PI;
-	} else if (d < -PI) {
-		d += 2 * PI;
-	}
-	return from + d * w;
-}
 
 Writer &block_pos(Writer &w, const BlockPos &p) {
 	return w.i32(p.x).i32(p.y).i32(p.z);
@@ -531,6 +513,9 @@ void Session::poll() {
 						}
 					}
 					std::erase_if(peers_, [&](const auto &p) { return p.get() == from; });
+					if (a_.game && a_.world) {
+						tell_game_others(); // (the game held its inventory: not a moment longer)
+					}
 				}
 				break;
 		}
@@ -1147,8 +1132,8 @@ void Session::on_client_message(const uint8_t *data, size_t size) {
 			ModInfo info;
 			Data m;
 			std::string why;
-			if (!read_lua_data(dir / "mod.lua", m, why) || !m.is_object()) {
-				problem = "its mod.lua can't be read";
+			if (!read_json_file(dir / "mod.json", m, why) || !m.is_object()) {
+				problem = "its mod.json can't be read";
 			} else {
 				info.id = m.value("id", "");
 				info.version = m.value("version", "");
@@ -1453,10 +1438,9 @@ std::vector<uint8_t> Session::players_message(const LocalPose &pose) const {
 	return w.bytes;
 }
 
-void Session::host_update(float dt) {
-	Game &game = *a_.game;
-	// Other players: chunks stay loaded around them; the game knows where
-	// they are (creatures, drops, placing).
+// Other players: chunks stay loaded around them; the game knows where they
+// are (creatures, drops, placing) and their inventories (picking things up).
+void Session::tell_game_others() {
 	std::vector<std::array<float, 3>> viewers;
 	std::vector<OtherPlayer> others;
 	for (auto &p : peers_) {
@@ -1472,7 +1456,12 @@ void Session::host_update(float dt) {
 		viewers.push_back({o.feet[0], o.feet[1], o.feet[2]});
 	}
 	a_.world->set_extra_viewers(std::move(viewers));
-	game.set_others(std::move(others));
+	a_.game->set_others(std::move(others));
+}
+
+void Session::host_update(float dt) {
+	Game &game = *a_.game;
+	tell_game_others();
 
 	const double t = now();
 	for (auto &p : peers_) {
@@ -1540,7 +1529,7 @@ void Session::host_update(float dt) {
 			for (auto &[key, sent] : p->viewing) {
 				const BlockPos pos{std::get<0>(key), std::get<1>(key), std::get<2>(key)};
 				const Data data = game.block_entities().entity_data(pos);
-				const std::string text = data.is_null() ? std::string() : write_lua_data(data);
+				const std::string text = data.is_null() ? std::string() : write_json(data, true);
 				if (text != sent) {
 					sent = text;
 					Writer w(H_CONTAINER);

@@ -1,6 +1,6 @@
 #pragma once
 // Mods' content: blocks, items, recipes, ores, trees, biomes and sound sets
-// that mods register from Lua; numeric block ids; the engine's block
+// that mods register (as data, or from their code); numeric block ids; the engine's block
 // table and texture atlas; the world generator's tables.
 
 #include "voxel/generator.h"

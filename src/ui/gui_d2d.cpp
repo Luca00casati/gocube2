@@ -1,7 +1,6 @@
 #include "ui/gui_d2d.h"
 
 #include "log.h"
-#include "ui/ui_font.h"
 
 #include <algorithm>
 #include <cmath>
@@ -122,58 +121,13 @@ bool GuiD2D::init(ID3D11Device *device) {
 	}
 	dc_->SetDpi(96, 96); // (units are pixels)
 	dc_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-	if (!load_font()) {
-		log("Couldn't load the UI's font: Segoe UI instead");
+	// Windows' own UI font (the one its dialogs use): Segoe UI unless the
+	// system says otherwise.
+	NONCLIENTMETRICSW metrics = {};
+	metrics.cbSize = sizeof(metrics);
+	if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0) && metrics.lfMessageFont.lfFaceName[0]) {
+		family_ = metrics.lfMessageFont.lfFaceName;
 	}
-	return true;
-}
-
-GuiD2D::~GuiD2D() {
-	ComPtr<IDWriteFactory5> f5;
-	if (font_loader_ && SUCCEEDED(dwrite_.As(&f5))) {
-		font_.Reset();
-		f5->UnregisterFontFileLoader(font_loader_.Get());
-	}
-}
-
-bool GuiD2D::load_font() {
-	// The font file, from the executable's resources.
-	const HMODULE exe = GetModuleHandleW(nullptr);
-	HRSRC res = FindResourceW(exe, MAKEINTRESOURCEW(GOCUBE_UI_FONT), MAKEINTRESOURCEW(10)); // (RT_RCDATA)
-	HGLOBAL data = res ? LoadResource(exe, res) : nullptr;
-	const void *bytes = data ? LockResource(data) : nullptr;
-	const DWORD size = res ? SizeofResource(exe, res) : 0;
-	ComPtr<IDWriteFactory5> f5;
-	if (!bytes || size == 0 || FAILED(dwrite_.As(&f5))) {
-		return false;
-	}
-	// A collection of just that font (the resource stays mapped: no copy).
-	ComPtr<IDWriteInMemoryFontFileLoader> loader;
-	if (FAILED(f5->CreateInMemoryFontFileLoader(&loader)) || FAILED(f5->RegisterFontFileLoader(loader.Get()))) {
-		return false;
-	}
-	font_loader_ = loader;
-	ComPtr<IDWriteFontFile> file;
-	ComPtr<IDWriteFontSetBuilder1> builder;
-	ComPtr<IDWriteFontSet> set;
-	ComPtr<IDWriteFontCollection1> collection;
-	ComPtr<IDWriteFontFamily1> family;
-	ComPtr<IDWriteLocalizedStrings> names;
-	UINT32 length = 0;
-	if (FAILED(loader->CreateInMemoryFontFileReference(f5.Get(), bytes, size, f5.Get(), &file)) ||
-			FAILED(f5->CreateFontSetBuilder(&builder)) || FAILED(builder->AddFontFile(file.Get())) ||
-			FAILED(builder->CreateFontSet(&set)) || FAILED(f5->CreateFontCollectionFromFontSet(set.Get(), &collection)) ||
-			collection->GetFontFamilyCount() == 0 || FAILED(collection->GetFontFamily(0, &family)) ||
-			FAILED(family->GetFamilyNames(&names)) || FAILED(names->GetStringLength(0, &length))) {
-		return false;
-	}
-	std::wstring name(size_t(length) + 1, wchar_t(0));
-	if (FAILED(names->GetString(0, name.data(), length + 1))) {
-		return false;
-	}
-	name.resize(length);
-	font_ = collection;
-	family_ = name;
 	return true;
 }
 
@@ -184,7 +138,7 @@ IDWriteTextFormat *GuiD2D::format(float size) {
 		return it->second.Get();
 	}
 	ComPtr<IDWriteTextFormat> f;
-	if (FAILED(dwrite_->CreateTextFormat(family_.c_str(), font_.Get(), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+	if (FAILED(dwrite_->CreateTextFormat(family_.c_str(), nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
 				DWRITE_FONT_STRETCH_NORMAL, float(key) / 4.0f, L"en-us", &f))) {
 		return nullptr;
 	}

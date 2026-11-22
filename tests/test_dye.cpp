@@ -9,7 +9,7 @@
 #include "voxel/mesher.h"
 #include "voxel/storage.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <algorithm>
 #include <cmath>

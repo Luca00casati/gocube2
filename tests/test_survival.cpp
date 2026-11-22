@@ -9,7 +9,7 @@
 #include "world/world.h"
 #include "play.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <chrono>
 #include <cmath>
@@ -25,7 +25,7 @@ namespace {
 
 // The kit test mod (tests/data/kit_mods): crafting, smelting, a tool and
 // armour, which the base game no longer has, after the base game.
-const std::filesystem::path KIT_MODS = std::filesystem::path(GOCUBE_SOURCE_DIR) / "tests" / "data" / "kit_mods";
+const std::filesystem::path KIT_MODS = std::filesystem::path(GOCUBE_TEST_MODS_DIR) / "kit_mods";
 
 Play::Setup with_kit() {
 	Play::Setup s;
@@ -38,7 +38,7 @@ Play::Setup with_kit() {
 TEST_CASE("inventory: stacks, limits, removing, mouse moves") {
 	gc::Content content;
 	gc::Mods mods(content);
-	mods.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"});
+	mods.load_all({std::filesystem::path(GOCUBE_MODS_DIR)});
 	gc::Inventory inv(content);
 	CHECK(inv.add("core:dirt", 100) == 0); // 64 + 36
 	CHECK(inv.slots[0] == Stack{"core:dirt", 64});
@@ -62,9 +62,9 @@ TEST_CASE("inventory: stacks, limits, removing, mouse moves") {
 TEST_CASE("inventory: its save format, both ways (false for an empty slot)") {
 	gc::Content content;
 	gc::Mods mods(content);
-	mods.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods", KIT_MODS}); // (armour: the kit's)
-	// As Inventory.serialize writes it (false for an empty slot: a Lua list
-	// can't hold nil).
+	mods.load_all({std::filesystem::path(GOCUBE_MODS_DIR), KIT_MODS}); // (armour: the kit's)
+	// As Inventory.serialize writes it (false for an empty slot, as worlds have
+	// always saved them).
 	Data saved = Data::array();
 	saved.push_back(Data::array({"core:torch", 5}));
 	saved.push_back(false);
@@ -87,10 +87,10 @@ TEST_CASE("inventory: its save format, both ways (false for an empty slot)") {
 
 TEST_CASE("the core mod's rules: mining time and drops (by hand: there are no tools)") {
 	Play p;
-	CHECK(p.game->mine_seconds("core:stone", "") == doctest::Approx(1.5 * 0.375)); // hardness x 0.375 s
-	CHECK(p.game->mine_seconds("core:dirt", "") == doctest::Approx(0.5 * 0.375));
-	CHECK(p.game->mine_seconds("core:stone", "core:torch") == doctest::Approx(1.5 * 0.375)); // whatever is held
-	CHECK(p.game->mine_seconds("core:torch", "") == doctest::Approx(0.1)); // the least
+	CHECK(p.game->mine_seconds("core:stone", "") == check::Approx(1.5 * 0.375)); // hardness x 0.375 s
+	CHECK(p.game->mine_seconds("core:dirt", "") == check::Approx(0.5 * 0.375));
+	CHECK(p.game->mine_seconds("core:stone", "core:torch") == check::Approx(1.5 * 0.375)); // whatever is held
+	CHECK(p.game->mine_seconds("core:torch", "") == check::Approx(0.1)); // the least
 	CHECK(p.game->drops_of("core:stone", "") == std::vector<std::string>{"core:cobblestone"});
 	CHECK(p.game->drops_of("core:iron_ore", "") == std::vector<std::string>{"core:iron_ore"});
 	CHECK(p.game->drops_of("core:coal_ore", "") == std::vector<std::string>{"core:coal"});
@@ -452,14 +452,14 @@ TEST_CASE("dying keeps the inventory; respawning is at the bed, or the world spa
 	p.game->respawn();
 	CHECK_FALSE(p.game->dead());
 	CHECK(p.game->health() == gc::Game::MAX_HEALTH);
-	CHECK(p.player.position[2] == doctest::Approx(-0.5)); // on the bed's head
+	CHECK(p.player.position[2] == check::Approx(-0.5)); // on the bed's head
 	CHECK(p.game->inventory().slots[3] == Stack{"core:coal", 9});
 	// The bed gone: back to the world spawn.
 	REQUIRE(p.world->set_block({1, 40, -1}, 0));
 	p.game->damage(100);
 	p.game->respawn();
-	CHECK(p.player.position[0] == doctest::Approx(1.5));
-	CHECK(p.player.position[2] == doctest::Approx(1.5));
+	CHECK(p.player.position[0] == check::Approx(1.5));
+	CHECK(p.player.position[2] == check::Approx(1.5));
 	CHECK(p.game->notice().find("bed was missing") != std::string::npos);
 }
 
@@ -498,19 +498,19 @@ TEST_CASE("a new player is put on dry ground (a biome's surface) and that become
 TEST_CASE("the day: sun, daylight and the clock") {
 	gc::DayCycle d;
 	d.time = 0.5; // noon
-	CHECK(d.sun_height() == doctest::Approx(1.0f));
-	CHECK(d.day_amount() == doctest::Approx(1.0f));
-	CHECK(d.daylight() == doctest::Approx(1.0f));
+	CHECK(d.sun_height() == check::Approx(1.0f));
+	CHECK(d.day_amount() == check::Approx(1.0f));
+	CHECK(d.daylight() == check::Approx(1.0f));
 	float sun[3];
 	d.sun_dir(sun);
-	CHECK(sun[1] == doctest::Approx(1.0f));
+	CHECK(sun[1] == check::Approx(1.0f));
 	d.time = 0.0; // midnight
-	CHECK(d.day_amount() == doctest::Approx(0.0f));
-	CHECK(d.daylight() == doctest::Approx(gc::DayCycle::NIGHT_LIGHT));
+	CHECK(d.day_amount() == check::Approx(0.0f));
+	CHECK(d.daylight() == check::Approx(gc::DayCycle::NIGHT_LIGHT));
 	d.time = 0.25; // sunrise: in the east (+x)
 	d.sun_dir(sun);
-	CHECK(sun[0] == doctest::Approx(1.0f));
-	CHECK(d.dusk() == doctest::Approx(1.0f));
+	CHECK(sun[0] == check::Approx(1.0f));
+	CHECK(d.dusk() == check::Approx(1.0f));
 	char clock[16];
 	gc::DayCycle::clock_text(0.75, false, clock, sizeof(clock));
 	CHECK(std::string(clock) == "6:00 PM");
@@ -521,7 +521,7 @@ TEST_CASE("the day: sun, daylight and the clock") {
 	d.time = 0.9;
 	d.day_length = 100;
 	d.update(20); // a fifth of a day: past midnight
-	CHECK(d.time == doctest::Approx(0.1));
+	CHECK(d.time == check::Approx(0.1));
 }
 
 TEST_CASE("right-clicking a bed reports it (for sleeping) every time") {
@@ -563,7 +563,7 @@ int drops_of_item(Play &p, const std::string &item) {
 
 } // namespace
 
-TEST_CASE("plants (the core mod's Lua): sand falls, unsupported blocks pop off") {
+TEST_CASE("plants (the core mod's code): sand falls, unsupported blocks pop off") {
 	Play p;
 	pool(p, "core:air");
 	REQUIRE(p.world->set_block({1, 45, 1}, p.id("core:sand"))); // 5 above the floor (y 40)
@@ -779,7 +779,7 @@ TEST_CASE("farming (a mod's rule): seeds are planted on dirt, and grow") {
 	CHECK(p.game->save_plants().size() == 1); // growing
 }
 
-TEST_CASE("fluids (the core mod's Lua): water spreads one level lower a block, and drains away") {
+TEST_CASE("fluids (the core mod's code): water spreads one level lower a block, and drains away") {
 	Play p;
 	pool(p, "core:air");
 	REQUIRE(p.world->set_block({0, 40, 0}, p.id("core:water")));
@@ -810,7 +810,7 @@ TEST_CASE("fluids: a lava source touching water turns to stone") {
 	CHECK(p.block(0, 40, 0) == "core:stone");
 }
 
-TEST_CASE("fluids: a big flood stays within the mods' time limit") {
+TEST_CASE("fluids: a big flood doesn't stall the game") {
 	Play p;
 	// A 40 x 40 sheet of unfed flowing water over a pit: all of it changes at once.
 	for (int x = -20; x < 20; x++) {
@@ -831,7 +831,12 @@ TEST_CASE("fluids: a big flood stays within the mods' time limit") {
 	}
 	MESSAGE("worst mods tick: " << worst << " ms");
 	CHECK(p.mods.problems().empty());
-	CHECK(worst < 20.0); // (the limit per call: three calls stopped turn the core mod off)
+#ifdef GOCUBE_UNOPTIMIZED
+	const double limit = 50.0; // (unoptimized code: several times slower)
+#else
+	const double limit = 20.0;
+#endif
+	CHECK(worst < limit); // (a frame or so, even after a flood of changes)
 }
 
 namespace {
@@ -857,7 +862,7 @@ TEST_CASE("sounds: breaking and placing sound like the block, steps like the gro
 	p.game->break_block(at, "");
 	auto sounds = p.game->take_sounds();
 	REQUIRE(count_sounds(sounds, "core:stone", "break") == 1);
-	CHECK(sounds[0].at[0] == doctest::Approx(2.5f));
+	CHECK(sounds[0].at[0] == check::Approx(2.5f));
 	// Hurt: the effects' hurt.
 	p.game->damage(2);
 	CHECK(count_sounds(p.game->take_sounds(), "core:effects", "hurt") == 1);
@@ -894,8 +899,8 @@ TEST_CASE("sounds: breaking and placing sound like the block, steps like the gro
 	CHECK(steps <= 6);
 
 	// Picking up a drop.
-	const float near[3] = {p.player.position[0], p.player.position[1] + 0.5f, p.player.position[2]};
-	p.game->drop_item("core:dirt", 1, near);
+	const float nearby[3] = {p.player.position[0], p.player.position[1] + 0.5f, p.player.position[2]};
+	p.game->drop_item("core:dirt", 1, nearby);
 	for (int i = 0; i < 120; i++) {
 		p.game->physics_step(1.0f / 60.0f);
 	}
@@ -916,28 +921,28 @@ TEST_CASE("creatures: they fall to the ground, walk where they head, notice wall
 	gc::Creature *c = cs.find(id);
 	REQUIRE(c);
 	CHECK(c->on_floor);
-	CHECK(c->pos[1] == doctest::Approx(40.0f).epsilon(0.001)); // on the stone floor (y 39; the collision margin)
+	CHECK(c->pos[1] == check::Approx(40.0f).epsilon(0.001)); // on the stone floor (y 39; the collision margin)
 	// Heading -x at walking speed: it reaches the wall at x = -1 (its box is 0.9 wide).
 	cs.apply(*c, {{"heading", 3.14159265 / 2}, {"speed", 1.2}});
 	for (int i = 0; i < 180; i++) {
 		cs.step(1.0f / 60.0f, *p.world);
 	}
 	c = cs.find(id);
-	CHECK(c->pos[0] == doctest::Approx(0.45f).epsilon(0.01));
+	CHECK(c->pos[0] == check::Approx(0.45f).epsilon(0.01));
 	const gc::Data seen = cs.describe(*c);
 	CHECK(seen["hit_wall"] == true);
 	CHECK(cs.describe(*c)["hit_wall"] == false); // (cleared once seen)
-	CHECK(c->yaw == doctest::Approx(3.14159265f / 2).epsilon(0.01)); // turned to its heading
+	CHECK(c->yaw == check::Approx(3.14159265f / 2).epsilon(0.01)); // turned to its heading
 	// Picked by a ray through its box.
 	const float eye[3] = {0.45f, 40.5f, 3.0f}, dir[3] = {0, 0, -1};
 	float d;
 	CHECK(cs.pick(eye, dir, 4.0f, d) == id);
-	CHECK(d == doctest::Approx(3.0f - (1.5f + 0.45f)).epsilon(0.01));
+	CHECK(d == check::Approx(3.0f - (1.5f + 0.45f)).epsilon(0.01));
 	CHECK(cs.remove(id));
 	CHECK(cs.pick(eye, dir, 4.0f, d) == 0);
 }
 
-TEST_CASE("Block Eaters (the core mod's Lua): rare, they come by day on grass, flee when hit") {
+TEST_CASE("Block Eaters (the core mod's code): rare, they come by day on grass, flee when hit") {
 	Play p;
 	// Grass all around the player, open to the sky.
 	for (int x = -50; x <= 50; x++) {
@@ -976,7 +981,7 @@ TEST_CASE("Block Eaters (the core mod's Lua): rare, they come by day on grass, f
 	for (const gc::Creature &c : all) {
 		CHECK(c.kind == "core:block_eater");
 		CHECK(c.variant.empty()); // (none made of a block: only a mod spawns those)
-		CHECK(c.pos[1] == doctest::Approx(71.0f).epsilon(0.01)); // on the grass
+		CHECK(c.pos[1] == check::Approx(71.0f).epsilon(0.01)); // on the grass
 		const float d = std::hypot(c.pos[0] - 0.5f, c.pos[2] - 0.5f);
 		CHECK(d < 80.0f); // (spawned up to 48 away, they wander; gone past DESPAWN_DISTANCE)
 	}
@@ -991,7 +996,7 @@ TEST_CASE("Block Eaters (the core mod's Lua): rare, they come by day on grass, f
 	const gc::Creature *c = p.game->creatures().find(id);
 	REQUIRE(c);
 	CHECK(c->pos[0] > 6.0f); // ran off, away from the player
-	CHECK(c->speed == doctest::Approx(3.4f));
+	CHECK(c->speed == check::Approx(3.4f));
 	for (int i = 0; i < 3; i++) {
 		p.mods.creature_hit(id, 2, from, 0);
 	}
@@ -1154,8 +1159,8 @@ TEST_CASE("game mode: one inventory in both; creative starts empty, picks things
 	// It picks up what lies around.
 	c.player.position[1] = 80.0f;
 	c.player.flying = true;
-	const float near[3] = {c.player.position[0], c.player.position[1] + 0.5f, c.player.position[2]};
-	c.game->drop_item("core:coal", 3, near);
+	const float nearby[3] = {c.player.position[0], c.player.position[1] + 0.5f, c.player.position[2]};
+	c.game->drop_item("core:coal", 3, nearby);
 	for (int i = 0; i < 120; i++) {
 		c.game->physics_step(1.0f / 60.0f);
 	}

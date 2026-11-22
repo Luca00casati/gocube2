@@ -13,20 +13,15 @@ jobs:
       - name: Set up the MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Configure
-        shell: pwsh
-        run: |
-          $env:VCPKG_ROOT = $env:VCPKG_INSTALLATION_ROOT
-          cmake --preset windows
-
-      - name: Build
-        run: |
-          cmake --build --preset debug
-          cmake --build --preset release
+      # The build is nob.c: it calls cl, link and fxc directly.
+      - name: Build nob
+        run: cl nob.c
 
       # The smoke test runs on WARP (no GPU on the runner); the runner has no
-      # Graphics Tools, so the debug layer is skipped there.
-      - name: Test
-        run: |
-          ctest --preset debug
-          ctest --preset release
+      # Graphics Tools, so the debug layer is skipped there. Unity builds: CI
+      # always builds from scratch, where they're fastest.
+      - name: Build and test (Debug)
+        run: .\nob.exe test debug unity
+
+      - name: Build and test (Release)
+        run: .\nob.exe test release unity

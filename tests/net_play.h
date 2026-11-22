@@ -76,7 +76,7 @@ struct NetPlay {
 		if (mods.empty()) {
 			gc::Content c;
 			gc::Mods m(c);
-			m.load_all({std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"});
+			m.load_all({std::filesystem::path(GOCUBE_MODS_DIR)});
 			mods = gc::Session::mod_list(m.loaded());
 		}
 		n->session.set_udp_enabled(udp);

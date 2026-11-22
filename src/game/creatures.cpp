@@ -1,5 +1,7 @@
 #include "game/creatures.h"
 
+#include "maths.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -7,19 +9,7 @@ namespace gc {
 
 namespace {
 
-constexpr float PI = 3.14159265f;
-
-float lerp_angle(float from, float to, float w) {
-	float d = std::fmod(to - from, 2 * PI);
-	if (d > PI) {
-		d -= 2 * PI;
-	} else if (d < -PI) {
-		d += 2 * PI;
-	}
-	return from + d * w;
-}
-
-float number(const Data &def, const char *key, float fallback) {
+float float_field(const Data &def, const char *key, float fallback) {
 	auto it = def.find(key);
 	return it != def.end() && it->is_number() ? float(it->get<double>()) : fallback;
 }
@@ -45,11 +35,11 @@ int Creatures::spawn(const Content &content, const std::string &kind, const floa
 			c.box[k] = box[k].is_number() ? float(box[k].get<double>()) : c.box[k];
 		}
 	}
-	c.gravity = number(def, "gravity", 24);
-	c.step_height = number(def, "step_height", 1);
-	c.turn_rate = number(def, "turn_rate", 8);
-	c.jump = number(def, "jump", 0);
-	c.light_height = number(def, "light_height", 0.5f);
+	c.gravity = float_field(def, "gravity", 24);
+	c.step_height = float_field(def, "step_height", 1);
+	c.turn_rate = float_field(def, "turn_rate", 8);
+	c.jump = float_field(def, "jump", 0);
+	c.light_height = float_field(def, "light_height", 0.5f);
 	c.jump_when_blocked = def.value("jump_when_blocked", false);
 	list_.push_back(std::move(c));
 	return list_.back().id;

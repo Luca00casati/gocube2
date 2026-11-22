@@ -2,8 +2,8 @@
 // Creatures' bodies: where they are, how they move (gravity, walking up steps,
 // turning towards where they head), how they look while they do (the walk
 // cycle, a squash or a red flash when hurt) and being hit. What they do is the
-// mods' (the core mod's rules/creatures.lua): it spawns them, sets where they
-// head and how fast, and handles hits, through the `creatures` Lua API.
+// mods' (the core mod's code, src/core_mod/core_mod.cpp): it spawns them, sets
+// where they head and how fast, and handles hits, through the mods' `creatures` API.
 //
 // A kind is content (registry.register_creature): "model" (how it's drawn:
 // "block_eater" or "figure": a person), "box" {width, height, depth} (collision, picking),

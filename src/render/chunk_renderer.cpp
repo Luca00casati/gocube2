@@ -4,7 +4,7 @@
 
 #include "log.h"
 
-// Compiled from shaders/chunk.hlsl at build time (see CMakeLists.txt).
+// Compiled from shaders/chunk.hlsl at build time (by fxc: see nob.c).
 #include "chunk_ps_cutout.h"
 #include "chunk_ps_fluid.h"
 #include "chunk_ps_opaque.h"

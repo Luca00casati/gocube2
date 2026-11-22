@@ -7,7 +7,7 @@
 #include "game/player.h"
 #include "world/world.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <chrono>
 #include <cmath>
@@ -91,7 +91,7 @@ TEST_CASE("the player stands on the ground, falls into holes and jumps about 1.2
 	p.position[1] = float(h) + 3.0f; // dropped from 2 blocks up
 	p.position[2] = fz + 0.5f;
 	w.run(p, {}, 120);
-	CHECK(p.position[1] == doctest::Approx(h + 1.0f).epsilon(0.002));
+	CHECK(p.position[1] == check::Approx(h + 1.0f).epsilon(0.002));
 	CHECK(p.on_floor);
 
 	// Jump: the highest point.
@@ -103,13 +103,13 @@ TEST_CASE("the player stands on the ground, falls into holes and jumps about 1.2
 		p.step({}, *w.world, *w.rules);
 		peak = std::max(peak, p.position[1]);
 	}
-	CHECK(peak - (h + 1.0f) == doctest::Approx(1.26f).epsilon(0.05));
-	CHECK(p.position[1] == doctest::Approx(h + 1.0f).epsilon(0.002)); // back down
+	CHECK(peak - (h + 1.0f) == check::Approx(1.26f).epsilon(0.05));
+	CHECK(p.position[1] == check::Approx(h + 1.0f).epsilon(0.002)); // back down
 
 	// Dig the block under the player: it falls one block, no further.
 	REQUIRE(w.world->set_block({fx, h, fz}, w.id("core:air")));
 	w.run(p, {}, 60);
-	CHECK(p.position[1] == doctest::Approx(w.ground(fx, fz) + 1.0f).epsilon(0.002));
+	CHECK(p.position[1] == check::Approx(w.ground(fx, fz) + 1.0f).epsilon(0.002));
 }
 
 TEST_CASE("walls stop the player, and placing never puts a block inside it") {
@@ -136,7 +136,7 @@ TEST_CASE("walls stop the player, and placing never puts a block inside it") {
 	gc::PlayerInput forward;
 	forward.forward = 1;
 	w.run(p, forward, 120);
-	CHECK(p.position[2] == doctest::Approx(-1.0f + gc::Player::RADIUS).epsilon(0.01)); // touching the wall
+	CHECK(p.position[2] == check::Approx(-1.0f + gc::Player::RADIUS).epsilon(0.01)); // touching the wall
 
 	// Looking straight down: placing into its own cell is refused.
 	p.pitch = -1.55f;

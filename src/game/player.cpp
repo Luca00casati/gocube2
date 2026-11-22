@@ -1,5 +1,7 @@
 #include "game/player.h"
 
+#include "maths.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -22,10 +24,6 @@ constexpr float CLIMB_SPEED = 3.0f;
 constexpr float SWIM_UP_SPEED = 3.5f;
 constexpr float WATER_CLIMB_SPEED = 8.0f;
 constexpr float SINK_SPEED = 2.0f;
-
-int floor_i(float v) {
-	return int(std::floor(v));
-}
 
 } // namespace
 

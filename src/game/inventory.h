@@ -1,7 +1,7 @@
 #pragma once
 // Item slots: 0..8 are the hotbar. A slot is empty or a stack {id, count}.
 // Blocks are items too (placing one uses it up). Also what the mouse holds in
-// an open screen (the cursor) and worn armour. Saved in world.lua's
+// an open screen (the cursor) and worn armour. Saved in world.json's
 // player.inventory:
 //   {{id, count} or false, ... (36), {armor = {head, chest, legs, feet ids}}}
 

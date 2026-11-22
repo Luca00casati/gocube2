@@ -10,7 +10,7 @@
 #include "voxel/light.h"
 #include "voxel/storage.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <windows.h>
 #include <bcrypt.h>
@@ -62,7 +62,7 @@ int floor_div(int v, int d) {
 
 // The chunks around the origin, generated and lit the way the world does it
 // (whole columns for sky light, a full neighbourhood per chunk).
-struct TestWorld {
+struct GenWorld {
 	const std::vector<BlockInfo> &blocks;
 	const Generator &generator;
 	std::map<std::tuple<int, int, int>, std::shared_ptr<ChunkData>> chunks;
@@ -172,7 +172,7 @@ std::string fingerprint(uint32_t seed) {
 	const gc::BlockTable table = gc::build_block_table(content);
 	Generator generator;
 	gc::configure_generator(generator, content, seed);
-	TestWorld world{table.blocks, generator};
+	GenWorld world{table.blocks, generator};
 	return world.fingerprint();
 }
 

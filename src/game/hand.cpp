@@ -1,5 +1,7 @@
 #include "game/hand.h"
 
+#include "maths.h"
+
 #include <DirectXMath.h>
 
 #include <algorithm>
@@ -15,15 +17,10 @@ constexpr XMFLOAT3 REST = {0.36f, -0.34f, -0.52f};   // where the hand rests (ca
 // The arm turns about the shoulder, off the bottom right of the screen, so the
 // sleeve always stays behind the hand.
 constexpr XMFLOAT3 SHOULDER = {0.52f, -0.62f, 0.02f};
-constexpr float SWING_WIND = 0.25f, SWING_HIT = 0.5f;
+constexpr float HAND_WIND = 0.25f, HAND_HIT = 0.5f; // (the strike: as Figure's, but quicker)
 const Hand::Pose SWING_REST = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
 const Hand::Pose SWING_UP = {{0.1f, -0.05f, 0.0f}, {0.0f, 0.015f, 0.03f}, {0.35f, 0.0f, 0.0f}};
 const Hand::Pose SWING_DOWN = {{0.12f, 0.32f, 0.1f}, {-0.02f, 0.06f, -0.06f}, {-0.8f, 0.0f, 0.0f}};
-
-float ease(float x) {
-	x = std::clamp(x, 0.0f, 1.0f);
-	return x * x * (3.0f - 2.0f * x);
-}
 
 Hand::Pose mix(const Hand::Pose &a, const Hand::Pose &b, float u) {
 	Hand::Pose p;
@@ -129,14 +126,14 @@ void Hand::swing() {
 }
 
 Hand::Pose Hand::swing_pose(float t) {
-	if (t < SWING_WIND) {
-		return mix(SWING_REST, SWING_UP, ease(t / SWING_WIND));
+	if (t < HAND_WIND) {
+		return mix(SWING_REST, SWING_UP, ease(t / HAND_WIND));
 	}
-	if (t < SWING_HIT) {
-		const float u = (t - SWING_WIND) / (SWING_HIT - SWING_WIND);
+	if (t < HAND_HIT) {
+		const float u = (t - HAND_WIND) / (HAND_HIT - HAND_WIND);
 		return mix(SWING_UP, SWING_DOWN, u * u); // speeds up into the blow
 	}
-	return mix(SWING_DOWN, SWING_REST, ease((t - SWING_HIT) / (1.0f - SWING_HIT)));
+	return mix(SWING_DOWN, SWING_REST, ease((t - HAND_HIT) / (1.0f - HAND_HIT)));
 }
 
 void Hand::update(float dt, bool mining, bool walking) {

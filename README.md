@@ -1,6 +1,6 @@
 # GoCube
 
-Voxel sandbox for Windows, in C++20 with Direct3D 11, gameplay and mods in Lua.
+Voxel sandbox for Windows, in C++20 with Direct3D 11; mods are data and DLLs.
 
 Survival: mining by hand, drops, chests, health, the day and night, trees
 coming up on grass by themselves, flowing water and lava; creatures (rare,
@@ -12,17 +12,19 @@ first-person arm in your skin.
 The terrain comes from 3D noise: hills, cliffs, overhangs, seas with sand and
 gravel beaches, caves, lava deep down, ore veins. Players wear skins in the
 usual box-figure layout (`%APPDATA%\GoCube\skin.png`, 64x64 or 64x32, a
-PNG with see-through parts), and everyone sees each player's. The rules of the game
-and its content are the base game's Lua (`mods/core`), sandboxed like every mod;
-every data file (a mod's manifest, a world's `world.lua`) is a Lua data table.
+PNG with see-through parts), and everyone sees each player's. The base game is a mod
+like any other (`mods/core`): its content is data (`content.json`) and its rules
+are its DLL (`core.dll`, from `src/core_mod/`). Every data file (a mod's
+manifest, a world's `world.json`, the settings) is JSON, read and written by
+our own code.
 
 ## Requirements
 - Windows 10 or 11, x64
 - A GPU with Direct3D 11 at feature level 11_0 (or `--warp` to render in software)
-- Visual Studio 2026 with "Desktop development with C++" (it brings MSVC, MSBuild,
-  CMake and the Windows SDK's shader compiler; with Visual Studio 2022, configure
-  with `cmake -B build -G "Visual Studio 17 2022" -A x64`). Nothing else: every library
-  is in `thirdparty/` as source.
+- Visual Studio 2026 (or 2022) with "Desktop development with C++": the MSVC
+  compiler and linker and the Windows SDK's shader compiler. Nothing else: no
+  build system and no third-party libraries (the build uses
+  [nob.h](https://github.com/tsoding/nob.h), one header, in this folder).
 - Optional: Windows' **Graphics Tools** (Settings > System > Optional features) for
   the Direct3D debug layer in debug builds
 
@@ -31,16 +33,56 @@ such as the HD 4600, where every Direct3D 12 draw hangs the GPU; their Direct3D 
 drivers are mature, and nothing a voxel game needs is missing from Direct3D 11.
 
 ## Build and test
-From a **Developer PowerShell for VS** (it puts CMake and `fxc` on the path), in
-this folder (the build is Visual Studio's own: MSBuild, `build\gocube.slnx`):
+The build is `nob.c`, a C program that calls the compiler, linker and shader
+compiler (`cl`, `link`, `fxc`) directly: no build system, nothing to
+configure. From a **Developer PowerShell for VS** (it puts them on the path),
+in this folder:
 
-    cmake -B build -G "Visual Studio 18 2026" -A x64      # once
-    cmake --build build --config Release                  # or: Debug
-    ctest --test-dir build -C Release --output-on-failure # or: Debug
+    cl nob.c                  # once: afterwards nob rebuilds itself when nob.c changes
+    nob                       # build Dev: the one to work with
+    nob test                  # build, then run the tests
+    nob run -- --world=Test   # build, then play (arguments after --)
+    nob release               # build Release (also: nob test release, nob run release)
+    nob clean                 # delete build\
 
-Or open `build\gocube.slnx` in Visual Studio (after the first command).
-The game is `build\Debug\gocube.exe` (`build\Release\gocube.exe`); it finds `mods\`
-in its folder or a folder above it.
+Three configurations, each in its own folder (`build\Release`, `build\Dev`,
+`build\Debug`):
+
+- **release**: optimized (`/O2`), the game as players get it. The slowest to
+  compile (about 3 minutes from scratch on 2 cores).
+- **dev** (the default): not optimized, except the few files where the game spends its
+  time (chunks: generating, lighting, meshing; data and JSON). Compiles
+  about three times faster than Release (a change to one file: seconds) and
+  runs well enough to play and test.
+- **debug**: not optimized at all, with the debug runtime's checks
+  (iterators, the heap, `/RTC1`) and Direct3D's debug layer. The slowest to run.
+
+Only what changed is compiled again, all of it at once (as many files as
+there are cores): an object when its source, nob itself, or a header it
+includes is newer (the compiler lists those headers for each object), so
+changing a header compiles only the files that use it. The standard
+library headers are precompiled once (`src/pch.h`).
+
+`unity` (e.g. `nob test release unity`, what CI does) compiles a few files
+that each include several sources, so code they share is compiled once per
+batch, not once per file: faster from scratch, slower after a small change
+(the whole batch again). It builds in `build\<Config>-Unity`. Because of it,
+two sources of the same part of the game mustn't both define a file-local
+name (in an anonymous namespace) with the same parameters, even the same
+way: share it in a header instead (`src/maths.h`, `tests/helpers.h`), or
+give one another name.
+
+The tests are four runs, two at a time: the unit tests (`gocube_tests`) in
+two processes, the multiplayer ones (`-tc=multiplayer:*`: they play in real
+time, so mostly they wait) beside the rest (`-tce=multiplayer:*`); then
+multiplayer between two processes (`gocube_mp_smoke`) beside the game
+rendering 60 frames on WARP. Each run's
+output is in `build\<Config>\test_logs` (printed in full if it fails), with
+the slowest test cases listed at its end.
+
+The game is `build\<Config>\gocube.exe`, with its mods next to it (`mods\`
+is copied there and the base game's `core.dll` built into
+`mods\core`); it finds `mods\` in its folder or a folder above it.
 
 ## Playing
 Run `gocube` for the title menu: your worlds (play, delete to the Recycle Bin),
@@ -85,7 +127,7 @@ Settings (the title menu's Settings button, or the pause menu's): view distance,
 mouse sensitivity, frame rate limit, vsync, smooth lighting, sun shadows,
 render scale, volumes, the clock, the keys, and which mods load (and the mods
 downloaded from servers). Changes show at once; they're kept in
-`%APPDATA%\GoCube\settings.lua`, with your name and the last address you joined.
+`%APPDATA%\GoCube\settings.json`, with your name and the last address you joined.
 
 Playing together: in the title menu, tick "Open the world I play to others" and
 play a world (others join it on port 24680: TCP, and UDP too if it gets through,
@@ -97,7 +139,9 @@ skipped once everyone is in bed. Everyone plays with the host's mods: joining
 a host with other mods (the same base game), you're asked whether to download
 the ones you lack (each checked against its fingerprint, kept in
 `%APPDATA%\GoCube\server_mods`); the game then starts again with exactly the
-host's mods.
+host's mods. A downloaded mod with code (a DLL) only loads if you allow it
+(Settings: "Servers' mods may run code", off by default): native code has the
+game's full access to your computer.
 
 | Option | What it does |
 | --- | --- |
@@ -167,46 +211,63 @@ gives others the right with `/op NAME` (kept with the world). Everyone can use
 | `/run <mod:name>` | A mod's command file |
 
 ## Mods
-A mod is a folder with `mod.lua` (its manifest); the game loads `mods/` next
-to it (the base game first) and `%APPDATA%/GoCube/mods`. A manifest is a data
-table:
+A mod is a folder with `mod.json` (its manifest); the game loads `mods/` next
+to it (the base game first) and `%APPDATA%/GoCube/mods`:
 
-    return {id = "mymod", name = "My Mod", version = "1.0", content = "content.lua", entry = "main.lua"}
+    {"id": "mymod", "name": "My Mod", "version": "1.0", "content": "content.json", "entry": "mymod.dll", "api_version": 2}
 
-A mod can be **data only**: its content as a data table (`content.lua`:
-`return {blocks = {ruby_ore = {hardness = 3, color = "#c02040"}}, items = {...}}`)
+A mod can be **data only**: its content as JSON (`content.json`:
+`{"blocks": {"ruby_ore": {"hardness": 3, "color": "#c02040"}}, "items": {...}}`)
 and chat command files (`functions/NAME.txt`, a command a line, run with
-`/run mymod:NAME`). Nothing of it runs as code. Or it has a Lua entry script
-(`main.lua`), which can also register content, set the game's rules and add
-commands (`commands.register("heal", {usage = "<player>", help = "...", op = true},
-function(who, args) ... return "healed" end)`). In the settings, "Servers' mods
-may run code" off means you only play with servers whose mods are data only.
- `src/mods/mods.h` describes the format and the Lua API
-(`registry`, `events`, `world`, `game`). The base game is the example: its
-`content/` registers its blocks, items, ores, trees, biome and sounds,
-and its `main.lua` and `rules/` set the game's rules (mining time, drops, fall
-damage, food, plants, fluids, the two recipes) with `game.set_rule`; a mod can replace
-one, or wrap it (`game.rule(name)` gives the one before). The game still
-supports what the base game left out: furnaces (`block_entity = "furnace"`, the `smelting`
-and `fuel_seconds` rules), tools and weapons (`damage` on an item), armour, food
-(`food` on an item), and planting and crops (the `use_item` rule, `grows_into`);
-`tests/data/kit_mods/kit` is a small mod that adds them back. Dyes: an item
-with `dye = "#rrggbb"` is a gem for the dye vat (a grey shades, any other
-colour is a hue); a block with `dye_vat = true` and `block_entity = "vat"`
-is a vat (`full` names its variant with dye in it); `undyed_boxes` lists the
-boxes of a shaped block that keep their own colours when it's dyed;
-`world.set_block` takes a dyed id.
+`/run mymod:NAME`). Nothing of it runs as code. Or it has **code**: a DLL
+(x64) the game loads into itself, which registers content, event handlers,
+the game's rules and chat commands. The boundary is a small C API
+(`src/mods/gocube_api.h`: the DLL exports `gocube_mod_load`; values cross as
+JSON text), so a mod can be built with any compiler. In C++,
+`src/mods/mod_sdk.h` makes it short (build it with `src/data/data.cpp` and
+`src/data/json.cpp`; `nob.c`'s `mod_dll` shows how):
 
-Mods are sandboxed: no files, OS, network or debug access, no bytecode, no
-`load`; a mod's code is stopped when it runs too long or asks for too much
-memory (`pcall` can't catch that), and a mod whose code fails is undone (its
-content and event handlers removed, mods that depend on it skipped). One known
-gap: Lua's string pattern functions (`string.find`, `match`, `gmatch`, `gsub`)
-run in C, where the time limit can't reach them, so a pathological pattern on a
-long string could stall the game.
+    #include "mods/mod_sdk.h"
+    struct MyMod : gc::sdk::Mod {
+        explicit MyMod(const GcApi *api) : Mod(api) {
+            add_command("heal", {{"usage", "<player>"}},
+                    [this](const gc::Data &who, const gc::Data &args) { return std::string("healed"); });
+            set_rule("fall_damage", [this](const gc::Data &a) { // half the base game's
+                return gc::Data(rule_before("fall_damage", a).get<int>() / 2);
+            });
+        }
+    };
+    GOCUBE_MOD(MyMod)
+
+`src/mods/mods.h` lists what mods can call (`registry`, `events`, `world`,
+`creatures`, `game`) and the rules the game asks. The base game is the
+example: `mods/core/content.json` holds its blocks, items, ores, trees, biome
+and sounds, and `src/core_mod/core_mod.cpp` sets the game's rules (mining
+time, drops, fall damage, food, plants, fluids, creatures, the two recipes);
+a mod can replace one, or wrap it (`rule_before` gives the one it replaced).
+The game still supports what the base game left out: furnaces
+(`block_entity = "furnace"`, the `smelting` and `fuel_seconds` rules), tools
+and weapons (`damage` on an item), armour, food (`food` on an item), and
+planting and crops (the `use_item` rule, `grows_into`);
+`tests/data/kit_mods/kit` (its code: `tests/mods/kit.cpp`) is a small mod that
+adds them back. Dyes: an item with `dye = "#rrggbb"` is a gem for the dye vat
+(a grey shades, any other colour is a hue); a block with `dye_vat = true` and
+`block_entity = "vat"` is a vat (`full` names its variant with dye in it);
+`undyed_boxes` lists the boxes of a shaped block that keep their own colours
+when it's dyed; `world.set_block` takes a dyed id.
+
+A mod's code is native and isn't sandboxed: it can do anything the game can.
+The game catches a crash or an uncaught exception in a mod's function (the
+mod is then turned off), and a mod whose loading fails is undone (its content
+and handlers removed, its DLL unloaded, mods that depend on it skipped); a
+mod that corrupts memory can still bring the game down. The same DLL may be
+loaded for two worlds at once (a host and a client in one process), so a mod
+keeps its state in its object, never in globals.
 
 Each mod gets a fingerprint of its files, for checking that players have the
-same mods. `mods/` and `tests/data/` are kept byte
+same mods (mod DLLs are built reproducibly, `/Brepro`: the same sources and
+compiler give the same fingerprint; a Debug build's differs from a Release
+build's). `mods/` and `tests/data/` are kept byte
 for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 
 ## Layout
@@ -215,15 +276,18 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 - `src/content/`: the content mods register, block ids, the block table, the texture
   atlas, item models, skins and the generator's tables.
   Most block faces are painted from a colour and noise (`image.h`; the base game's
-  in `mods/core/content/looks.lua`); the few drawn images (torches, doors,
+  in `mods/core/content.json`); the few drawn images (torches, doors,
   beds, chests, items, the default skin) are PNG files, read by Windows' own decoder (WIC).
 - `src/world/`: chunk streaming on worker threads, editing, the raycast, collision;
-  the world folder (`world.lua`, `chunks\`).
+  the world folder (`world.json`, `chunks\`).
 - `src/game/`: the player (movement, breaking, placing), the block rules
   (shaped blocks' variants, doors, beds, support), survival (inventory,
   health, drops), creatures and their models, the first-person arm.
-- `src/mods/`: finding, ordering and loading mods; the Lua sandbox and API;
+- `src/mods/`: finding, ordering and loading mods; the C API for mods' DLLs
+  (`gocube_api.h`) and the C++ helper for writing one (`mod_sdk.h`);
   fingerprints.
+- `src/core_mod/`: the base game's code (`core.dll`).
+- `src/data/`: the game's data value and JSON (`json.h`, our own).
 - `src/net/`: multiplayer: the host's checks, what
   travels between host and clients, the message format, and the transport (TCP,
   and UDP for positions, on the same port; Winsock only).
@@ -232,24 +296,20 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 - `src/profiler.h`: the frame profiler (F3, `--profile`).
 - `src/ui/`: the UI, our own: an immediate-mode core (`gui.h`: windows, layout,
   buttons, text fields, sliders, drop-downs, scrolling; tested with a fake font)
-  drawn with Direct2D and DirectWrite (`gui_d2d.h`) in the Share Tech font
-  (built into the executable); the inventory, container and settings screens.
-- `mods/core/`: the base game: content, assets, rules and `main.lua`.
-- `thirdparty/lua/`: Lua 5.4.8's sources, built with a fixed string-hash seed.
-- `tests/`: doctest unit tests: world generation (a fingerprint, what the land
-  is like), player movement and editing, saving, mods (the sandbox, undoing,
-  events, fingerprints), survival, the UI, and what rendering works out on the
+  drawn with Direct2D and DirectWrite (`gui_d2d.h`) in Windows' own UI
+  font (Segoe UI); the inventory, container and settings screens.
+- `mods/core/`: the base game: its manifest, content and assets.
+- `tests/`: unit tests (with our own small framework, `tests/check.h`): world generation (a fingerprint, what the land
+  is like), player movement and editing, saving, mods (DLLs loading, failing
+  and crashing, undoing, events, commands, fingerprints; the test mods' code
+  is in `tests/mods/`), survival, the UI, and what rendering works out on the
   CPU (item models, held light, block shadows, skins, the profiler),
   multiplayer (host and client in one process). `tests/mp_smoke.cpp` plays a
   round between a host and a client in two processes (CTest runs it).
 
 ## Dependencies
-In `thirdparty/` as source, pinned to releases and built with the game, linked
-statically (versions and licences: `thirdparty/README.md`):
-[Lua](https://www.lua.org) 5.4.8 (MIT),
-[doctest](https://github.com/doctest/doctest) 2.5.3 (MIT, tests only), and the
-UI's font, [Share Tech](https://fonts.google.com/specimen/Share+Tech) (SIL Open
-Font License).
-Everything else is Windows' own: Direct3D 11, Direct2D and DirectWrite (the
-UI), XAudio2 (sound), Winsock (multiplayer), WIC (screenshots), the
-Compression API (mod packs).
+None but Windows' own: Direct3D 11, Direct2D and DirectWrite (the UI, in
+Windows' font), XAudio2 (sound), Winsock (multiplayer), WIC (PNG images and
+screenshots), the Compression API (mod packs). The build uses
+[nob.h](https://github.com/tsoding/nob.h) 3.10.1 (`nob.h`, MIT or public
+domain), the only third-party file, used by `nob.c` alone.

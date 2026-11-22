@@ -1,5 +1,7 @@
 #include "game/blocks.h"
 
+#include "data/fields.h"
+
 #include <cmath>
 
 namespace gc {
@@ -7,16 +9,6 @@ namespace gc {
 namespace {
 
 const std::string EMPTY_STRING;
-
-std::string str(const Data &j, const char *key, const std::string &fallback = "") {
-	auto it = j.find(key);
-	return it != j.end() && it->is_string() ? it->get<std::string>() : fallback;
-}
-
-bool flag(const Data &j, const char *key, bool fallback = false) {
-	auto it = j.find(key);
-	return it != j.end() && it->is_boolean() ? it->get<bool>() : fallback;
-}
 
 BlockPos facing_dir(const std::string &f) { // towards -z, +x, +z, -x
 	if (f == "n") return {0, 0, -1};

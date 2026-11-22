@@ -3,7 +3,7 @@
 // output; burning and smelting) and dye vats (the gems in its dye, one slot
 // per kind, and how many blocks it can still dye: "charge"). A block gets one
 // when it appears, if its definition has "block_entity": "chest", "furnace"
-// or "vat"; when it goes, its contents spill. Saved in world.lua's
+// or "vat"; when it goes, its contents spill. Saved in world.json's
 // block_entities:
 //   {["x,y,z"] = {type, slots = {{id, count} or false, ...}, burn, burn_total, progress, charge}}
 // Furnaces ask the mods' smelting and fuel_seconds rules.

@@ -1,6 +1,7 @@
 #include "game/creature_models.h"
 
 #include "content/skin.h"
+#include "maths.h"
 
 #include <DirectXMath.h>
 
@@ -13,8 +14,6 @@ using namespace DirectX;
 namespace gc {
 
 namespace {
-
-constexpr float PI = 3.14159265f;
 
 // A part's look: a flat colour, or a block face (tiled).
 struct Look {
@@ -126,16 +125,6 @@ struct Builder {
 		}
 	}
 };
-
-float lerp_angle(float from, float to, float w) {
-	float d = std::fmod(to - from, 2 * PI);
-	if (d > PI) {
-		d -= 2 * PI;
-	} else if (d < -PI) {
-		d += 2 * PI;
-	}
-	return from + d * w;
-}
 
 // The Block Eater: a squat grazer, a cushion of moss on its
 // back, or made of the block it ate.

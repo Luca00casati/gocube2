@@ -2,10 +2,9 @@
 // The player's settings: view distance, mouse
 // sensitivity, frame rate limit, vsync, smooth lighting, sun shadows, render
 // scale, the clock, volumes, key bindings, mods turned off, and the title
-// menu's name and last address. Saved in %APPDATA%\GoCube\settings.lua (a Lua
-// data table); what isn't there, or isn't valid, is the default. The settings
-// screen (ui/settings_screen.h) changes them live; the game reads them every
-// frame.
+// menu's name and last address. Saved in %APPDATA%\GoCube\settings.json
+// (JSON); what isn't there, or isn't valid, is the default. The settings screen
+// (ui/settings_screen.h) changes them live; the game reads them every frame.
 
 #include <filesystem>
 #include <map>
@@ -36,9 +35,10 @@ struct Settings {
 	float mouse_sensitivity = 0.003f; // radians per mouse count
 	int max_fps = 0;
 	bool vsync = true;
-	// Mods downloaded from a server may run code (Lua, in the sandbox); off:
-	// only mods without code (content and command files) are played with.
-	bool server_mod_code = true;
+	// Mods downloaded from a server may run code (DLLs, with the game's full
+	// access to the computer); off (the default): only mods without code
+	// (content and command files) are played with. Saved as "server_mod_dlls".
+	bool server_mod_code = false;
 	bool smooth_lighting = true; // corner shading (ambient occlusion) and soft light
 	std::string shadow_mode = "blocks";
 	float render_scale = 1.0f;

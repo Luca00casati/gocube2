@@ -1,5 +1,7 @@
 #include "net/transport.h"
 
+#include "platform/clock.h"
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <mswsock.h>
@@ -28,11 +30,6 @@ enum Datagram : uint8_t {
 };
 constexpr uint32_t MAGIC = 0x6E434F47; // "GOCn"
 constexpr size_t FRAME_HEADER = 5, DATAGRAM_HEADER = 17, HELLO_SIZE = 14;
-
-double now() {
-	using namespace std::chrono;
-	return duration<double>(steady_clock::now().time_since_epoch()).count();
-}
 
 void put16(uint8_t *p, uint16_t v) {
 	p[0] = uint8_t(v);

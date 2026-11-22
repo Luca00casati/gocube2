@@ -1,6 +1,6 @@
 // GoCube: a voxel sandbox. The title menu lists the worlds (play, create,
-// delete); a world is a folder with world.lua (a Lua data table); content and code
-// come from mods (Lua, sandboxed), the base game ("core") first. Esc pauses.
+// delete); a world is a folder with world.json (a data table); content and code
+// come from mods (data, and DLLs for code), the base game ("core") first. Esc pauses.
 // Started with --world, --world-dir or a testing option, it goes straight
 // into that world.
 //
@@ -40,7 +40,7 @@
 //   --render-scale=F draw the world at this part of the window's resolution
 //                    (0.25..1, stretched over it; the settings offer
 //                    1, 0.85, 0.75 and 0.5). --view and --render-scale win
-//                    over the settings (%APPDATA%\GoCube\settings.lua, which
+//                    over the settings (%APPDATA%\GoCube\settings.json, which
 //                    --hidden doesn't read: tests play with the defaults)
 //   --screen=inventory|settings|chat  a screen open at the start (screenshots)
 //   --say=LINE       type LINE into the chat once the world around has loaded (a "/" command too;
@@ -58,7 +58,7 @@
 #include "audio/audio.h"
 #include "content/content.h"
 #include "content/skin.h"
-#include "data/lua_data.h"
+#include "data/json.h"
 #include "game/blocks.h"
 #include "game/creature_models.h"
 #include "game/day_cycle.h"
@@ -252,7 +252,7 @@ std::filesystem::path find_mods() {
 	wchar_t exe[MAX_PATH];
 	GetModuleFileNameW(nullptr, exe, MAX_PATH);
 	for (std::filesystem::path dir = std::filesystem::path(exe).parent_path(); !dir.empty(); dir = dir.parent_path()) {
-		if (std::filesystem::exists(dir / "mods" / "core" / "mod.lua")) {
+		if (std::filesystem::exists(dir / "mods" / "core" / "mod.json")) {
 			return dir / "mods";
 		}
 		if (dir == dir.parent_path()) {
@@ -273,11 +273,11 @@ std::filesystem::path user_dir() {
 	return out;
 }
 
-// The player's settings (%APPDATA%\GoCube\settings.lua; tests run with the
+// The player's settings (%APPDATA%\GoCube\settings.json; tests run with the
 // defaults: --hidden doesn't read them).
 gc::Settings settings;
 std::filesystem::path settings_file() {
-	return user_dir() / "settings.lua";
+	return user_dir() / "settings.json";
 }
 
 // What the game draws and plays with: the settings, unless an option says otherwise.
@@ -870,8 +870,8 @@ std::vector<WorldEntry> find_worlds() {
 		w.name = utf8_string(e.path().filename());
 		gc::Data meta;
 		std::string why;
-		if (std::filesystem::exists(e.path() / "world.lua", ec)) {
-			if (gc::read_lua_data(e.path() / "world.lua", meta, why) && meta.is_object()) {
+		if (std::filesystem::exists(e.path() / "world.json", ec)) {
+			if (gc::read_json_file(e.path() / "world.json", meta, why) && meta.is_object()) {
 				w.mode = meta.value("mode", "creative");
 				w.saved = meta.value("saved", meta.value("created", ""));
 				if (meta.contains("seed") && meta["seed"].is_number()) {
@@ -1200,7 +1200,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 					g.bullet(e.substr(0, e.find('#')) + (missing ? "  (to download)" : ""));
 				}
 				g.text_dim(settings.server_mod_code
-								? "Mods run in the game's sandbox. They're kept in %APPDATA%\\GoCube\\server_mods."
+								? "Their code (DLLs) runs with the game's full access to your computer. They're kept in %APPDATA%\\GoCube\\server_mods."
 								: "Your settings only allow server mods without code: one with code won't load.");
 				const std::string label = session.missing_mods().empty() ? "Play with these mods"
 						: "Download (" + std::to_string(std::max<size_t>(1, bytes >> 10)) + " KB) and play with them";

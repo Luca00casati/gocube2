@@ -1,6 +1,6 @@
 #include "content/image.h"
 
-#include "data/lua_data.h"
+#include "data/json.h"
 
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -317,7 +317,7 @@ struct Painter {
 } // namespace
 
 Image paint_face(const Data &spec, int size) {
-	const std::string text = write_lua_data(spec);
+	const std::string text = write_json(spec, true);
 	uint32_t seed = 2166136261u; // FNV-1a of the spec: the same spec, the same pixels
 	for (unsigned char ch : text) {
 		seed = (seed ^ ch) * 16777619u;

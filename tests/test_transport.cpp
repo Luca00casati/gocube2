@@ -4,7 +4,7 @@
 
 #include "net/transport.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <process.h>
 
@@ -18,7 +18,7 @@ namespace {
 
 using gc::Transport;
 
-int test_port(int n) {
+int transport_port(int n) {
 	return 36000 + (_getpid() % 1000) * 8 + n;
 }
 
@@ -80,7 +80,7 @@ void connect(End &host, End &client, int port) {
 
 TEST_CASE("transport: messages arrive whole and in order; unreliable ones by UDP once it works") {
 	End host, client;
-	connect(host, client, test_port(0));
+	connect(host, client, transport_port(0));
 
 	// Reliable, both ways, in order; a big one whole.
 	std::vector<uint8_t> big(5u << 20);
@@ -132,7 +132,7 @@ TEST_CASE("transport: messages arrive whole and in order; unreliable ones by UDP
 TEST_CASE("transport: without UDP, unreliable messages go over TCP") {
 	End host, client;
 	client.net.set_udp_enabled(false);
-	connect(host, client, test_port(1));
+	connect(host, client, transport_port(1));
 	run_until({&host, &client}, [] { return false; }, 0.5);
 	CHECK_FALSE(client.net.udp_ready(client.other));
 	CHECK_FALSE(host.net.udp_ready(host.other));
@@ -146,7 +146,7 @@ TEST_CASE("transport: without UDP, unreliable messages go over TCP") {
 
 TEST_CASE("transport: closing after the last message; leaving; nobody there; full") {
 	End host, client;
-	connect(host, client, test_port(2));
+	connect(host, client, transport_port(2));
 	// The host sends one last message and closes: it arrives, then the end, on both sides.
 	Transport::Connection *c = host.other;
 	host.net.send(c, number(7), true);
@@ -158,7 +158,7 @@ TEST_CASE("transport: closing after the last message; leaving; nobody there; ful
 
 	// A client that leaves is seen to go.
 	End second;
-	REQUIRE(second.net.connect("127.0.0.1", test_port(2)) == "");
+	REQUIRE(second.net.connect("127.0.0.1", transport_port(2)) == "");
 	REQUIRE(run_until({&host, &second}, [&] { return second.other && host.connects == 2; }, 5));
 	second.net.disconnect_now(second.other);
 	CHECK(run_until({&host}, [&] { return host.disconnects == 2; }, 5));
@@ -166,24 +166,24 @@ TEST_CASE("transport: closing after the last message; leaving; nobody there; ful
 
 	// Nobody on that port: the connection ends.
 	End lonely;
-	REQUIRE(lonely.net.connect("127.0.0.1", test_port(3)) == "");
+	REQUIRE(lonely.net.connect("127.0.0.1", transport_port(3)) == "");
 	CHECK(run_until({&lonely}, [&] { return lonely.disconnects == 1; }, 5));
 	CHECK(lonely.connects == 0);
 
 	// A full host turns the next one away.
 	End small, first, extra;
-	REQUIRE(small.net.listen(test_port(4), 1) == "");
-	REQUIRE(first.net.connect("127.0.0.1", test_port(4)) == "");
+	REQUIRE(small.net.listen(transport_port(4), 1) == "");
+	REQUIRE(first.net.connect("127.0.0.1", transport_port(4)) == "");
 	REQUIRE(run_until({&small, &first}, [&] { return first.connects == 1; }, 5));
-	REQUIRE(extra.net.connect("127.0.0.1", test_port(4)) == "");
+	REQUIRE(extra.net.connect("127.0.0.1", transport_port(4)) == "");
 	CHECK(run_until({&small, &first, &extra}, [&] { return extra.disconnects == 1; }, 5));
 	CHECK(extra.connects == 0);
 	CHECK(small.connects == 1);
 
 	// A port in use can't be hosted on.
 	Transport again;
-	CHECK(again.listen(test_port(4), 1).find("in use") != std::string::npos);
+	CHECK(again.listen(transport_port(4), 1).find("in use") != std::string::npos);
 	// Once the host stops (closing its players' connections first), it can host there again at once.
 	small.net.close();
-	CHECK(again.listen(test_port(4), 1) == "");
+	CHECK(again.listen(transport_port(4), 1) == "");
 }

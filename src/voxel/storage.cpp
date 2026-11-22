@@ -41,8 +41,8 @@ bool replace_file(const std::string &from, const std::string &to) {
 //   run_count x { u16 length, u16 id }   runs over ChunkData::index order
 //   u32  dye_count
 //   dye_count x { u16 index, u8 r, u8 g, u8 b }   dyed blocks, by index
-constexpr char MAGIC[4] = { 'G', 'C', 'C', '2' };
-constexpr char MAGIC_V1[4] = { 'G', 'C', 'C', '1' };
+constexpr char CHUNK_MAGIC[4] = { 'G', 'C', 'C', '2' };
+constexpr char CHUNK_MAGIC_V1[4] = { 'G', 'C', 'C', '1' };
 
 void put_dyes(std::vector<uint8_t> &out, const ChunkData &chunk) {
 	std::vector<std::pair<uint16_t, Dye>> dyes(chunk.dyes.begin(), chunk.dyes.end());
@@ -69,7 +69,7 @@ std::string chunk_file_path(const std::string &dir, int cx, int cy, int cz) {
 }
 
 std::vector<uint8_t> encode_chunk(const ChunkData &chunk) {
-	std::vector<uint8_t> out(MAGIC, MAGIC + 4);
+	std::vector<uint8_t> out(CHUNK_MAGIC, CHUNK_MAGIC + 4);
 	auto put16 = [&](uint16_t v) { out.push_back(v & 0xFF); out.push_back(v >> 8); };
 	auto put32 = [&](uint32_t v) { put16(v & 0xFFFF); put16(v >> 16); };
 	out.push_back(chunk.uniform ? 1 : 0);
@@ -109,8 +109,8 @@ bool decode_chunk(const uint8_t *data, size_t size, ChunkData &chunk) {
 		pos += 2;
 		return true;
 	};
-	const bool v1 = size >= 4 && std::memcmp(data, MAGIC_V1, 4) == 0;
-	if (size < 5 || (!v1 && std::memcmp(data, MAGIC, 4) != 0)) {
+	const bool v1 = size >= 4 && std::memcmp(data, CHUNK_MAGIC_V1, 4) == 0;
+	if (size < 5 || (!v1 && std::memcmp(data, CHUNK_MAGIC, 4) != 0)) {
 		return false;
 	}
 	pos = 4;

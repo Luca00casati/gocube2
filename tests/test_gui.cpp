@@ -3,7 +3,7 @@
 
 #include "ui/gui.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <cmath>
 #include <functional>

@@ -1,6 +1,7 @@
 #include "render/renderer.h"
 
 #include "log.h"
+#include "platform/utf8.h"
 
 #include "blit_ps.h"
 #include "blit_vs.h"
@@ -23,15 +24,6 @@ bool failed(HRESULT hr, const char *what) {
 		return true;
 	}
 	return false;
-}
-
-std::string narrow(const wchar_t *w) {
-	const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
-	std::string s(n > 0 ? n - 1 : 0, '\0');
-	if (n > 1) {
-		WideCharToMultiByte(CP_UTF8, 0, w, -1, s.data(), n, nullptr, nullptr);
-	}
-	return s;
 }
 
 } // namespace

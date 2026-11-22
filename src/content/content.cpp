@@ -1,7 +1,9 @@
 #include "content/content.h"
 
+#include "data/fields.h"
+
 #include "content/image.h"
-#include "data/lua_data.h"
+#include "data/json.h"
 
 #include <algorithm>
 #include <array>
@@ -47,19 +49,9 @@ int engine_shape(const std::string &shape) {
 	return -1;
 }
 
-std::string str(const Data &j, const char *key, const std::string &fallback = "") {
-	auto it = j.find(key);
-	return it != j.end() && it->is_string() ? it->get<std::string>() : fallback;
-}
-
 double num(const Data &j, const char *key, double fallback) {
 	auto it = j.find(key);
 	return it != j.end() && it->is_number() ? it->get<double>() : fallback;
-}
-
-bool flag(const Data &j, const char *key, bool fallback = false) {
-	auto it = j.find(key);
-	return it != j.end() && it->is_boolean() ? it->get<bool>() : fallback;
 }
 
 // A number as an int: truncates.
@@ -377,7 +369,7 @@ std::filesystem::path Content::asset_path(const Data &def, const std::string &re
 namespace {
 
 // A biome's "trees": a list of {id, value} pairs, in their order
-// (it reaches the generator); a table keyed by id has no order in Lua, so
+// (it reaches the generator); a table keyed by id has no order of its own, so
 // that form is taken in id order.
 std::vector<std::pair<std::string, double>> id_values(const Data &j) {
 	std::vector<std::pair<std::string, double>> out;
@@ -584,7 +576,7 @@ struct AtlasBuilder {
 		const Data textures = def.value("textures", Data::object());
 		const Data *rel = textures.contains(face) ? &textures[face] : (textures.contains("all") ? &textures["all"] : nullptr);
 		if (rel && rel->is_object()) {
-			const std::string key = "paint:" + write_lua_data(*rel) + (turns % 4 ? "@" + std::to_string(turns % 4) : "");
+			const std::string key = "paint:" + write_json(*rel, true) + (turns % 4 ? "@" + std::to_string(turns % 4) : "");
 			if (auto it = index.find(key); it != index.end()) {
 				return it->second;
 			}

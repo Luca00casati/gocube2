@@ -1,55 +1,57 @@
 #pragma once
 // Mods: found in folders, loaded in dependency order (the base game, "core",
 // first). A mod can be data only (content as a data table, chat command
-// files: nothing of it runs) or have a Lua entry script, run in a sandbox.
+// files: nothing of it runs) or have code: a DLL the game loads into itself
+// (mods/gocube_api.h, the C boundary; mods/mod_sdk.h for writing one in C++).
 //
-// A mod is a folder with mod.lua, its manifest: a Lua data table, read in an
-// empty Lua state (data/lua_data.h: nothing in it can run):
-//   return {
-//     id = "mymod",                        required, a-z 0-9 _
-//     name = "My Mod", version = "1.0.0",
-//     dependencies = {"othermod"},         "core" is implicit
-//     content = "content.lua",             content as data (optional): a table
-//                                          {blocks = {[id] = def}, items = ...,
+// A mod is a folder with mod.json, its manifest (JSON, data/json.h):
+//   {
+//     "id": "mymod",                       required, a-z 0-9 _
+//     "name": "My Mod", "version": "1.0.0",
+//     "dependencies": ["othermod"],        "core" is implicit
+//     "content": "content.json",           content as data (optional): an object
+//                                          {"blocks": {id: def}, "items": ...,
 //                                          recipes, ores, trees, biomes,
-//                                          sound_sets, creatures}, read like this one
-//     entry = "main.lua",                  code (optional), see below
-//     api_version = 1,                     the modding API it was written for
+//                                          sound_sets, creatures}
+//     "entry": "mymod.dll",                code (optional), see below
+//     "api_version": 2                     the modding API it was written for
 //   }
 // Command files: functions/NAME.txt (folders too), a chat command a line ("#"
 // starts a comment); /run mod:NAME runs one, as whoever ran /run. Data and
 // command files can't do anything a command doesn't allow, so a player can
 // play only with servers whose mods are data (Settings::server_mod_code).
-// The entry script runs once at load, in the mod's own environment: Lua's
-// string (without dump), table, math (without random) and utf8 libraries,
-// the safe basic functions, and
-//   registry   register_block/item/recipe/ore/tree/biome/sound_set/creature(id, def),
-//              get_block(id), get_item(id), recipes() -> {[id] = def},
-//              all(section) -> {[id] = def} ("blocks", "trees", ...);
-//              ids without "mod:" get this mod's. A definition is a
-//              table of named fields (lists 1..n inside it stay lists); a
-//              biome's "trees" is a list of {id, percent} pairs
-//              (their order reaches the world generator)
-//   events     on(name, function): "tick" (dt), "block_placed" and
-//              "block_broken" (x, y, z, block id; by the player),
-//              "block_changed" (x, y, z, new block id; any change, told on
-//              the next tick), "creature_hit" (id, damage, x, y, z of the
-//              attacker, attacker's peer)
-//   world      get_block(x, y, z) -> id or nil, set_block(x, y, z, id) -> bool
-//              (a dyed id, "core:stone#ff8800", sets its dye too),
+//
+// The entry DLL's gocube_mod_load runs once at load. What it can call
+// (GcApi::call, by name; arguments and results are data):
+//   registry   register(section, id, def) (section: "blocks", "items",
+//              "recipes", "ores", "trees", "biomes", "sound_sets",
+//              "creatures"; ids without "mod:" get this mod's) -> the full id,
+//              get(section, id) -> def or nothing, all(section) -> {[id] = def},
+//              with(section, field) -> {[id] = def} of those with that field.
+//              A definition is a table of named fields; a biome's "trees"
+//              is a list of {id, percent} pairs (their order reaches the
+//              world generator)
+//   events     (GcApi::on) "tick" (dt), "block_placed" and "block_broken"
+//              (x, y, z, block id; by the player), "block_changed" (x, y, z,
+//              new block id; any change, told on the next tick),
+//              "creature_hit" (id, damage, x, y, z of the attacker, attacker's peer)
+//   world      get_block(x, y, z) -> id or nothing, set_block(x, y, z, id) -> bool
+//              (a dyed id, "core:stone#ff8800", sets its dye too; both also
+//              as GcApi::get_block/set_block),
 //              supported(x, y, z, id) -> whether id could stand there,
 //              drop_item(x, y, z, item, count), grow_tree(x, y, z, tree id) -> bool,
-//              raycast(x, y, z, dx, dy, dz, max) -> {x, y, z, id, distance} or nil,
+//              raycast(x, y, z, dx, dy, dz, max) -> {x, y, z, id, distance} or nothing,
 //              box_free(x, y, z, width, height, depth) -> bool
-//   creatures  spawn(kind, x, y, z [, variant]) -> id or nil, remove(id),
+//   creatures  spawn(kind, x, y, z [, variant]) -> id or nothing, remove(id),
 //              all() -> {id...}, get(id) -> {kind, variant, x, y, z, yaw,
-//              heading, speed, on_floor, hit_wall, walking} or nil,
+//              heading, speed, on_floor, hit_wall, walking} or nothing,
 //              set(id, {heading, speed, variant, yaw, push, hurt, flash, attack});
 //              their bodies and physics are the game's (game/creatures.h),
 //              what they do is the mods'
-//   game       set_rule(name, function): the game asks this function when it
-//              needs that rule (the last mod to set one wins; game.rule(name)
-//              gets the one before, to wrap it); random() -> 0..1 while playing
+//   game       (GcApi::set_rule) rules: the game asks this function when it
+//              needs that rule (the last mod to set one wins);
+//              rule_before(name, args...) -> what the rule the calling mod
+//              replaced gives (to wrap it); random() -> 0..1 while playing
 //              (not while loading: what mods register must depend only on
 //              their files). Rules the game asks: see Mods::rule.
 //              While playing: players() -> {{peer, x, y, z, survival, alive}},
@@ -57,24 +59,19 @@
 //              play_sound(set, kind, x, y, z [, dB]), effect("smoke", x, y, z),
 //              command(line) -> {reply lines}: a chat command, run as the
 //              world itself (an operator)
-//   commands   register(name, {usage=, help=, op=true}, function(who, args)):
-//              a chat command /name (a-z 0-9 _); `who` {peer, name, x, y, z,
-//              op}, `args` its words; what it returns (a string) is the
-//              answer. op = false: anyone may run it.
-//   mod        {id, version}
-//   print      to the game's log
-//   require    another .lua file of this mod (text only)
-// No io, os, debug, package, coroutines, load or loading bytecode.
+//   commands   (GcApi::add_command) a chat command /name (a-z 0-9 _), with
+//              {usage=, help=, op=true}; it's called with `who` {peer, name,
+//              x, y, z, op} and `args` its words; what it returns (a string)
+//              is the answer. op = false: anyone may run it.
+//   mod        info() -> {id, version, dir}
 //
-// Limits: a mod's code is stopped when it runs too long (Limits) or asks for
-// more memory than it may have; pcall can't catch that. A mod whose entry
-// fails is undone: its registrations are rolled back, its event handlers
-// dropped, and mods that depend on it are skipped. An event handler that
-// fails ERRORS_BEFORE_DISABLED times turns its mod's handlers off.
-//
-// Lua is built with a fixed string-hash seed (thirdparty/lua), so pairs()
-// walks a table in the same order on every run: what a mod registers depends
-// only on its files.
+// Native code isn't sandboxed: a mod can do anything the game can, so the
+// player only runs code from servers if they allow it (Settings). A mod
+// whose load fails is undone: its registrations are rolled back, its event
+// handlers dropped, its DLL unloaded, and mods that depend on it are
+// skipped. A function of a mod that fails (an error, an uncaught exception)
+// ERRORS_BEFORE_DISABLED times turns the mod off; one that crashes (an access
+// violation: caught) turns it off at once.
 
 #include "content/content.h"
 #include "game/commands.h"
@@ -88,8 +85,6 @@
 #include <string>
 #include <vector>
 
-struct lua_State;
-
 namespace gc {
 
 class BlockRules;
@@ -100,19 +95,12 @@ struct ModInfo {
 	std::string fingerprint; // of its files: two copies with the same one are the same mod
 };
 
-struct ModLimits {
-	double load_ms = 2000;       // an entry script's whole run
-	double callback_ms = 20;     // one event handler call
-	size_t memory = 256u << 20;  // more than in use when the mod's code started
-	size_t total_memory = 1024u << 20; // the whole VM
-};
-
 class Mods {
 public:
-	static constexpr int API_VERSION = 1;
+	static constexpr int API_VERSION = 2; // (GOCUBE_API_VERSION)
 	static constexpr int ERRORS_BEFORE_DISABLED = 3;
 
-	explicit Mods(Content &content, ModLimits limits = {});
+	explicit Mods(Content &content);
 	~Mods();
 	Mods(const Mods &) = delete;
 	Mods &operator=(const Mods &) = delete;
@@ -125,13 +113,12 @@ public:
 	// Mods the player turned off (not the base game): skipped by load_all
 	// unless they're the host's (`only`).
 	void set_disabled(std::vector<std::string> ids) { disabled_ = std::move(ids); }
-	// Mods in these folders may not run code (an "entry" script): they fail
+	// Mods in these folders may not run code (an "entry" DLL): they fail
 	// to load, unless they're data only (content and command files).
 	void set_code_forbidden_in(std::vector<std::filesystem::path> folders) { code_forbidden_ = std::move(folders); }
 
 	// Mods' commands (commands.register), running one as `who` with these
-	// arguments (what it answers, "" for nothing; nullopt if it failed or
-	// ran too long), and their command files (functions/NAME.txt, by
+	// arguments (what it answers, "" for nothing; nullopt if it failed), and their command files (functions/NAME.txt, by
 	// "mod:NAME"; null if none).
 	std::vector<ModCommand> commands() const;
 	std::optional<std::string> run_command(const std::string &name, const CommandPlayer &who,
@@ -166,6 +153,9 @@ public:
 	// game.command(line): runs a command as the world itself (an operator);
 	// what it says. Set by whoever runs commands (the session).
 	void set_command_runner(std::function<std::vector<std::string>(const std::string &line)> run);
+	// Starts random() over from `seed` (it starts from a random one): the
+	// same seed, the same numbers (tests).
+	void set_random_seed(uint64_t seed);
 	void block_changed(const BlockPos &p, const std::string &id);
 	void tick(double dt);
 	void block_placed(const BlockPos &p, const std::string &id);
@@ -173,9 +163,9 @@ public:
 	// A player hit a creature (peer 0: the local one) standing at `from`.
 	void creature_hit(int id, int damage, const float from[3], int attacker);
 
-	// Asks rule `name` (set by a mod with game.set_rule), with these arguments
-	// (a list); its first result, or nothing if no mod set it, it failed
-	// or ran too long (the caller then uses its own default). Rules:
+	// Asks rule `name` (set by a mod, GcApi::set_rule), with these arguments
+	// (a list); its result, or nothing if no mod set it or it failed (the
+	// caller then uses its own default). Rules:
 	//   mine_seconds(block, tool) -> seconds to break block holding tool ("" = hand)
 	//   drops(block, tool) -> {item ids} breaking it gives (one each)
 	//   starting_items() -> {{id=, count=}} a new survival player gets
@@ -184,18 +174,16 @@ public:
 	//   fuel_seconds(item) -> seconds it burns in a furnace
 	//   fall_damage(blocks) -> health a fall of that many blocks takes
 	//   food(item) -> health eating it gives (0: not food)
-	//   save_plants() -> data for world.lua's "plants"; load_plants(data)
+	//   save_plants() -> data for world.json's "plants"; load_plants(data)
 	//   use_item(item, x, y, z, nx, ny, nz) -> right click with item on that block's
 	//     side (nx, ny, nz): nil if nothing was done (the item is placed), else
 	//     {take = how many to use up, placed = {x, y, z} of a block put down}
 	std::optional<Data> rule(const std::string &name, const Data &args);
 
-	// The sandbox's state, for the tests.
-	size_t memory_in_use() const;
-	struct Lua; // (mods.cpp)
+	struct Impl; // (mods.cpp)
 
 private:
-	std::unique_ptr<Lua> lua_;
+	std::unique_ptr<Impl> impl_;
 	std::vector<ModInfo> loaded_;
 	std::map<std::string, std::string> problems_;
 	std::vector<std::string> disabled_;

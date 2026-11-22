@@ -1,5 +1,7 @@
 #include "game/figure.h"
 
+#include "maths.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -7,7 +9,6 @@ namespace gc {
 
 namespace {
 
-constexpr float PI = 3.14159265f, TAU = 2 * PI;
 // A strike: winding up ends at WIND, the chop lands at HIT, then the arm eases
 // back. The arm at the top of the wind-up and where the chop lands:
 // {shoulder (up/forward), out to the side (+) or across (-), elbow bend}.
@@ -17,21 +18,6 @@ constexpr float SWING_LAND[3] = {0.3f, -0.45f, 0.5f};
 
 float lerp(float a, float b, float t) {
 	return a + (b - a) * t;
-}
-
-float lerp_angle(float from, float to, float w) {
-	float d = std::fmod(to - from, TAU);
-	if (d > PI) {
-		d -= TAU;
-	} else if (d < -PI) {
-		d += TAU;
-	}
-	return from + d * w;
-}
-
-float ease(float x) {
-	x = std::clamp(x, 0.0f, 1.0f);
-	return x * x * (3.0f - 2.0f * x);
 }
 
 } // namespace

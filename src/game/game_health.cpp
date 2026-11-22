@@ -2,6 +2,7 @@
 
 #include "game/game.h"
 #include "game/vitals.h"
+#include "maths.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,15 +11,9 @@ namespace gc {
 
 namespace {
 
-constexpr float DROWN_DAMAGE = 2;     // per second without breath
-constexpr float REGEN_DELAY = 4.0f;   // seconds without damage before healing
-constexpr float REGEN_INTERVAL = 2.5f; // seconds per health point healed
 constexpr int SPAWN_SEARCH = 64;
 constexpr int TOP_Y = 127;            // the highest block y
 
-int floor_i(float v) {
-	return int(std::floor(v));
-}
 
 } // namespace
 
@@ -118,7 +113,7 @@ void Game::after_move(float dt) {
 			drown_timer_ += dt;
 			if (drown_timer_ >= 1.0f) {
 				drown_timer_ = 0;
-				damage(int(DROWN_DAMAGE));
+				damage(Vitals::DROWN_DAMAGE);
 			}
 		}
 	} else {
@@ -127,9 +122,9 @@ void Game::after_move(float dt) {
 	}
 	// Healing after a while without damage.
 	since_damage_ += dt;
-	if (health_ < MAX_HEALTH && since_damage_ >= REGEN_DELAY) {
+	if (health_ < MAX_HEALTH && since_damage_ >= Vitals::REGEN_DELAY) {
 		regen_timer_ += dt;
-		if (regen_timer_ >= REGEN_INTERVAL) {
+		if (regen_timer_ >= Vitals::REGEN_INTERVAL) {
 			regen_timer_ = 0;
 			health_++;
 		}

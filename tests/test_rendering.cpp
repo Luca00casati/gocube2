@@ -11,7 +11,7 @@
 #include "helpers.h"
 #include "world/world.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <algorithm>
 #include <chrono>
@@ -76,18 +76,18 @@ TEST_CASE("item models: a small cube for blocks (a slab half of it, a bed whole)
 	CHECK(m.models->is_block("core:stone"));
 	float lo, hi;
 	extent(stone, 1, lo, hi);
-	CHECK(lo == doctest::Approx(-0.125f));
-	CHECK(hi == doctest::Approx(0.125f));
+	CHECK(lo == check::Approx(-0.125f));
+	CHECK(hi == check::Approx(0.125f));
 	// A slab: its bottom half, standing on the cell's bottom.
 	extent(m.models->model("kit:slab"), 1, lo, hi);
-	CHECK(lo == doctest::Approx(-0.125f));
-	CHECK(hi == doctest::Approx(0.0f));
+	CHECK(lo == check::Approx(-0.125f));
+	CHECK(hi == check::Approx(0.0f));
 	// A bed: both halves, 9/16 high, without the faces where they meet.
 	const auto &bed = m.models->model("core:bed");
 	CHECK(bed.size() == 60);
 	CHECK(m.models->is_block("core:bed"));
 	extent(bed, 1, lo, hi);
-	CHECK(hi - lo == doctest::Approx(0.25f * 9.0f / 16.0f));
+	CHECK(hi - lo == check::Approx(0.25f * 9.0f / 16.0f));
 	// A torch (not solid) and coal (an item): extruded icons, thin, 0.42 across at most.
 	for (const char *item : {"core:torch", "core:coal"}) {
 		const auto &model = m.models->model(item);
@@ -96,8 +96,8 @@ TEST_CASE("item models: a small cube for blocks (a slab half of it, a bed whole)
 		CHECK(model.size() % 3 == 0);
 		CHECK_FALSE(m.models->is_block(item));
 		extent(model, 2, lo, hi);
-		CHECK(hi == doctest::Approx(gc::ItemModels::ITEM_THICKNESS / 2));
-		CHECK(lo == doctest::Approx(-gc::ItemModels::ITEM_THICKNESS / 2));
+		CHECK(hi == check::Approx(gc::ItemModels::ITEM_THICKNESS / 2));
+		CHECK(lo == check::Approx(-gc::ItemModels::ITEM_THICKNESS / 2));
 		extent(model, 0, lo, hi);
 		CHECK(hi - lo <= gc::ItemModels::ITEM_SIZE + 1e-4f);
 	}
@@ -145,9 +145,9 @@ TEST_CASE("light for items and the hand: the brighter of sky and block light, ne
 	const float at[3] = {0.5f, 200.0f, 0.5f}; // above the world: full sky light
 	float out[3];
 	gc::light_for(*w.world, none, day, at, 0.07f, out);
-	CHECK(out[0] == doctest::Approx(1.0f));
+	CHECK(out[0] == check::Approx(1.0f));
 	gc::light_for(*w.world, none, night, at, 0.07f, out);
-	CHECK(out[2] == doctest::Approx(0.07f)); // (never below `least`)
+	CHECK(out[2] == check::Approx(0.07f)); // (never below `least`)
 }
 
 TEST_CASE("the arm swings once for each swing asked for, the next one after the last, and while mining") {
@@ -166,11 +166,11 @@ TEST_CASE("the arm swings once for each swing asked for, the next one after the 
 	// A swing starts and ends at rest; the blow is in the middle.
 	const auto rest = gc::Hand::swing_pose(0.0f), end = gc::Hand::swing_pose(1.0f), hit = gc::Hand::swing_pose(0.5f);
 	for (int k = 0; k < 3; k++) {
-		CHECK(rest.rotation[k] == doctest::Approx(0.0f));
-		CHECK(end.rotation[k] == doctest::Approx(0.0f));
+		CHECK(rest.rotation[k] == check::Approx(0.0f));
+		CHECK(end.rotation[k] == check::Approx(0.0f));
 	}
-	CHECK(hit.rotation[1] == doctest::Approx(0.32f));
-	CHECK(hit.tilt[0] == doctest::Approx(-0.8f));
+	CHECK(hit.rotation[1] == check::Approx(0.32f));
+	CHECK(hit.tilt[0] == check::Approx(-0.8f));
 }
 
 TEST_CASE("the first-person arm is the skin's right arm, held forward, its hand where the item is") {
@@ -247,8 +247,8 @@ TEST_CASE("block shadows: faces the sun can't reach are marked, and moving the s
 		}
 		return alpha.count(x) ? alpha[x] : -1.0f;
 	};
-	CHECK(top_alpha(-2) == doctest::Approx(0.75f)); // in the pillar's shadow
-	CHECK(top_alpha(2) == doctest::Approx(1.0f));   // in the sun
+	CHECK(top_alpha(-2) == check::Approx(0.75f)); // in the pillar's shadow
+	CHECK(top_alpha(2) == check::Approx(1.0f));   // in the sun
 }
 
 TEST_CASE("player skins: the usual layout, 64x64 or the older 64x32; the figure wears it") {
@@ -310,7 +310,7 @@ TEST_CASE("player skins: the usual layout, 64x64 or the older 64x32; the figure 
 	}
 	CHECK(face_seen);
 	CHECK((low > -0.03f && low < 0.01f)); // the feet (the trousers' outer layer a little lower)
-	CHECK(high == doctest::Approx(1.8f + 0.03f).epsilon(0.02)); // (the hat, a pixel bigger)
+	CHECK(high == check::Approx(1.8f + 0.03f).epsilon(0.02)); // (the hat, a pixel bigger)
 	// Without a skin: the coloured figure, no skin.
 	mesh.clear();
 	gc::build_player(f, 2, eye, 0, light, mesh, hand);
@@ -330,10 +330,10 @@ TEST_CASE("the profiler: a frame's times added up, smoothed, the worst of the la
 	REQUIRE(p.entries().size() == 2);
 	const gc::Profiler::Entry &draw = p.entries()[0], &terrain = p.entries()[1];
 	CHECK(draw.name == "draw");
-	CHECK(draw.average == doctest::Approx(5.0));
-	CHECK(draw.worst == doctest::Approx(5.0));
+	CHECK(draw.average == check::Approx(5.0));
+	CHECK(draw.worst == check::Approx(5.0));
 	CHECK(terrain.depth == 1);
-	CHECK(terrain.worst == doctest::Approx(30.0)); // (one slow frame shows)
+	CHECK(terrain.worst == check::Approx(30.0)); // (one slow frame shows)
 	CHECK(terrain.average > 3.0);
 	CHECK(terrain.average < 5.0);
 	// A timer in a timer is one deeper.

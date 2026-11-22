@@ -1,5 +1,5 @@
 #pragma once
-// The base game loaded (its mods kept running: the rules are Lua functions)
+// The base game loaded (its mods kept running: the rules are its DLL's)
 // and a world (seed 4242) around the origin, played without a window: for the
 // tests, and the two-process multiplayer test (which defines PLAY_REQUIRE).
 
@@ -9,7 +9,7 @@
 #include "world/world.h"
 
 #ifndef PLAY_REQUIRE
-#include <doctest/doctest.h>
+#include "check.h"
 #define PLAY_REQUIRE(x) REQUIRE(x)
 #endif
 
@@ -43,9 +43,10 @@ struct Play {
 	explicit Play(bool creative = false) : Play(Setup{creative}) {}
 
 	explicit Play(const Setup &s) {
-		std::vector<std::filesystem::path> dirs = {std::filesystem::path(GOCUBE_SOURCE_DIR) / "mods"};
+		std::vector<std::filesystem::path> dirs = {std::filesystem::path(GOCUBE_MODS_DIR)};
 		dirs.insert(dirs.end(), s.more_mods.begin(), s.more_mods.end());
 		mods.load_all(dirs, s.only_mods.empty() ? nullptr : &s.only_mods);
+		mods.set_random_seed(s.seed); // (what mods do by chance is the same every run)
 		PLAY_REQUIRE(mods.problems().empty());
 		content.freeze(s.block_ids);
 		table = gc::build_block_table(content);

@@ -1,8 +1,7 @@
 #pragma once
 // Draws the UI's commands (ui/gui.h) with Direct2D over the back buffer, on
-// the game's Direct3D 11 device, and measures text with DirectWrite (the
-// font built into the executable, ui/ui_font.h; Segoe UI if it can't be
-// loaded). Item icons come from the block atlas (nearest-neighbour, as the
+// the game's Direct3D 11 device, and measures text with DirectWrite (in
+// Windows' own UI font, Segoe UI). Item icons come from the block atlas (nearest-neighbour, as the
 // world's pixels). The Direct3D state the world's renderers set is kept
 // across it.
 
@@ -24,7 +23,6 @@ namespace gc {
 
 class GuiD2D {
 public:
-	~GuiD2D();
 	bool init(ID3D11Device *device);
 	// For Gui::Measure.
 	ui::Vec2 measure(std::string_view text, float size, float wrap);
@@ -46,11 +44,8 @@ private:
 	Microsoft::WRL::ComPtr<ID2D1Device> device_;
 	Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc_;
 	Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush_;
-	bool load_font(); // the built-in one, into font_ and family_
 	Microsoft::WRL::ComPtr<IDWriteFactory> dwrite_;
-	Microsoft::WRL::ComPtr<IDWriteInMemoryFontFileLoader> font_loader_;
-	Microsoft::WRL::ComPtr<IDWriteFontCollection1> font_;
-	std::wstring family_ = L"Segoe UI";
+	std::wstring family_ = L"Segoe UI"; // (Windows' UI font: init)
 	std::unordered_map<int, Microsoft::WRL::ComPtr<IDWriteTextFormat>> formats_; // by size x 4
 	std::unordered_map<std::string, Layout> layouts_;
 	Microsoft::WRL::ComPtr<ID2D1Bitmap1> icons_;

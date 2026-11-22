@@ -1,6 +1,6 @@
 #include "world/save.h"
 
-#include "data/lua_data.h"
+#include "data/json.h"
 #include "log.h"
 
 #include <windows.h>
@@ -33,14 +33,19 @@ double number(const Data &j, const char *key, double fallback) {
 
 std::string WorldSave::open(const std::filesystem::path &dir, uint32_t new_seed, const std::string &new_mode) {
 	dir_ = dir;
-	const std::filesystem::path path = dir / "world.lua";
+	const std::filesystem::path path = dir / "world.json";
 	std::error_code ec;
 	if (std::filesystem::exists(path, ec)) {
 		std::string why;
 		// A world that can't be read safely is left alone.
-		if (!read_lua_data(path, meta_, why) || !meta_.is_object() || !meta_.contains("seed") ||
+		if (!read_json_file(path, meta_, why) || !meta_.is_object() || !meta_.contains("seed") ||
 				!meta_["seed"].is_number()) {
-			return "its world.lua is damaged, so it isn't opened (to keep it safe).";
+			return "its world.json is damaged, so it isn't opened (to keep it safe).";
+		}
+		if (number(meta_, "format", 1) < FORMAT_VERSION) {
+			// (Formats 1 and 2: the Godot version's worlds, whose terrain was
+			// generated differently.)
+			return "it was made by an old version of GoCube that this one can't open.";
 		}
 		if (number(meta_, "format", FORMAT_VERSION) > FORMAT_VERSION) {
 			return "it was saved by a newer version of GoCube. Update the game to play it.";
@@ -113,13 +118,13 @@ bool WorldSave::save(const Data &player) {
 }
 
 // To a temporary file, then renamed over the old one: a crash mid-write can't
-// leave a broken world.lua.
+// leave a broken world.json.
 bool WorldSave::write_meta() {
-	const std::filesystem::path path = dir_ / "world.lua";
-	const std::filesystem::path tmp = dir_ / "world.lua.tmp";
+	const std::filesystem::path path = dir_ / "world.json";
+	const std::filesystem::path tmp = dir_ / "world.json.tmp";
 	std::string text;
 	try {
-		text = write_lua_data(meta_);
+		text = write_json(meta_);
 	} catch (const std::invalid_argument &e) {
 		log("Can't save %s: %s", path.string().c_str(), e.what());
 		return false;

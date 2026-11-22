@@ -9,8 +9,6 @@ namespace gc {
 
 namespace {
 
-constexpr float REGEN_DELAY = 4.0f, REGEN_INTERVAL = 2.5f; // as Game's
-constexpr int DROWN_DAMAGE = 2;
 
 const Data &def_at(const World &world, const BlockRules &rules, float x, float y, float z) {
 	return rules.def(world.block_at(int(std::floor(x)), int(std::floor(y)), int(std::floor(z))));

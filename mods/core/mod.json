@@ -1,0 +1,8 @@
+{
+	"api_version": 2,
+	"content": "content.json",
+	"entry": "core.dll",
+	"id": "core",
+	"name": "GoCube Base Game",
+	"version": "0.1.0"
+}

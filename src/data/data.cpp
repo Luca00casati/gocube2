@@ -16,6 +16,12 @@ bool is_pair(const Data &d) {
 
 } // namespace
 
+Data::Data(const Data &other) = default;
+Data::Data(Data &&other) noexcept = default;
+Data &Data::operator=(const Data &other) = default;
+Data &Data::operator=(Data &&other) noexcept = default;
+Data::~Data() = default;
+
 Data::Data(std::initializer_list<Data> init) {
 	const bool object = std::all_of(init.begin(), init.end(), is_pair);
 	if (object && init.size() > 0) {

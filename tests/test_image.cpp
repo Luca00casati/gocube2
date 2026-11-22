@@ -5,7 +5,7 @@
 #include "content/image.h"
 #include "helpers.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <algorithm>
 #include <set>
@@ -130,8 +130,8 @@ TEST_CASE("the base game's atlas: painted faces and PNG images, no missing ones"
 		const gocube::BlockInfo &wall = info(("core:torch_wall_" + std::string(f)).c_str());
 		REQUIRE(wall.model.size() == 1);
 		const gocube::Box &b = wall.model[0];
-		CHECK((b.mn[0] + b.mx[0]) / 2 - b.tx == doctest::Approx(0.5f));
-		CHECK((b.mn[2] + b.mx[2]) / 2 - b.tz == doctest::Approx(0.5f));
+		CHECK((b.mn[0] + b.mx[0]) / 2 - b.tx == check::Approx(0.5f));
+		CHECK((b.mn[2] + b.mx[2]) / 2 - b.tz == check::Approx(0.5f));
 		CHECK((std::min(b.mn[0], b.mn[2]) < 0.1f || std::max(b.mx[0], b.mx[2]) > 0.9f)); // against a side
 	}
 	CHECK(info("core:glass").cutout);

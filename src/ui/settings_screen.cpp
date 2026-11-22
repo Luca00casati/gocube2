@@ -1,6 +1,6 @@
 #include "ui/settings_screen.h"
 
-#include "data/lua_data.h"
+#include "data/json.h"
 
 
 #include <shellapi.h>
@@ -108,7 +108,7 @@ void SettingsScreen::open(const ModFolders &folders, const Mods &mods, bool serv
 	for (const auto &[entry, dir] : mod_copies({folders.builtin, folders.user})) {
 		Data manifest;
 		std::string why;
-		read_lua_data(dir / "mod.lua", manifest, why);
+		read_json_file(dir / "mod.json", manifest, why);
 		ModRow r;
 		r.id = manifest.value("id", "");
 		if (r.id.empty() || r.id == "core") {
@@ -331,9 +331,10 @@ bool SettingsScreen::draw(ui::Gui &gui, Settings &s, const Window &window, bool 
 		gui.tooltip("In use: you're playing with a server's mods.");
 	}
 	gui.text_wrapped("A server's mods are downloaded again if you join it later.", DIM);
-	gui.checkbox("Servers' mods may run code (Lua, in the sandbox)", s.server_mod_code);
+	gui.checkbox("Servers' mods may run code (DLLs: full access to your computer)", s.server_mod_code);
 	if (gui.item_hovered()) {
-		gui.tooltip("Off: you only play with servers whose mods are data (content and command files), "
+		gui.tooltip("A mod's code is a DLL that runs inside the game, unsandboxed: allow it only for servers you trust. "
+					"Off: you only play with servers whose mods are data (content and command files), "
 					"so nothing from a server runs on your computer.");
 	}
 	gui.end_child();

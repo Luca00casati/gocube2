@@ -4,7 +4,7 @@
 
 #include "audio/mixing.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <cmath>
 #include <cstring>
@@ -51,8 +51,8 @@ std::string wav(uint16_t tag, uint16_t channels, uint32_t rate, uint16_t bits, c
 void check_gains(const float listener[3], const float forward[3], const float at[3], float left, float right) {
 	float g[2];
 	sound::stereo_gains(listener, forward, at, 6.0f, 32.0f, g);
-	CHECK(g[0] == doctest::Approx(left).epsilon(0.001));
-	CHECK(g[1] == doctest::Approx(right).epsilon(0.001));
+	CHECK(g[0] == check::Approx(left).epsilon(0.001));
+	CHECK(g[1] == check::Approx(right).epsilon(0.001));
 }
 
 } // namespace
@@ -94,9 +94,9 @@ TEST_CASE("a sound is as loud in each ear as miniaudio made it") {
 	check_gains(origin, north, ahead10, 0.3f, 0.3f);
 	check_gains(origin, north, behind10, 0.3f, 0.3f); // (no quieter behind)
 	check_gains(origin, east, behind10, 0.12f, 0.6f); // facing east, south is on the right
-	const float near[3] = {3, 0, 0}, far[3] = {50, 0, 0};
-	check_gains(origin, north, near, 0.2f, 1.0f);
-	check_gains(origin, north, far, 0.0375f, 0.1875f);
+	const float close_by[3] = {3, 0, 0}, far_off[3] = {50, 0, 0};
+	check_gains(origin, north, close_by, 0.2f, 1.0f);
+	check_gains(origin, north, far_off, 0.0375f, 0.1875f);
 	const float on_top[3] = {0, 0.0005f, 0};
 	check_gains(origin, north, on_top, 1.0f, 1.0f);
 	// Looking straight down: right is +x. Height counts in the distance.
@@ -106,7 +106,7 @@ TEST_CASE("a sound is as loud in each ear as miniaudio made it") {
 
 TEST_CASE("underwater: a one-pole low-pass at 700 Hz") {
 	const float a = sound::lowpass_coefficient(700, 48000);
-	CHECK(a == doctest::Approx(std::exp(-2 * 3.14159265358979 * 700 / 48000)));
+	CHECK(a == check::Approx(std::exp(-2 * 3.14159265358979 * 700 / 48000)));
 	// A step settles to it, slowly; each channel on its own.
 	float samples[200 * 2];
 	for (int i = 0; i < 200; i++) {
@@ -115,12 +115,12 @@ TEST_CASE("underwater: a one-pole low-pass at 700 Hz") {
 	}
 	float state[2] = {0, 0};
 	sound::lowpass(samples, 200, 2, a, state);
-	CHECK(samples[0] == doctest::Approx(1 - a));
-	CHECK(samples[2] == doctest::Approx(1 - a * a));
+	CHECK(samples[0] == check::Approx(1 - a));
+	CHECK(samples[2] == check::Approx(1 - a * a));
 	CHECK(samples[1] == 0.0f);
-	CHECK(state[0] == doctest::Approx(1 - std::pow(a, 200.0f)));
+	CHECK(state[0] == check::Approx(1 - std::pow(a, 200.0f)));
 	// Carried over to the next call.
 	float more[2] = {1.0f, 0.0f};
 	sound::lowpass(more, 1, 2, a, state);
-	CHECK(more[0] == doctest::Approx(1 - std::pow(a, 201.0f)));
+	CHECK(more[0] == check::Approx(1 - std::pow(a, 201.0f)));
 }

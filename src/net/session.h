@@ -27,8 +27,8 @@
 // player whose mods differ (the same base game) is offered the host's: after
 // they agree, they download the ones they lack (in parts, packed by
 // mods/mod_pack.h, checked against the fingerprint) and the game starts again
-// with exactly the host's mods (Mods::load_all's `only`). Mods are sandboxed;
-// a different base game (another game version) is still refused.
+// with exactly the host's mods (Mods::load_all's `only`). A mod with code (a
+// DLL) only loads if the player allows servers' code (Settings); a different base game (another game version) is still refused.
 
 #include "game/day_cycle.h"
 #include "game/figure.h"
@@ -198,7 +198,7 @@ public:
 	std::optional<std::array<float, 3>> take_push() { return std::exchange(push_, std::nullopt); }
 
 	// The host: joined players' inventories and health, kept by name in the
-	// world (world.lua's "players"): {name = {inventory, health}}.
+	// world (world.json's "players"): {name = {inventory, health}}.
 	void set_saved_players(const Data &players);
 	Data saved_players();
 
@@ -263,6 +263,7 @@ private:
 	void do_break(Peer &p, const BlockPos &pos, int slot);
 	Peer *peer_by_id(int id);
 	void host_update(float dt);
+	void tell_game_others(); // (the game's OtherPlayers, from peers_)
 	void client_update(float dt, const LocalPose &pose);
 	void update_avatars(float dt);
 	std::vector<uint8_t> players_message(const LocalPose &pose) const;

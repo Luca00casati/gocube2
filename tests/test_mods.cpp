@@ -1,14 +1,16 @@
-// Mods: the base game's main.lua, the sandbox (time, memory, what mods can
-// reach, bytecode), undoing a failing mod, events, determinism and fingerprints.
+// Mods: the base game (its content as data, its rules from core.dll), mods'
+// DLLs (loading, failing and crashing, undoing, events, commands, rules,
+// each world's own state), manifests, data-only mods and fingerprints. The
+// test mods' code is tests/mods/test_mod.cpp, built once per mod.
 
 #include "content/content.h"
-#include "data/lua_data.h"
+#include "data/json.h"
 #include "helpers.h"
 #include "game/blocks.h"
 #include "mods/mods.h"
 #include "world/world.h"
 
-#include <doctest/doctest.h>
+#include "check.h"
 
 #include <windows.h>
 
@@ -25,40 +27,36 @@ namespace {
 
 fs::path test_dir(const char *name) {
 	const fs::path dir = fs::temp_directory_path() / ("gocube_test_" + std::to_string(GetCurrentProcessId())) / name;
-	fs::remove_all(dir);
+	std::error_code ec;
+	fs::remove_all(dir, ec); // (a DLL of an earlier run may still be loaded: then it stays)
 	fs::create_directories(dir);
 	return dir;
 }
 
-void write(const fs::path &p, const std::string &text) {
-	fs::create_directories(p.parent_path());
-	std::ofstream(p, std::ios::binary | std::ios::trunc) << text;
-}
-
-// A mod folder `id` in `root` with main.lua (unless empty) and these extra mod.lua fields.
-void make_mod(const fs::path &root, const std::string &id, const std::string &main_lua, Data extra = Data::object()) {
+// A mod folder `id` in `root` with these extra mod.json fields, and the test
+// mod DLL `dll` (tests/mods/test_mod.cpp, by name; "" for none) as its entry.
+void make_mod(const fs::path &root, const std::string &id, const std::string &dll, Data extra = Data::object()) {
 	Data m = {{"id", id}, {"version", "1.0"}};
-	if (!main_lua.empty()) {
-		m["entry"] = "main.lua";
-		write(root / id / "main.lua", main_lua);
+	if (!dll.empty()) {
+		m["entry"] = id + ".dll";
+		fs::create_directories(root / id);
+		fs::copy_file(fs::path(GOCUBE_TEST_MODS_DIR) / "dlls" / (dll + ".dll"), root / id / (id + ".dll"),
+				fs::copy_options::overwrite_existing);
 	}
 	for (const auto &[k, v] : extra.items()) {
 		m[k] = v;
 	}
-	write(root / id / "mod.lua", gc::write_lua_data(m));
+	write(root / id / "mod.json", gc::write_json(m));
 }
 
 // Loads the base game and the mods in `root`.
 struct Loaded {
 	gc::Content content;
 	std::unique_ptr<gc::Mods> mods;
-	double ms = 0;
 
-	Loaded(const fs::path &root, gc::ModLimits limits = {}) {
-		mods = std::make_unique<gc::Mods>(content, limits);
-		const auto t0 = std::chrono::steady_clock::now();
-		mods->load_all({fs::path(GOCUBE_SOURCE_DIR) / "mods", root});
-		ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+	explicit Loaded(const fs::path &root) {
+		mods = std::make_unique<gc::Mods>(content);
+		mods->load_all({fs::path(GOCUBE_MODS_DIR), root});
 	}
 	bool loaded(const std::string &id) const {
 		for (const gc::ModInfo &m : mods->loaded()) {
@@ -74,140 +72,50 @@ struct Loaded {
 	}
 };
 
-gc::ModLimits quick() {
-	gc::ModLimits l;
-	l.load_ms = 200;
-	l.callback_ms = 20;
-	l.memory = 32u << 20;
-	return l;
-}
-
 } // namespace
 
-TEST_CASE("the base game's main.lua registers its planks (and no recipes)") {
+TEST_CASE("the base game: its content is data, its rules are core.dll's") {
 	gc::Content content;
-	load_base_game(content);
+	gc::Mods mods(content);
+	mods.load_all({GOCUBE_MODS_DIR});
+	REQUIRE(mods.problems().empty());
 	REQUIRE(content.blocks.count("core:planks"));
 	const Data &planks = content.blocks["core:planks"];
 	CHECK(planks["color"] == "#b8945f");
-	CHECK(planks["textures"]["all"]["color"] == "#93683d"); // painted (content/looks.lua), no image
+	CHECK(planks["textures"]["all"]["color"] == "#93683d"); // painted, no image
 	CHECK(planks["hardness"].get<double>() == 2.0);
 	CHECK(planks["mod"] == "core");
 	CHECK(content.recipes.empty()); // (no crafting in the base game)
+	// Rules that need no world.
+	CHECK(mods.rule("fall_damage", Data::array({10.0})) == std::optional<Data>(Data(7)));
+	CHECK(mods.rule("fall_damage", Data::array({2.0})) == std::optional<Data>(Data(0)));
+	CHECK(mods.rule("void_damage", Data::array({5})) == std::optional<Data>(Data(4)));
+	const std::optional<Data> recipes = mods.rule("hand_recipes", Data::array());
+	REQUIRE(recipes);
+	REQUIRE(recipes->size() == 2);
+	CHECK((*recipes)[0]["output"] == "core:planks");
+	CHECK((*recipes)[0]["ingredients"]["core:log"] == 1);
+	CHECK_FALSE(mods.rule("no_such_rule", Data::array()).has_value());
 }
 
-TEST_CASE("an endless loop is stopped and the mod undone; others load") {
-	const fs::path root = test_dir("loop");
-	make_mod(root, "loop", "registry.register_block('thing', {color = '#ff0000'})\nwhile true do end\n");
-	make_mod(root, "fine", "registry.register_block('ok', {color = '#00ff00'})\n");
-	Loaded l(root, quick());
-	CHECK(l.problem("loop").find("ran too long") != std::string::npos);
-	CHECK_FALSE(l.loaded("loop"));
-	CHECK_FALSE(l.content.blocks.count("loop:thing")); // undone
-	CHECK(l.loaded("fine"));
-	CHECK(l.content.blocks.count("fine:ok"));
-	CHECK(l.ms < 3000);
-}
-
-TEST_CASE("pcall can't catch the sandbox stopping a mod") {
-	const fs::path root = test_dir("pcall");
-	make_mod(root, "sneaky", R"(
-while true do
-	pcall(function() while true do end end)
-	xpcall(function() while true do end end, function(e) return e end)
-end
-)");
-	Loaded l(root, quick());
-	CHECK(l.problem("sneaky").find("ran too long") != std::string::npos);
-	CHECK(l.ms < 3000);
-}
-
-TEST_CASE("a mod asking for too much memory is stopped and undone, and its memory freed") {
-	const fs::path root = test_dir("memory");
-	make_mod(root, "huge", "registry.register_block('a', {})\nlocal s = string.rep('x', 1 << 28) -- (256 MB: Lua itself refuses strings past 2 GB)\n");
-	make_mod(root, "greedy", R"(
-local t = {}
-for i = 1, 100000000 do t[i] = string.rep('y', 100000) .. i end -- (100 KB a step: past the cap quickly)
-)");
-	make_mod(root, "catcher", R"(
-for i = 1, 100 do pcall(function() local s = string.rep('z', 1 << 28) end) end
-)");
-	gc::ModLimits limits = quick();
-	limits.load_ms = 5000; // (only memory may stop them here, even in a slow debug build)
-	Loaded l(root, limits);
-	CHECK(l.problem("huge").find("too much memory") != std::string::npos);
-	CHECK(l.problem("greedy").find("too much memory") != std::string::npos);
-	CHECK(l.problem("catcher").find("too much memory") != std::string::npos);
-	CHECK_FALSE(l.content.blocks.count("huge:a"));
-	CHECK(l.mods->memory_in_use() < (16u << 20)); // what they held was collected
-}
-
-TEST_CASE("mods reach only what the sandbox gives them") {
-	const fs::path root = test_dir("reach");
-	// The mod checks it all itself: any failed check is an error, and the mod fails.
-	make_mod(root, "prober", R"(
-for _, name in ipairs({'io', 'os', 'debug', 'package', 'coroutine', 'load', 'loadstring', 'dofile',
-		'loadfile', 'collectgarbage'}) do
-	assert(_G[name] == nil, name .. ' is reachable')
-end
-assert(string.dump == nil, 'string.dump is reachable')
-assert(math.random == nil and math.randomseed == nil, 'math.random is reachable')
-assert(getmetatable('') == 'string', "strings' metatable is reachable")
-assert(not pcall(require, '../escape'), 'require left the mod')
-assert(not pcall(require, 'missing'), 'require found a missing file')
-assert(not pcall(setmetatable, {}, {__gc = function() end}), '__gc was allowed')
-assert(not pcall(world.get_block, 0, 0, 0), 'world before there is one')
--- Creatures and the playing-only game functions: there, but only with a world.
-for _, f in ipairs({creatures.spawn, creatures.remove, creatures.all, creatures.get, creatures.set,
-		world.raycast, world.box_free, game.players, game.day, game.damage_player, game.play_sound,
-		game.effect, game.command}) do
-	assert(type(f) == 'function')
-	assert(not pcall(f, 'core:block_eater', 0, 0, 0), 'a playing-only function before there is a world')
-end
-registry.register_creature('probe', {model = 'block_eater', box = {1, 1, 1}})
-string.upper = nil -- (its own copy)
-assert(require('helper').value == 42)
-assert(require('lib.deep') == true)
-registry.register_block('probed', {color = '#123456'})
-)");
-	write(root / "prober" / "helper.lua", "return {value = 42}\n");
-	write(root / "prober" / "lib" / "deep.lua", "-- returns nothing: require gives true\n");
-	make_mod(root, "after", "assert(('x'):upper() == 'X' and string.upper('y') == 'Y', 'another mod changed string')\n",
-			{{"dependencies", {"prober"}}});
-	Loaded l(root, quick());
-	CHECK(l.problem("prober") == "");
-	CHECK(l.content.blocks.count("prober:probed"));
-	CHECK(l.content.creatures.count("prober:probe"));
-	CHECK(l.problem("after") == "");
-}
-
-TEST_CASE("compiled Lua (bytecode) is refused") {
-	const fs::path root = test_dir("bytecode");
-	make_mod(root, "compiled", std::string("\x1bLua\x54\x00 fake bytecode", 20));
-	make_mod(root, "requires", "require('bin')\n");
-	write(root / "requires" / "bin.lua", std::string("\x1bLua\x54\x00", 6));
-	Loaded l(root, quick());
-	CHECK(l.problem("compiled").find("bytecode") != std::string::npos);
-	CHECK(l.problem("requires").find("bytecode") != std::string::npos);
-}
-
-TEST_CASE("a failing mod is undone: its content and handlers go, mods needing it are skipped") {
+TEST_CASE("a mod whose code fails or crashes is undone: its content and handlers go, mods needing it are skipped") {
 	const fs::path root = test_dir("failing");
-	make_mod(root, "broken", R"(
-registry.register_block('half', {color = '#ffffff'})
-registry.register_item('thing', {})
-events.on('tick', function() error('a handler of an undone mod ran') end)
-error('boom')
-)");
-	make_mod(root, "needs_broken", "registry.register_block('x', {})\n", {{"dependencies", {"broken"}}});
+	make_mod(root, "broken", "failing");
+	make_mod(root, "wrecked", "crasher");
+	make_mod(root, "fine", "fine");
+	make_mod(root, "needs_broken", "fine", {{"dependencies", {"broken"}}});
 	make_mod(root, "needs_missing", "", {{"dependencies", {"nowhere"}}});
-	Loaded l(root, quick());
+	Loaded l(root);
 	CHECK(l.problem("broken").find("boom") != std::string::npos);
 	CHECK_FALSE(l.content.blocks.count("broken:half"));
 	CHECK_FALSE(l.content.items.count("broken:thing"));
 	CHECK_FALSE(l.content.mod_dirs.count("broken"));
+	CHECK(l.problem("wrecked").find("access violation") != std::string::npos);
+	CHECK_FALSE(l.content.blocks.count("wrecked:wreck"));
+	CHECK(l.loaded("fine"));
+	CHECK(l.content.blocks.count("fine:ok"));
 	CHECK(l.problem("needs_broken").find("broken") != std::string::npos);
-	CHECK_FALSE(l.content.blocks.count("needs_broken:x"));
+	CHECK_FALSE(l.content.blocks.count("needs_broken:ok"));
 	CHECK(l.problem("needs_missing").find("nowhere") != std::string::npos);
 	const std::string before = l.problem("broken");
 	for (int i = 0; i < 5; i++) {
@@ -217,73 +125,51 @@ error('boom')
 	CHECK(l.loaded("core"));
 }
 
-TEST_CASE("event handlers run; one that keeps failing or runs too long turns its mod off") {
+TEST_CASE("event handlers run; a mod whose handlers keep failing, or crash once, is turned off") {
 	const fs::path root = test_dir("events");
-	make_mod(root, "counter", R"(
-local ticks = 0
-events.on('tick', function(dt)
-	ticks = ticks + 1
-	if ticks == 3 then registry.register_block('late', {}) end -- (too late: an error)
-end)
-)");
-	make_mod(root, "slow", "events.on('tick', function() while true do end end)\n");
-	Loaded l(root, quick());
+	make_mod(root, "counter", "counter");
+	make_mod(root, "flaky", "flaky");
+	make_mod(root, "crashy", "crashy");
+	Loaded l(root);
 	REQUIRE(l.loaded("counter"));
-	REQUIRE(l.loaded("slow"));
-	const auto t0 = std::chrono::steady_clock::now();
-	for (int i = 0; i < 6; i++) {
+	REQUIRE(l.loaded("flaky"));
+	REQUIRE(l.loaded("crashy"));
+	l.mods->tick(0.05);
+	CHECK(l.problem("crashy").find("access violation") != std::string::npos); // at once
+	CHECK(l.problem("flaky") == "");
+	for (int i = 0; i < 5; i++) {
 		l.mods->tick(0.05);
 	}
-	const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-	CHECK(l.problem("slow").find("ran too long") != std::string::npos); // turned off after 3
-	CHECK(ms < 1000); // 3 x 20 ms, then never again
+	CHECK(l.problem("flaky").find("kept failing") != std::string::npos); // after 3
 	CHECK(l.problem("counter") == ""); // one failure isn't enough
 	CHECK_FALSE(l.content.blocks.count("counter:late"));
 }
 
-TEST_CASE("what mods register is the same every time (pairs order)") {
-	const fs::path root = test_dir("order");
-	make_mod(root, "orderly", R"(
-local t = {}
-for i = 1, 200 do t['key' .. i] = i end
-local order = {}
-for k in pairs(t) do order[#order + 1] = k end
-registry.register_block('walk', {order = table.concat(order, ','), data = t})
-)");
-	std::string first;
-	for (int run = 0; run < 3; run++) {
-		Loaded l(root, quick());
-		REQUIRE(l.content.blocks.count("orderly:walk"));
-		const Data &walk = l.content.blocks["orderly:walk"];
-		std::string dump = walk["order"].str() + ";"; // pairs' order, then the fields' order as read
-		for (const auto &[k, v] : walk["data"].items()) {
-			dump += k + "=" + std::to_string(v.get<int64_t>()) + ",";
-		}
-		if (run == 0) {
-			first = dump;
-		}
-		CHECK(dump == first);
-	}
-}
-
-TEST_CASE("broken mod.lua files and newer mods are skipped") {
+TEST_CASE("mod.json files that are broken, run code, need a newer game or point outside are skipped") {
 	const fs::path root = test_dir("manifests");
-	write(root / "badid" / "mod.lua", R"(return {id = "Bad Id"})");
-	write(root / "badlua" / "mod.lua", "return { nope");
-	// A manifest is data: nothing in it can run (there's nothing to call).
-	write(root / "runs" / "mod.lua", R"(os.exit(1) return {id = "runs"})");
-	write(root / "spins" / "mod.lua", R"(while true do end)");
-	make_mod(root, "future", "", {{"api_version", 2}});
-	make_mod(root, "noentry", "", {{"entry", "missing.lua"}});
-	make_mod(root, "escape", "", {{"entry", "../core/main.lua"}});
-	Loaded l(root, quick());
+	write(root / "badid" / "mod.json", R"({"id": "Bad Id"})");
+	write(root / "baddata" / "mod.json", R"({"id": "baddata",)");
+	// A manifest is data: nothing in it can run.
+	write(root / "runs" / "mod.json", R"(os.exit(1) return {id = "runs"})");
+	write(root / "spins" / "mod.json", R"(while true do end)");
+	make_mod(root, "future", "", {{"api_version", 3}});
+	make_mod(root, "noentry", "", {{"entry", "missing.dll"}});
+	make_mod(root, "escape", "", {{"entry", "../core/core.dll"}});
+	make_mod(root, "notdllname", "", {{"entry", "main.txt"}});
+	make_mod(root, "notdll", "", {{"entry", "fake.dll"}});
+	write(root / "notdll" / "fake.dll", "not a DLL");
+	make_mod(root, "old", "", {{"api_version", 1}}); // (data only: an old manifest is fine)
+	Loaded l(root);
 	CHECK(l.problem("badid").find("\"id\"") != std::string::npos);
-	CHECK(l.problem("badlua").find("can't be read") != std::string::npos);
+	CHECK(l.problem("baddata").find("can't be read") != std::string::npos);
 	CHECK(l.problem("runs").find("can't be read") != std::string::npos);
-	CHECK(l.problem("spins").find("too long") != std::string::npos);
+	CHECK(l.problem("spins").find("can't be read") != std::string::npos);
 	CHECK(l.problem("future").find("newer game") != std::string::npos);
 	CHECK(l.problem("noentry").find("doesn't exist") != std::string::npos);
 	CHECK(l.problem("escape").find("inside the mod") != std::string::npos);
+	CHECK(l.problem("notdllname").find("must be a .dll") != std::string::npos);
+	CHECK(l.problem("notdll").find("can't be loaded") != std::string::npos);
+	CHECK(l.loaded("old"));
 	CHECK(l.loaded("core"));
 }
 
@@ -291,7 +177,7 @@ TEST_CASE("fingerprints: the same files give the same fingerprint") {
 	// SHA-256 over the sorted relative paths (dot-names left out), each followed
 	// by a 0 byte and the file's bytes; the first 12 hex digits. The value was
 	// worked out separately (Python's hashlib) for this folder.
-	const char *const EXPECTED = "fb9aa5253cc6";
+	const char *const EXPECTED = "fa60a95b89f0";
 	CHECK(gc::mod_fingerprint(fs::path(GOCUBE_SOURCE_DIR) / "tests" / "data" / "fingerprint_mod") == EXPECTED);
 	const fs::path copy = test_dir("fingerprint") / "copy";
 	fs::copy(fs::path(GOCUBE_SOURCE_DIR) / "tests" / "data" / "fingerprint_mod", copy, fs::copy_options::recursive);
@@ -304,19 +190,10 @@ TEST_CASE("fingerprints: the same files give the same fingerprint") {
 
 TEST_CASE("event handlers see the world: block_placed and block_broken, get_block and set_block") {
 	const fs::path root = test_dir("world");
-	make_mod(root, "builder", R"(
-events.on('block_placed', function(x, y, z, id)
-	if id == 'core:stone' and world.get_block(x, y + 1, z) == 'core:air' then
-		world.set_block(x, y + 1, z, 'core:glass')
-	end
-end)
-events.on('block_broken', function(x, y, z, id)
-	world.set_block(x, y, z, 'core:planks') -- grows back as planks
-end)
-)");
+	make_mod(root, "builder", "builder");
 	gc::Content content;
-	gc::Mods mods(content, quick());
-	mods.load_all({fs::path(GOCUBE_SOURCE_DIR) / "mods", root});
+	gc::Mods mods(content);
+	mods.load_all({fs::path(GOCUBE_MODS_DIR), root});
 	REQUIRE(mods.problems().empty());
 	content.freeze();
 	const gc::BlockTable table = gc::build_block_table(content);
@@ -342,44 +219,41 @@ end)
 	mods.attach(nullptr, nullptr);
 }
 
-TEST_CASE("mods add commands (commands.register), command files, and run commands (game.command)") {
+TEST_CASE("mods add commands, command files and rules; wrap a rule; run commands (game.command)") {
 	const fs::path root = test_dir("commands");
-	make_mod(root, "greeter", R"lua(
-commands.register("greet", {usage = "<name>", help = "says hello", op = false}, function(who, args)
-	return "hello " .. (args[1] or "?") .. " from " .. who.name .. (who.op and " (op)" or "")
-end)
-commands.register("broken", {}, function() error("oops") end)
-commands.register("spin", {}, function() while true do end end)
-assert(not pcall(commands.register, "Bad Name", {}, function() end), "a bad name was taken")
-)lua");
+	make_mod(root, "greeter", "greeter");
 	write(root / "greeter" / "functions" / "build" / "tower.txt", "# a tower\r\n/setblock 0 0 0 stone\r\n\r\nsay done\n");
-	Loaded l(root, quick());
+	Loaded l(root);
 	REQUIRE(l.problem("greeter") == "");
+	CHECK(l.content.blocks.count("greeter:named_greeter")); // (mod.info)
 	const std::vector<gc::ModCommand> list = l.mods->commands();
 	REQUIRE(list.size() == 3);
-	CHECK(list[1].name == "greet");
-	CHECK(list[1].usage == "<name>");
-	CHECK_FALSE(list[1].op);
+	CHECK(list[2].name == "greet");
+	CHECK(list[2].usage == "<name>");
+	CHECK_FALSE(list[2].op);
 	CHECK(list[0].op); // (by default: operators only)
 	gc::CommandPlayer ann{2, "Ann", {1, 2, 3}, true};
 	CHECK(l.mods->run_command("greet", ann, {"Bob"}) == std::optional<std::string>("hello Bob from Ann (op)"));
 	CHECK_FALSE(l.mods->run_command("broken", ann, {}).has_value());
-	CHECK_FALSE(l.mods->run_command("spin", ann, {}).has_value()); // (stopped: too long)
 	CHECK_FALSE(l.mods->run_command("nothing", ann, {}).has_value());
+	// Wrapping: the base game's fall damage (7 for 10 blocks), doubled.
+	CHECK(l.mods->rule("fall_damage", Data::array({10.0})) == std::optional<Data>(Data(14)));
 	// Command files: a line each (Windows line ends too), by "mod:path".
 	const std::vector<std::string> *tower = l.mods->function("greeter:build/tower");
 	REQUIRE(tower);
 	CHECK(*tower == std::vector<std::string>{"# a tower", "/setblock 0 0 0 stone", "", "say done", ""});
 	CHECK(l.mods->function("greeter:nothing") == nullptr);
 
+	// Each world (Mods) has the mod's own state, though the DLL is loaded once.
+	Loaded other(root);
+	CHECK(l.mods->run_command("count", ann, {}) == std::optional<std::string>("1"));
+	CHECK(l.mods->run_command("count", ann, {}) == std::optional<std::string>("2"));
+	CHECK(other.mods->run_command("count", ann, {}) == std::optional<std::string>("1"));
+
 	// game.command: through whatever runs commands (the session), while playing.
 	gc::Content c2;
-	gc::Mods mods(c2, quick());
-	const fs::path root2 = test_dir("commands2");
-	make_mod(root2, "caller", R"(
-game.set_rule("try_command", function(line) return game.command(line) end)
-)");
-	mods.load_all({fs::path(GOCUBE_SOURCE_DIR) / "mods", root2});
+	gc::Mods mods(c2);
+	mods.load_all({fs::path(GOCUBE_MODS_DIR), root});
 	c2.freeze();
 	const gc::BlockTable table = gc::build_block_table(c2);
 	const gc::BlockRules rules(c2);
@@ -396,21 +270,22 @@ game.set_rule("try_command", function(line) return game.command(line) end)
 	REQUIRE(r);
 	CHECK(*r == Data::array({"ok: /time set noon"}));
 	CHECK(ran == std::vector<std::string>{"/time set noon"});
+	mods.attach(nullptr, nullptr);
 }
 
 TEST_CASE("data-only mods: content from a data file (no code); folders where mods may not run code") {
 	const fs::path root = test_dir("data_only");
-	make_mod(root, "gems", "", {{"content", "content.lua"}});
-	write(root / "gems" / "content.lua", R"(return {
-	blocks = {ruby_ore = {hardness = 3, color = "#c02040"}, ruby_block = {color = "#e03050"}},
-	items = {ruby = {color = "#ff2050"}},
+	make_mod(root, "gems", "", {{"content", "content.json"}});
+	write(root / "gems" / "content.json", R"({
+	"blocks": {"ruby_ore": {"hardness": 3, "color": "#c02040"}, "ruby_block": {"color": "#e03050"}},
+	"items": {"ruby": {"color": "#ff2050"}}
 })");
-	make_mod(root, "badcontent", "", {{"content", "content.lua"}});
-	write(root / "badcontent" / "content.lua", "return {spells = {fire = {}}}");
-	make_mod(root, "runsit", "os.exit(1)", {{"content", "content.lua"}});
-	write(root / "runsit" / "content.lua", "print('hi') return {}"); // (data only: code can't run)
-	make_mod(root, "coder", "registry.register_item('thing', {})\n");
-	Loaded l(root, quick());
+	make_mod(root, "badcontent", "", {{"content", "content.json"}});
+	write(root / "badcontent" / "content.json", R"({"spells": {"fire": {}}})");
+	make_mod(root, "runsit", "", {{"content", "content.json"}});
+	write(root / "runsit" / "content.json", "print('hi') return {}"); // (data only: code can't run)
+	make_mod(root, "coder", "fine");
+	Loaded l(root);
 	CHECK(l.problem("gems") == "");
 	CHECK(l.content.blocks.count("gems:ruby_ore"));
 	CHECK(l.content.blocks.at("gems:ruby_ore").value("hardness", 0.0) == 3.0);
@@ -420,13 +295,13 @@ TEST_CASE("data-only mods: content from a data file (no code); folders where mod
 	CHECK(l.loaded("coder"));
 
 	// The same folder as one whose mods may not run code: the data-only mod
-	// loads, the one with code doesn't.
+	// loads, the one with a DLL doesn't.
 	gc::Content content;
-	gc::Mods mods(content, quick());
+	gc::Mods mods(content);
 	mods.set_code_forbidden_in({root});
-	mods.load_all({fs::path(GOCUBE_SOURCE_DIR) / "mods", root});
+	mods.load_all({fs::path(GOCUBE_MODS_DIR), root});
 	CHECK(content.blocks.count("gems:ruby_ore"));
-	CHECK_FALSE(content.items.count("coder:thing"));
+	CHECK_FALSE(content.blocks.count("coder:ok"));
 	CHECK(mods.problems().at("coder").find("only allow server mods without code") != std::string::npos);
 	CHECK(content.blocks.count("core:stone")); // (the base game, elsewhere, is fine)
 }

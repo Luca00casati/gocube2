@@ -1,14 +1,13 @@
 #pragma once
 // Messages on the wire: little-endian numbers, strings and byte strings with
-// a length in front, and data values (Data) as Lua data tables
-// (data/lua_data.h: read with a step and memory limit, and Lua's own nesting
-// limit, whatever a peer sends). A Reader never reads past
+// a length in front, and data values (Data) as JSON (data/json.h: nested at
+// most MAX_DATA_DEPTH deep, whatever a peer sends). A Reader never reads past
 // its end: what isn't there reads as zero or empty and marks it bad (`ok()`),
 // and strings and data have a size limit, so a peer's message can't make us
 // read or allocate without bound.
 
 #include "content/content.h"
-#include "data/lua_data.h"
+#include "data/json.h"
 
 #include <cmath>
 #include <cstdint>
@@ -42,7 +41,7 @@ public:
 		u32(uint32_t(b.size()));
 		return raw(b.data(), b.size());
 	}
-	Writer &data(const Data &j) { return str(write_lua_data(j)); } // (no null in a list)
+	Writer &data(const Data &j) { return str(write_json(j, true)); }
 
 private:
 	Writer &raw(const void *p, size_t n) {
@@ -130,7 +129,7 @@ public:
 		const std::string text = str(max);
 		Data j;
 		std::string error;
-		if (!ok_ || !parse_lua_data(text, "message", j, error)) {
+		if (!ok_ || !parse_json(text, "message", j, error)) {
 			ok_ = false;
 			return Data();
 		}

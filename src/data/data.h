@@ -1,5 +1,5 @@
 #pragma once
-// The game's dynamic data value: what a Lua data file (data/lua_data.h) holds,
+// The game's dynamic data value: what a JSON file (data/json.h) holds,
 // what mods' rules take and return, what goes over the network. Null, a
 // boolean, an integer, a float, a string, a list or an object (string keys,
 // kept in the order they were added: that order can reach the world generator,
@@ -33,6 +33,14 @@ public:
 	// --- Making values ---------------------------------------------------------------
 
 	Data() = default;
+	// Copying, moving and destroying are in data.cpp: written here, the
+	// variant's code for them would be compiled again in every file that
+	// copies a Data (most of the game), which is most of the build's time.
+	Data(const Data &other);
+	Data(Data &&other) noexcept;
+	Data &operator=(const Data &other);
+	Data &operator=(Data &&other) noexcept;
+	~Data();
 	Data(std::nullptr_t) {}
 	Data(bool b) : v_(b) {}
 	template <class T, std::enable_if_t<std::is_integral_v<T> && !std::is_same_v<T, bool>, int> = 0>
