@@ -4,8 +4,8 @@ module gocube::content::content_test;
 import gocube::content, gocube::content::image, gocube::data, gocube::voxel, gocube::util::vec, gocube::util::map;
 import std::io, std::hash::sha256, std::sort;
 
-// Where the game's content is, from where the tests run (c3/).
-const String CONTENT_DIR = "../content";
+// Where the game's content is, from where the tests run (the top folder).
+const String CONTENT_DIR = "content";
 
 fn void load_base_game(Content* content)
 {
@@ -80,7 +80,7 @@ fn void block_table_hash() @test
 	f.put_int(table.atlas.width);
 	f.put_int(table.atlas.height);
 	f.put(table.atlas.rgba.ptr, table.atlas.rgba.len);
-	assert(f.h == 0x190569335bc1a6d9, "the block table's hash is %x", f.h);
+	assert(f.h == 0x4113b182d19ae952, "the block table's hash is %x", f.h);
 }
 
 fn void png_read_with_alpha() @test
@@ -107,9 +107,11 @@ fn void png_read_with_alpha() @test
 	assert(back.rgba == im.rgba);
 }
 
-// --- Seed 777, as older versions had it ------------------------------------
+// --- Seed 777: the same terrain as ever (worlds made before crystal_ore and the
+// furnace were removed number their blocks with their own table; this is a
+// new world's numbering) ------------------------------------
 
-const String WORLD_FINGERPRINT = "79025b3a4669200c";
+const String WORLD_FINGERPRINT = "9634e6883fee0112";
 const int CHUNK_Y_MIN = -3;
 const int CHUNK_Y_MAX = 3;
 

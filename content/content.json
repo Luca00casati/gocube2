@@ -214,29 +214,6 @@
 				}
 			}
 		},
-		"crystal_ore": {
-			"color": "#5aa8b0",
-			"drops": "core:white_gem",
-			"hardness": 3.0,
-			"hidden": true,
-			"random_rotation": true,
-			"sound": "core:stone",
-			"textures": {
-				"all": {
-					"blotch": 0.35,
-					"color": "#75787e",
-					"noise": 0.3,
-					"shades": 5,
-					"spots": {
-						"color": "#38bcc6",
-						"count": 4,
-						"dark": "#18707c",
-						"light": "#b2f6f3",
-						"size": 5
-					}
-				}
-			}
-		},
 		"dirt": {
 			"color": "#8b5a2b",
 			"hardness": 0.5,
@@ -356,16 +333,6 @@
 			"transparent": true,
 			"undyed_boxes": [1, 2, 3, 4, 5],
 			"variant_of": "core:dye_vat"
-		},
-		"furnace": {
-			"color": "#6a6a6a",
-			"hardness": 3.5,
-			"sound": "core:stone",
-			"textures": {
-				"bottom": {"blotch": 0.35, "color": "#75787e", "noise": 0.3, "shades": 5},
-				"side": "textures/furnace_side.png",
-				"top": {"blotch": 0.35, "color": "#75787e", "noise": 0.3, "shades": 5}
-			}
 		},
 		"glass": {
 			"color": "#cfe3ec",
@@ -1002,12 +969,6 @@
 			"log": "core:log",
 			"style": "big_oak",
 			"trunk": [6, 9]
-		},
-		"cactus": {
-			"leaves": "",
-			"log": "core:cactus",
-			"style": "cactus",
-			"trunk": [1, 3]
 		},
 		"oak": {
 			"leaves": "core:leaves",

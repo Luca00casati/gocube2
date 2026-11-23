@@ -78,7 +78,7 @@ fn void wav_files() @test
 	w.free();
 	@pool()
 	{
-		assert(sound::read_wav("../content/sounds/ambience_day.wav", &w, &error), "%s", error);
+		assert(sound::read_wav("content/sounds/ambience_day.wav", &w, &error), "%s", error);
 	};
 	assert(w.frames() > 0);
 }
@@ -136,7 +136,7 @@ fn void plays_through_xaudio2() @test
 	defer content.free();
 	DString why;
 	defer why.free();
-	assert(content.load("../content", &why), "%s", why.str_view());
+	assert(content.load("content", &why), "%s", why.str_view());
 	content.freeze();
 	Audio a;
 	defer a.free();

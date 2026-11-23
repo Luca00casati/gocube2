@@ -21,5 +21,4 @@ jobs:
       # The rendering tests run on WARP (no GPU on the runner); with no sound
       # device, the sound test only checks the mixing.
       - name: Build and test
-        working-directory: c3
         run: c3c test

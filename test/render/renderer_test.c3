@@ -12,7 +12,7 @@ fn void clears_presents_and_screenshots() @test
 	Renderer r;
 	defer r.free();
 	assert(r.init(w.hwnd, w.width, w.height, { .warp = true, .vsync = false }));
-	String path = "../build/c3/renderer_test.png";
+	String path = "build/renderer_test.png";
 	r.begin_frame({ 1.0f, 0.0f, 0.0f, 1.0f });
 	assert(r.end_frame(null, null, path));
 	Image img;
@@ -82,7 +82,7 @@ fn void draws_the_world() @test
 	}, &&(Object){ &c, &cam, (float)r.width / (float)r.height, &sky });
 	Matrix vp = cam.view() * cam.projection((float)r.width / (float)r.height);
 	c.draw_creatures(creature.array_view(), vp, cam.position, &sky);
-	String path = "../build/c3/world_test.png";
+	String path = "build/world_test.png";
 	assert(r.end_frame(null, null, path));
 	assert(c.stats.drawn > 0 && c.stats.triangles > 0);
 	Image img;
@@ -95,7 +95,7 @@ fn void draws_the_world() @test
 	char* bottom = &img.rgba[((sz)(img.height - 3) * img.width + img.width / 2) * 4]; // ground
 	assert(top[2] > top[0], "the sky is blue: %d %d %d", top[0], top[1], top[2]);
 	assert(top[0] != bottom[0] || top[1] != bottom[1] || top[2] != bottom[2], "the ground isn't the sky");
-	// (Left in build/c3 to look at.)
+	// (Left in build to look at.)
 }
 
 struct Object
@@ -107,7 +107,7 @@ struct Object
 }
 
 // The UI over a cleared frame: a window, text (GDI glyphs), a button, an
-// item icon. (Left in build/c3/ui_test.png to look at.)
+// item icon. (Left in build/ui_test.png to look at.)
 fn void draws_the_ui() @test
 {
 	Play* p = play::new();
@@ -152,7 +152,7 @@ fn void draws_the_ui() @test
 	{
 		UiDraw* u = x;
 		u.d.draw(u.width, u.height, u.cmds.array_view());
-	}, &&(UiDraw){ &d, r.width, r.height, &cmds }, "../build/c3/ui_test.png");
+	}, &&(UiDraw){ &d, r.width, r.height, &cmds }, "build/ui_test.png");
 	assert(cmds.len() > 5);
 }
 

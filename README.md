@@ -36,9 +36,9 @@ such as the HD 4600, where every Direct3D 12 draw hangs the GPU; their Direct3D 
 drivers are mature, and nothing a voxel game needs is missing from Direct3D 11.
 
 ## Build and test
-The project is `c3\project.json`; in `c3\`:
+The project is `project.json`; in this folder:
 
-    c3c build                    # build ..\build\c3\gocube.exe
+    c3c build                    # build build\gocube.exe
     c3c test                     # build, then run the tests
     c3c run -- --world=Test      # build, then play (arguments after --)
 
@@ -47,16 +47,16 @@ starts, by Windows' own shader compiler (`d3dcompiler_47.dll`), so there's no
 build step for them. Floats are `strict` (no fused multiply-add, no
 reordering), so worlds generate the same everywhere.
 
-The tests (`c3\test\`, `@test` functions, by module) cover world generation
+The tests (`test\`, `@test` functions, by module) cover world generation
 (the fingerprint of seed 777's world, the generator's hash), the block table
 and atlas, JSON, saving, the player, survival and creative, commands,
 multiplayer (a host and a client in one process: joining, block changes,
 survival, chests, chat, the host's checks), sound (mixing, and a sound played
 on the device), the UI's controls, and rendering on WARP (a frame, the world
-and the UI, read back from screenshots in `build\c3`). They run in the test
+and the UI, read back from screenshots in `build\`). They run in the test
 runner's leak-tracking allocator: a test that leaks fails.
 
-The game is `build\c3\gocube.exe`; it finds `content\` in its folder or a
+The game is `build\gocube.exe`; it finds `content\` in its folder or a
 folder above it.
 
 ## Playing
@@ -178,7 +178,7 @@ gives others the right with `/op NAME` (kept with the world). Everyone can use
 | `/kick <player> [reason]`, `/op <player>`, `/deop <player>` | Players |
 
 ## Layout
-All the code is in `c3\src`, a module per folder (tests in `c3\test`, the
+All the code is in `src\`, a module per folder (tests in `test\`, the
 same way):
 - `voxel/`: chunks, noise, world generation, light, meshing, chunk files.
 - `content/`: `content.json`, block ids and variants, the texture atlas (most

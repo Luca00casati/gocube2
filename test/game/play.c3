@@ -4,8 +4,8 @@ module gocube::test::play;
 import gocube::content, gocube::game, gocube::game::blocks, gocube::game::player, gocube::world, gocube::voxel, gocube::clock, gocube::util::vec;
 import std::io, std::math;
 
-// Where the game's content is, from where the tests run (c3/).
-const String CONTENT_DIR = "../content";
+// Where the game's content is, from where the tests run (the top folder).
+const String CONTENT_DIR = "content";
 
 struct Setup
 {

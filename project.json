@@ -1,10 +1,10 @@
 {
-  // GoCube (see ../README.md): `c3c build`, `c3c test`, `c3c run` here.
+  // GoCube (see README.md): `c3c build`, `c3c test`, `c3c run` in this folder.
   "langrev": "1",
   "version": "0.1.0",
   "sources": [ "src/**" ],
   "test-sources": [ "test/**" ],
-  "output": "../build/c3",
+  "output": "build",
   // Strict floats (no fused multiply-add, no reordering): worlds generate the
   // same, bit for bit, on every machine and as they did before the port.
   "fp-math": "strict",

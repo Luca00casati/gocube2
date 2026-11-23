@@ -25,15 +25,15 @@ enum Shader : char
 	GUI_PS,
 }
 
-const String CHUNK = $embed("../../../shaders/chunk.hlsl");
-const String LINES = $embed("../../../shaders/lines.hlsl");
-const String SKY = $embed("../../../shaders/sky.hlsl");
-const String ITEMS = $embed("../../../shaders/items.hlsl");
-const String CREATURES = $embed("../../../shaders/creatures.hlsl");
-const String BLIT = $embed("../../../shaders/blit.hlsl");
-const String GUI = $embed("../../../shaders/gui.hlsl");
+const String CHUNK = $embed("../../shaders/chunk.hlsl");
+const String LINES = $embed("../../shaders/lines.hlsl");
+const String SKY = $embed("../../shaders/sky.hlsl");
+const String ITEMS = $embed("../../shaders/items.hlsl");
+const String CREATURES = $embed("../../shaders/creatures.hlsl");
+const String BLIT = $embed("../../shaders/blit.hlsl");
+const String GUI = $embed("../../shaders/gui.hlsl");
 // What `#include "color.hlsli"` brings in.
-const String COLOR = $embed("../../../shaders/color.hlsli");
+const String COLOR = $embed("../../shaders/color.hlsli");
 
 struct Source
 {

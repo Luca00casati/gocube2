@@ -76,7 +76,7 @@ fn void rules_mining_and_drops() @test
 	Rng r = rand::seeded(1);
 	String[2][*] cases = {
 		{ "core:stone", "core:cobblestone" }, { "core:iron_ore", "core:iron_ore" }, { "core:coal_ore", "core:coal" },
-		{ "core:furnace", "core:furnace" }, { "core:grass", "core:dirt" }, { "core:log", "core:log" },
+		{ "core:sandstone", "core:sandstone" }, { "core:grass", "core:dirt" }, { "core:log", "core:log" },
 		{ "core:wood_door_n_upper", "core:wood_door" }, { "core:leaves", "core:leaves" }, { "core:glass", "" } };
 	foreach (c : cases)
 	{
@@ -178,9 +178,9 @@ fn void crafting_planks_and_dye_vat() @test
 	assert(inv.count_of("core:planks") == 8);
 	assert(p.game.craft(inv, &p.game.hand_recipes()[1]));
 	assert(inv.count_of("core:dye_vat") == 1 && inv.count_of("core:planks") == 2);
-	// A furnace is a plain block; a chest holds things.
+	// A plain block holds nothing; a chest holds things.
 	BlockPos at = { 3, 60, 3 };
-	p.set(3, 60, 3, "core:furnace");
+	p.set(3, 60, 3, "core:stone");
 	assert(!p.game.entities.at(at));
 	p.set(3, 60, 3, "core:chest");
 	assert(p.game.entities.at(at));
