@@ -1,6 +1,6 @@
 // The player: walking, sprinting, sneaking, jumping, swimming, climbing ladders
 // and flying, in fixed physics steps (STEP); breaking and placing blocks (Game
-// adds survival's mining time, inventory and health). (src/game/player.*)
+// adds survival's mining time, inventory and health).
 module gocube::game::player;
 import gocube::game::blocks, gocube::world, gocube::content, gocube::voxel, gocube::data, gocube::maths, gocube::util::vec, gocube::util::intern;
 import std::math;

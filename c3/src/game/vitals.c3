@@ -2,7 +2,7 @@
 // client says it is, by the same rules as the local player's (Game): falls,
 // fluids that hurt (lava), falling out of the world, drowning, creatures
 // (less its armour), healing after a while without damage, and food. The
-// client only shows it. (src/game/vitals.*)
+// client only shows it.
 module gocube::game::vitals;
 import gocube::game::blocks, gocube::game::player, gocube::game::rules, gocube::world, gocube::data;
 import std::math;

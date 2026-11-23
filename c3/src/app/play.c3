@@ -1,7 +1,6 @@
 // Playing a world: loading it (a folder, a new one, or someone else's over
 // the network), then a frame at a time until the player quits: input,
 // physics, the game, the network, sound, the world's chunks, the UI, drawing.
-// (src/main.cpp: play)
 module gocube::app;
 import gocube::renderer, gocube::chunk_renderer, gocube::window, gocube::gui, gocube::screens, gocube::settings_screen, gocube::audio;
 import gocube::game, gocube::game::player, gocube::game::blocks, gocube::game::hand, gocube::game::day_cycle, gocube::game::creature_models;
@@ -284,7 +283,7 @@ fn End play(Options* options, WorldChoice* choice, bool from_menu, Window* windo
 	String content_dir = find_content();
 	if (!content_dir.len)
 	{
-		log::log("Couldn't find the game's content (mods/core/content.json)");
+		log::log("Couldn't find the game's content (content/content.json)");
 		return FAILED;
 	}
 	Playing* p = mem::new(Playing);

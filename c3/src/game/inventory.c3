@@ -3,7 +3,6 @@
 // an open screen (the cursor) and worn armour. Saved in world.json's
 // player.inventory:
 //   [[id, count] or false, ... (36), {"armor": [head, chest, legs, feet ids]}]
-// (src/game/inventory.*)
 module gocube::game::inventory;
 import gocube::content, gocube::data, gocube::util::intern, std::math;
 

@@ -3,7 +3,7 @@
 // pitch varied a little so repeats don't sound the same, heard from where it
 // is (full volume within UNIT_SIZE blocks, then falling off, silent beyond
 // MAX_DISTANCE). Two ambience loops (day and night) crossfade with the
-// daylight; underwater, everything is muffled. (src/audio/audio.*)
+// daylight; underwater, everything is muffled.
 //
 // Sounds (.wav) are read once and kept; at most VOICES play at a time (the
 // oldest stops for a new one). How loud each is in each ear and the

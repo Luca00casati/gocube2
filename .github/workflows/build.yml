@@ -13,15 +13,19 @@ jobs:
       - name: Set up the MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
 
-      # The build is nob.c: it calls cl, link and fxc directly.
+      # The C3 compiler, the version the game is written for.
+      - name: Get c3c 0.8.6
+        run: |
+          Invoke-WebRequest https://github.com/c3lang/c3c/releases/download/v0.8.6/c3-windows.zip -OutFile c3c.zip
+          Expand-Archive c3c.zip -DestinationPath $env:RUNNER_TEMP\c3c
+          $c3c = Get-ChildItem $env:RUNNER_TEMP\c3c -Recurse -Filter c3c.exe | Select-Object -First 1
+          "C3C=$($c3c.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      # The build is nob.c: it compiles the shaders (fxc), then runs c3c.
       - name: Build nob
         run: cl nob.c
 
-      # The smoke test runs on WARP (no GPU on the runner); the runner has no
-      # Graphics Tools, so the debug layer is skipped there. Unity builds: CI
-      # always builds from scratch, where they're fastest.
-      - name: Build and test (Debug)
-        run: .\nob.exe cpp test debug unity
-
-      - name: Build and test (Release)
-        run: .\nob.exe cpp test release unity
+      # The rendering tests run on WARP (no GPU on the runner); with no sound
+      # device, the sound test only checks the mixing.
+      - name: Build and test
+        run: .\nob.exe test

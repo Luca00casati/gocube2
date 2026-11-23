@@ -1,7 +1,7 @@
 // Player skins: the common box-figure skin layout, 64 x 64 pixels (or the
 // older 64 x 32), read from a PNG (see-through pixels: the outer layer's
 // empty parts). game/creature_models dresses a player's figure in it; the
-// session sends each player's to everyone. (src/content/skin.*)
+// session sends each player's to everyone.
 module gocube::content::skin;
 import gocube::content::image, std::math;
 

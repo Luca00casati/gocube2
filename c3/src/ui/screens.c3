@@ -1,7 +1,7 @@
 // Game screens (ui/gui): the inventory (E) with hand crafting, or in
 // creative a palette of every block and item: click a slot to pick its stack
 // up, click another to put it down (same items stack, others swap); chests
-// and dye vats. (src/ui/screens.*)
+// and dye vats.
 module gocube::screens;
 import gocube::gui, gocube::game, gocube::game::inventory, gocube::game::rules, gocube::game::block_entities, gocube::content;
 import gocube::world, gocube::data, gocube::util::vec;

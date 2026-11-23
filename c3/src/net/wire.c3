@@ -3,7 +3,7 @@
 // MAX_DATA_DEPTH deep, whatever a peer sends). A Reader never reads past its
 // end: what isn't there reads as zero or empty and marks it bad (`ok`), and
 // strings and data have a size limit, so a peer's message can't make us read
-// or allocate without bound. (src/net/wire.h)
+// or allocate without bound.
 module gocube::net::wire;
 import gocube::data, gocube::data::json, gocube::util::vec, std::math;
 

@@ -1,4 +1,4 @@
-// The game's options, folders and settings. (src/main.cpp)
+// The game's options, folders and settings.
 //
 // Options:
 //   --world=NAME     play the saved world NAME (in %APPDATA%\GoCube\worlds;
@@ -155,7 +155,7 @@ fn Options parse(String[] args) => @pool()
 
 extern fn uint get_module_file_name(Handle exe_module, WChar* out, uint size) @cname("GetModuleFileNameW");
 
-// The base game's content folder (mods/core, with content.json): next to the
+// The base game's content folder (content/, with content.json): next to the
 // game, or in a parent of its folder (a build tree). "" if none (heap).
 fn String find_content()
 {
@@ -171,9 +171,9 @@ fn String find_content()
 		bool found;
 		@pool()
 		{
-			found = file::exists(string::tformat("%s/mods/core/content.json", dir));
+			found = file::exists(string::tformat("%s/content/content.json", dir));
 		};
-		if (found) return string::format(mem, "%s/mods/core", dir);
+		if (found) return string::format(mem, "%s/content", dir);
 	}
 	return "";
 }

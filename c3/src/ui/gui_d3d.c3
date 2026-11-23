@@ -6,7 +6,7 @@
 // GDI (greyscale) and laid out here: word wrap, newlines, whole-pixel
 // advances; no kerning and no shaping (complex scripts), no fallback fonts.
 // It sets all the Direct3D state it draws with (the world's renderers set
-// theirs again each frame). (src/ui/gui_d3d.*)
+// theirs again each frame).
 module gocube::gui_d3d;
 import gocube::gui, gocube::d3d11, gocube::shaders, gocube::win, gocube::log, gocube::content, gocube::util::vec, gocube::util::map;
 import std::math;

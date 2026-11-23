@@ -1,6 +1,6 @@
 # GoCube
 
-Voxel sandbox for Windows, in C++20 with Direct3D 11; mods are data and DLLs.
+Voxel sandbox for Windows, in [C3](https://c3-lang.org) with Direct3D 11.
 
 Survival: mining by hand, drops, chests, health, the day and night, trees
 coming up on grass by themselves, flowing water and lava; creatures (rare,
@@ -12,78 +12,58 @@ first-person arm in your skin.
 The terrain comes from 3D noise: hills, cliffs, overhangs, seas with sand and
 gravel beaches, caves, lava deep down, ore veins. Players wear skins in the
 usual box-figure layout (`%APPDATA%\GoCube\skin.png`, 64x64 or 64x32, a
-PNG with see-through parts), and everyone sees each player's. The base game is a mod
-like any other (`mods/core`): its content is data (`content.json`) and its rules
-are its DLL (`core.dll`, from `src/core_mod/`). Every data file (a mod's
-manifest, a world's `world.json`, the settings) is JSON, read and written by
-our own code.
+PNG with see-through parts), and everyone sees each player's. The game's
+content is data (`content/content.json`: blocks, items, ores, trees, the
+biome, sounds; with its textures and sounds); its rules are game code. Every
+data file (`content.json`, a world's `world.json`, the settings) is JSON, read
+and written by our own code.
+
+The game was C++ (with mods as DLLs) until it was ported to C3, without mods;
+the C++ is in git's history. Worlds made by the C++ game open unchanged: the
+generator makes the same terrain, bit for bit, and the files are the same.
 
 ## Requirements
 - Windows 10 or 11, x64
 - A GPU with Direct3D 11 at feature level 11_0 (or `--warp` to render in software)
-- Visual Studio 2026 (or 2022) with "Desktop development with C++": the MSVC
-  compiler and linker and the Windows SDK's shader compiler. Nothing else: no
-  build system and no third-party libraries (the build uses
+- [c3c](https://github.com/c3lang/c3c) 0.8.6, the C3 compiler
+- Visual Studio 2026 (or 2022) with "Desktop development with C++", for `cl`
+  (to compile `nob.c`, the build) and the Windows SDK's shader compiler
+  (`fxc`). No third-party libraries (the build uses
   [nob.h](https://github.com/tsoding/nob.h), one header, in this folder).
 - Optional: Windows' **Graphics Tools** (Settings > System > Optional features) for
-  the Direct3D debug layer in debug builds
+  the Direct3D debug layer (`--debug`)
 
 Direct3D 11, not 12: Intel disabled Direct3D 12 on 4th-generation (Haswell) graphics
 such as the HD 4600, where every Direct3D 12 draw hangs the GPU; their Direct3D 11
 drivers are mature, and nothing a voxel game needs is missing from Direct3D 11.
 
 ## Build and test
-The build is `nob.c`, a C program that calls the compiler, linker and shader
-compiler (`cl`, `link`, `fxc`) directly: no build system, nothing to
-configure. From a **Developer PowerShell for VS** (it puts them on the path),
-in this folder:
+The build is `nob.c`, a C program: it compiles the shaders with `fxc` (into
+`build\shaders\*.cso`, which the game embeds), then has `c3c` build the game
+(`c3\project.json`). From a **Developer PowerShell for VS** (it puts `cl` and
+`fxc` on the path), in this folder:
 
     cl nob.c                  # once: afterwards nob rebuilds itself when nob.c changes
-    nob                       # build the game (the C3 port in c3\: see c3\README.md)
-    nob test                  # build, then run its tests
+    nob                       # build build\c3\gocube.exe
+    nob test                  # build, then run the tests
     nob run -- --world=Test   # build, then play (arguments after --)
-    nob cpp                   # the old C++ game: build Dev (also: nob cpp test, nob cpp run)
-    nob cpp release           # build Release (also: nob cpp test release, nob cpp run release)
-    nob cpp clean             # delete build\
+    nob clean                 # delete build\
 
-Three configurations, each in its own folder (`build\Release`, `build\Dev`,
-`build\Debug`):
+`nob` runs `c3c` from the path, or the one the `C3C` environment variable
+names (`$env:C3C = "...\c3c.exe"`). Floats are `strict` (no fused
+multiply-add, no reordering), so worlds generate the same everywhere.
 
-- **release**: optimized (`/O2`), the game as players get it. The slowest to
-  compile (about 3 minutes from scratch on 2 cores).
-- **dev** (the default): not optimized, except the few files where the game spends its
-  time (chunks: generating, lighting, meshing; data and JSON). Compiles
-  about three times faster than Release (a change to one file: seconds) and
-  runs well enough to play and test.
-- **debug**: not optimized at all, with the debug runtime's checks
-  (iterators, the heap, `/RTC1`) and Direct3D's debug layer. The slowest to run.
+The tests (`c3\test\`, `@test` functions, by module) cover world generation
+(the fingerprint of seed 777's world, the generator's hash), the block table
+and atlas, JSON, saving, the player, survival and creative, commands,
+multiplayer (a host and a client in one process: joining, block changes,
+survival, chests, chat, the host's checks), sound (mixing, and a sound played
+on the device), the UI's controls, and rendering on WARP (a frame, the world
+and the UI, read back from screenshots in `build\c3`). They run in the test
+runner's leak-tracking allocator: a test that leaks fails.
 
-Only what changed is compiled again, all of it at once (as many files as
-there are cores): an object when its source, nob itself, or a header it
-includes is newer (the compiler lists those headers for each object), so
-changing a header compiles only the files that use it. The standard
-library headers are precompiled once (`src/pch.h`).
-
-`unity` (e.g. `nob cpp test release unity`, what CI does) compiles a few files
-that each include several sources, so code they share is compiled once per
-batch, not once per file: faster from scratch, slower after a small change
-(the whole batch again). It builds in `build\<Config>-Unity`. Because of it,
-two sources of the same part of the game mustn't both define a file-local
-name (in an anonymous namespace) with the same parameters, even the same
-way: share it in a header instead (`src/maths.h`, `tests/helpers.h`), or
-give one another name.
-
-The tests are four runs, two at a time: the unit tests (`gocube_tests`) in
-two processes, the multiplayer ones (`-tc=multiplayer:*`: they play in real
-time, so mostly they wait) beside the rest (`-tce=multiplayer:*`); then
-multiplayer between two processes (`gocube_mp_smoke`) beside the game
-rendering 60 frames on WARP. Each run's
-output is in `build\<Config>\test_logs` (printed in full if it fails), with
-the slowest test cases listed at its end.
-
-The game is `build\<Config>\gocube.exe`, with its mods next to it (`mods\`
-is copied there and the base game's `core.dll` built into
-`mods\core`); it finds `mods\` in its folder or a folder above it.
+The game is `build\c3\gocube.exe`; it finds `content\` in its folder or a
+folder above it.
 
 ## Playing
 Run `gocube` for the title menu: your worlds (play, delete to the Recycle Bin),
@@ -126,8 +106,7 @@ pick up what lies around; placing never uses anything up, and nothing hurts.
 
 Settings (the title menu's Settings button, or the pause menu's): view distance,
 mouse sensitivity, frame rate limit, vsync, smooth lighting, sun shadows,
-render scale, volumes, the clock, the keys, and which mods load (and the mods
-downloaded from servers). Changes show at once; they're kept in
+render scale, volumes, the clock and the keys. Changes show at once; they're kept in
 `%APPDATA%\GoCube\settings.json`, with your name and the last address you joined.
 
 Playing together: in the title menu, tick "Open the world I play to others" and
@@ -136,13 +115,8 @@ for smoother movement), or type the host's address and
 "Join their world". The host's world is the world: it checks and does what
 joined players do, keeps their inventories and health (saved in its world, by
 name), and runs the creatures, items, chests and time; the night is
-skipped once everyone is in bed. Everyone plays with the host's mods: joining
-a host with other mods (the same base game), you're asked whether to download
-the ones you lack (each checked against its fingerprint, kept in
-`%APPDATA%\GoCube\server_mods`); the game then starts again with exactly the
-host's mods. A downloaded mod with code (a DLL) only loads if you allow it
-(Settings: "Servers' mods may run code", off by default): native code has the
-game's full access to your computer.
+skipped once everyone is in bed. Everyone plays the same game, so any copy
+of the same version can join any host.
 
 | Option | What it does |
 | --- | --- |
@@ -163,16 +137,15 @@ game's full access to your computer.
 | `--menu` | The title menu even with testing options (`--frames`, `--screenshot` apply to it) |
 | `--warp` | Render on WARP, Windows' software adapter (no GPU needed) |
 | `--hidden` | Don't show the window (tests; the settings file isn't read: the defaults) |
-| `--frames=N` | Quit after N frames; exit code 1 if the debug layer reported errors or warnings |
+| `--frames=N` | Quit after N frames |
 | `--screenshot=FILE` | Save the last frame as a PNG (frames are counted once the world around has loaded) |
 | `--render-scale=F` | Draw the world at this part of the window's resolution (0.25 to 1; stretched over it; default: the settings') |
 | `--host[=PORT]` | Open the world to others (default port 24680) |
 | `--join=ADDRESS[:PORT]` | Play in the world of the host at this address |
 | `--name=NAME` | The name others see (default "Player"; the host keeps a survival player's things by it) |
-| `--accept-mods` | Joining a host with other mods: download them without asking |
 | `--no-sound` | Play without sound (`--hidden` never plays any) |
 | `--no-vsync` | Present as fast as possible |
-| `--debug`, `--no-debug` | Force the Direct3D 11 debug layer on or off (default: on in debug builds) |
+| `--debug`, `--no-debug` | The Direct3D 11 debug layer on or off (default: off; needs Windows' Graphics Tools) |
 
 ## Dyeing
 Any block can be any colour. Five gem ores (red, green and blue the commonest,
@@ -209,108 +182,56 @@ gives others the right with `/op NAME` (kept with the world). Everyone can use
 | `/setblock <x y z> <block>`, `/fill <x1 y1 z1> <x2 y2 z2> <block>` | Change blocks (a fill: 32768 at most) |
 | `/summon <creature> [x y z]` | A creature |
 | `/kick <player> [reason]`, `/op <player>`, `/deop <player>` | Players |
-| `/run <mod:name>` | A mod's command file |
-
-## Mods
-A mod is a folder with `mod.json` (its manifest); the game loads `mods/` next
-to it (the base game first) and `%APPDATA%/GoCube/mods`:
-
-    {"id": "mymod", "name": "My Mod", "version": "1.0", "content": "content.json", "entry": "mymod.dll", "api_version": 2}
-
-A mod can be **data only**: its content as JSON (`content.json`:
-`{"blocks": {"ruby_ore": {"hardness": 3, "color": "#c02040"}}, "items": {...}}`)
-and chat command files (`functions/NAME.txt`, a command a line, run with
-`/run mymod:NAME`). Nothing of it runs as code. Or it has **code**: a DLL
-(x64) the game loads into itself, which registers content, event handlers,
-the game's rules and chat commands. The boundary is a small C API
-(`src/mods/gocube_api.h`: the DLL exports `gocube_mod_load`; values cross as
-JSON text), so a mod can be built with any compiler. In C++,
-`src/mods/mod_sdk.h` makes it short (build it with `src/data/data.cpp` and
-`src/data/json.cpp`; `nob.c`'s `mod_dll` shows how):
-
-    #include "mods/mod_sdk.h"
-    struct MyMod : gc::sdk::Mod {
-        explicit MyMod(const GcApi *api) : Mod(api) {
-            add_command("heal", {{"usage", "<player>"}},
-                    [this](const gc::Data &who, const gc::Data &args) { return std::string("healed"); });
-            set_rule("fall_damage", [this](const gc::Data &a) { // half the base game's
-                return gc::Data(rule_before("fall_damage", a).get<int>() / 2);
-            });
-        }
-    };
-    GOCUBE_MOD(MyMod)
-
-`src/mods/mods.h` lists what mods can call (`registry`, `events`, `world`,
-`creatures`, `game`) and the rules the game asks. The base game is the
-example: `mods/core/content.json` holds its blocks, items, ores, trees, biome
-and sounds, and `src/core_mod/core_mod.cpp` sets the game's rules (mining
-time, drops, fall damage, food, plants, fluids, creatures, the two recipes);
-a mod can replace one, or wrap it (`rule_before` gives the one it replaced).
-The game still supports what the base game left out: furnaces
-(`block_entity = "furnace"`, the `smelting` and `fuel_seconds` rules), tools
-and weapons (`damage` on an item), armour, food (`food` on an item), and
-planting and crops (the `use_item` rule, `grows_into`);
-`tests/data/kit_mods/kit` (its code: `tests/mods/kit.cpp`) is a small mod that
-adds them back. Dyes: an item with `dye = "#rrggbb"` is a gem for the dye vat
-(a grey shades, any other colour is a hue); a block with `dye_vat = true` and
-`block_entity = "vat"` is a vat (`full` names its variant with dye in it);
-`undyed_boxes` lists the boxes of a shaped block that keep their own colours
-when it's dyed; `world.set_block` takes a dyed id.
-
-A mod's code is native and isn't sandboxed: it can do anything the game can.
-The game catches a crash or an uncaught exception in a mod's function (the
-mod is then turned off), and a mod whose loading fails is undone (its content
-and handlers removed, its DLL unloaded, mods that depend on it skipped); a
-mod that corrupts memory can still bring the game down. The same DLL may be
-loaded for two worlds at once (a host and a client in one process), so a mod
-keeps its state in its object, never in globals.
-
-Each mod gets a fingerprint of its files, for checking that players have the
-same mods (mod DLLs are built reproducibly, `/Brepro`: the same sources and
-compiler give the same fingerprint; a Debug build's differs from a Release
-build's). `mods/` and `tests/data/` are kept byte
-for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 
 ## Layout
-- `src/voxel/`: the voxel engine (chunks, world generation, light, meshing, chunk
-  files).
-- `src/content/`: the content mods register, block ids, the block table, the texture
-  atlas, item models, skins and the generator's tables.
-  Most block faces are painted from a colour and noise (`image.h`; the base game's
-  in `mods/core/content.json`); the few drawn images (torches, doors,
-  beds, chests, items, the default skin) are PNG files, read by Windows' own decoder (WIC).
-- `src/world/`: chunk streaming on worker threads, editing, the raycast, collision;
-  the world folder (`world.json`, `chunks\`).
-- `src/game/`: the player (movement, breaking, placing), the block rules
-  (shaped blocks' variants, doors, beds, support), survival (inventory,
-  health, drops), creatures and their models, the first-person arm.
-- `src/mods/`: finding, ordering and loading mods; the C API for mods' DLLs
-  (`gocube_api.h`) and the C++ helper for writing one (`mod_sdk.h`);
-  fingerprints.
-- `src/core_mod/`: the base game's code (`core.dll`).
-- `src/data/`: the game's data value and JSON (`json.h`, our own).
-- `src/net/`: multiplayer: the host's checks, what
-  travels between host and clients, the message format, and the transport (TCP,
-  and UDP for positions, on the same port; Winsock only).
-- `src/render/`, `shaders/`: Direct3D 11, the terrain, sky, item and creature
-  shaders (HLSL, compiled by FXC at build time).
-- `src/profiler.h`: the frame profiler (F3, `--profile`).
-- `src/ui/`: the UI, our own: an immediate-mode core (`gui.h`: windows, layout,
-  buttons, text fields, sliders, drop-downs, scrolling; tested with a fake font)
-  drawn with Direct3D 11 (`gui_d3d.h`, `shaders/gui.hlsl`) in Windows' own UI
-  font (Segoe UI, rasterized by GDI); the inventory, container and settings screens.
-- `mods/core/`: the base game: its manifest, content and assets.
-- `tests/`: unit tests (with our own small framework, `tests/check.h`): world generation (a fingerprint, what the land
-  is like), player movement and editing, saving, mods (DLLs loading, failing
-  and crashing, undoing, events, commands, fingerprints; the test mods' code
-  is in `tests/mods/`), survival, the UI, and what rendering works out on the
-  CPU (item models, held light, block shadows, skins, the profiler),
-  multiplayer (host and client in one process). `tests/mp_smoke.cpp` plays a
-  round between a host and a client in two processes (CTest runs it).
+All the code is in `c3\src`, a module per folder (tests in `c3\test`, the
+same way):
+- `voxel/`: chunks, noise, world generation, light, meshing, chunk files.
+- `content/`: `content.json`, block ids and variants, the texture atlas (most
+  block faces are painted from a colour and noise; the few drawn images are
+  PNG files, read by our own decoder), item models, skins and the generator's
+  tables.
+- `world/`: chunk streaming on worker threads, editing, the raycast,
+  collision; the world folder (`world.json`, `chunks\`).
+- `game/`: the player (movement, breaking, placing), the block rules (shaped
+  blocks' variants, doors, beds, support), survival (inventory, health,
+  drops), chests and dye vats, creatures and their models, the day, commands,
+  the first-person hand, and the base game's rules (`rules.c3`: mining time,
+  drops, fall damage, food, the two recipes; `core.c3`: plants, fluids, Block
+  Eaters).
+- `data/`: the game's data value and JSON (our own).
+- `net/`: multiplayer: the session (the host's checks, what travels between
+  host and clients), the message format, and the transport (TCP, and UDP for
+  positions, on the same port; Winsock only).
+- `render/`, with `shaders\` (HLSL): Direct3D 11, called through vtables
+  generated from the Windows SDK's headers; the terrain, sky, item and
+  creature drawing.
+- `ui/`: the UI, our own: an immediate-mode core (`gui.c3`: windows, layout,
+  buttons, text fields, sliders, drop-downs, scrolling; tested with a fake
+  font) drawn with Direct3D 11 (`gui_d3d.c3`, `shaders\gui.hlsl`) in Segoe UI,
+  rasterized by GDI; the inventory, container and settings screens.
+- `audio/`: `.wav` files, each ear's loudness, XAudio2, the underwater filter
+  (an XAPO written in C3).
+- `platform/`: the window, Win32 calls, the clock, the log; `profiler.c3`:
+  the frame profiler (F3, `--profile`).
+- `app/`: the game itself: options, the title menu, playing, the HUD.
+
+`content\` holds the game's content and assets.
+
+## Conventions
+- Containers that outlive a function are `gocube::util::vec::Vec{T}` and
+  `gocube::util::map::Map{K, V}`: a zero value is ready and uses the heap.
+  (The standard library's `List`, `HashMap` and `DString` start on the
+  temporary allocator when not initialized, so what they hold is freed at the
+  end of the enclosing `@pool`.) A `DString` that must last is `init(mem)`ed.
+- Everything that owns memory has `free()`; `Data` owns what it holds, and
+  `set()`/`push()` take values over.
+- Methods can't be `@private` (it's ignored); constants from another module
+  need its prefix (`voxel::CHUNK`).
 
 ## Dependencies
-None but Windows' own: Direct3D 11, GDI (the UI's text, in
-Windows' font), XAudio2 (sound), Winsock (multiplayer), WIC (PNG images and
-screenshots), the Compression API (mod packs). The build uses
+None but Windows' own: Direct3D 11 and DXGI, GDI (the UI's text), XAudio2
+(sound), Winsock (multiplayer), user32, shell32 (the Recycle Bin), winmm (the
+timer) and bcrypt (random numbers). The build uses
 [nob.h](https://github.com/tsoding/nob.h) 3.10.1 (`nob.h`, MIT or public
 domain), the only third-party file, used by `nob.c` alone.

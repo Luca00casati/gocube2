@@ -1,6 +1,6 @@
 // The transport under multiplayer, on localhost: TCP for what must arrive,
 // UDP for what may be lost once it's known to work, TCP for that too when it
-// doesn't; closing after the last message; refusals. (tests/test_transport.cpp)
+// doesn't; closing after the last message; refusals.
 module gocube::test::transport_test;
 import gocube::net::transport, gocube::util::vec, gocube::clock, gocube::win;
 import std::io;

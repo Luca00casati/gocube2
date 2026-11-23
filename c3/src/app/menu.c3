@@ -1,5 +1,5 @@
 // The title menu: the worlds (play, create, delete), playing with others,
-// the settings. (src/main.cpp: title_menu)
+// the settings.
 module gocube::app @link("shell32");
 import gocube::gui, gocube::window, gocube::renderer, gocube::settings_screen, gocube::data, gocube::data::json, gocube::net::session;
 import gocube::win, gocube::util::vec, gocube::util::rand;

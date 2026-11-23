@@ -4,7 +4,7 @@
 // reads its arguments (numbers, coordinates with ~ for "from where I am",
 // block and item ids, player names) and answers in the chat. What they act on
 // goes through a CommandWorld (the session fills it in from the game; the
-// tests with fakes). (src/game/commands.*, without mods' commands)
+// tests with fakes).
 module gocube::game::commands;
 import gocube::world, gocube::util::vec, std::math, std::sort, std::io;
 

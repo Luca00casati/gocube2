@@ -2,7 +2,7 @@
 // its Session, and frames of play as the game's loop runs them (in real time:
 // the host times mining, movement and request rates by the clock). Players
 // are driven like a person would: they stand where they're put (no physics:
-// moving is the test's), aim, and click (GameInput). (tests/net_play.h)
+// moving is the test's), aim, and click (GameInput).
 module gocube::test::netplay;
 import gocube::test::play, gocube::net::session, gocube::game, gocube::game::day_cycle, gocube::game::inventory;
 import gocube::game::player, gocube::content, gocube::data, gocube::world, gocube::clock, gocube::util::vec;

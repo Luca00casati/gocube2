@@ -1,5 +1,4 @@
 // The sound maths: .wav files, each ear's loudness, the underwater filter.
-// (tests/test_audio.cpp)
 module gocube::test::mixing_test;
 import gocube::sound, gocube::audio, gocube::content, gocube::clock, gocube::util::vec;
 import std::math, std::io;
@@ -79,7 +78,7 @@ fn void wav_files() @test
 	w.free();
 	@pool()
 	{
-		assert(sound::read_wav("../mods/core/sounds/ambience_day.wav", &w, &error), "%s", error);
+		assert(sound::read_wav("../content/sounds/ambience_day.wav", &w, &error), "%s", error);
 	};
 	assert(w.frames() > 0);
 }
@@ -137,7 +136,7 @@ fn void plays_through_xaudio2() @test
 	defer content.free();
 	DString why;
 	defer why.free();
-	assert(content.load("../mods/core", &why), "%s", why.str_view());
+	assert(content.load("../content", &why), "%s", why.str_view());
 	content.freeze();
 	Audio a;
 	defer a.free();

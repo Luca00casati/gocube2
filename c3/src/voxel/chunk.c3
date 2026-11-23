@@ -1,5 +1,5 @@
 // Chunk storage and the block type table shared by the generator, mesher and
-// world. (src/voxel/chunk.h)
+// world.
 module gocube::voxel;
 import gocube::util::vec, gocube::util::map;
 

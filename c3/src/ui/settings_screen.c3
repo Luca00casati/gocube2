@@ -2,7 +2,6 @@
 // vsync, smooth lighting, sun shadows, render scale, volumes, the clock, key
 // bindings. Changes apply at once (the game reads the settings every frame)
 // and are saved when it closes. From the title menu and the pause menu.
-// (src/ui/settings_screen.*)
 module gocube::settings_screen;
 import gocube::gui, gocube::game::settings, gocube::window, gocube::win;
 import std::math;

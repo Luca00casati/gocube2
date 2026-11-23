@@ -2,7 +2,6 @@
 // (opaque, cutout, fluid) per chunk, the block atlas, and the terrain shaders
 // (shaders/chunk.hlsl); the sky, outlines, dropped items and the hand,
 // creatures. Chunks outside the view frustum are skipped.
-// (src/render/chunk_renderer.*)
 module gocube::chunk_renderer;
 import gocube::d3d11, gocube::shaders, gocube::win, gocube::mat, gocube::log, gocube::world, gocube::voxel, gocube::content;
 import gocube::content::skin, gocube::game::creature_models, gocube::util::vec, gocube::util::map;

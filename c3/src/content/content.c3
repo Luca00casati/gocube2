@@ -1,7 +1,7 @@
 // The game's content: blocks, items, recipes, ores, trees, biomes, sound sets
 // and creatures, read from the game's content.json (definitions as data); numeric
 // block ids; the engine's block table and texture atlas; the world
-// generator's tables. (src/content/content.*: the same ids, tiles and tables.)
+// generator's tables.
 module gocube::content;
 import gocube::data, gocube::data::json, gocube::content::image, gocube::voxel, gocube::util::vec, gocube::util::map;
 import std::io, std::math, std::sort;

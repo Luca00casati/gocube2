@@ -2,7 +2,6 @@
 // (0..15, from glowing blocks). Computed for one chunk at a time over the chunk
 // plus a margin of LIGHT_MAX blocks, which is as far as light can travel, so a
 // chunk's light only depends on its 27-chunk neighbourhood. Thread-safe.
-// (src/voxel/light.*)
 module gocube::voxel;
 import gocube::util::vec, std::math;
 

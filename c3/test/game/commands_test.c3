@@ -1,5 +1,5 @@
 // Chat commands on a fake world: who may run what, the arguments (relative
-// coordinates, ids, players), the limits. (tests/test_commands.cpp)
+// coordinates, ids, players), the limits.
 module gocube::test::commands_test;
 import gocube::game::commands, gocube::world, gocube::util::vec, gocube::util::map, gocube::util::intern;
 import std::io, std::math;

@@ -1,5 +1,5 @@
 // Gradient noise (2D/3D) and fractal sums, deterministic per seed.
-// Self-contained: no external noise library. (src/voxel/noise.h)
+// Self-contained: no external noise library.
 module gocube::voxel;
 import std::math;
 

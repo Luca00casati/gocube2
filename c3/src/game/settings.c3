@@ -3,7 +3,7 @@
 // bindings, and the title menu's name and last address. Saved in
 // %APPDATA%\GoCube\settings.json (JSON); what isn't there, or isn't valid, is
 // the default. The settings screen changes them live; the game reads them
-// every frame. (src/game/settings.*)
+// every frame.
 module gocube::game::settings;
 import gocube::data, gocube::data::json, std::io, std::math;
 

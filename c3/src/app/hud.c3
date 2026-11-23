@@ -1,6 +1,5 @@
 // The game's UI around the world: a frame's input, the menus' sky, the death
 // screen, the HUD, the details screen (F3), the pause menu and the chat.
-// (src/main.cpp)
 module gocube::app;
 import gocube::gui, gocube::gui_d3d, gocube::window, gocube::renderer, gocube::chunk_renderer, gocube::profiler, gocube::win;
 import gocube::game, gocube::game::player, gocube::game::inventory, gocube::game::day_cycle, gocube::game::blocks;

@@ -1,7 +1,7 @@
 // The first-person arm and held item: a sleeve, a hand coming out of its cuff
 // and the item in it, off the bottom right of the view. Swings when you hit,
 // place, use or mine (a swing asked for during another plays right after it,
-// whole), bobs while walking. (src/game/hand.*)
+// whole), bobs while walking.
 //
 // build() gives their triangles in camera space (x right, y up, -z forward),
 // coloured by the light where the eyes are: the renderer draws them over the

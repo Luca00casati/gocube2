@@ -1,7 +1,7 @@
 // Playing: the player's inventory and hotbar, mining, breaking (with drops)
 // and placing, in survival or creative; health; dropped items, containers,
 // dye vats; and the base game's behaviour (game::rules, and core_*.c3:
-// plants, fluids, creatures). (src/game/game.*, and src/core_mod's code)
+// plants, fluids, creatures).
 module gocube::game;
 import gocube::game::blocks, gocube::game::player, gocube::game::inventory, gocube::game::drops, gocube::game::block_entities;
 import gocube::game::creatures, gocube::game::rules, gocube::game::vitals, gocube::game::dye;

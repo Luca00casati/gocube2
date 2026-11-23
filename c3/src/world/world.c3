@@ -4,7 +4,6 @@
 // light needs complete columns). Edits change a copy of the chunk, are saved
 // to its file, and remesh everything their light can reach.
 // The main thread calls update() once per frame and uploads finished meshes.
-// (src/world/world.*)
 module gocube::world;
 import gocube::voxel, gocube::util::vec, gocube::util::map, gocube::util::shared, gocube::maths, gocube::clock, gocube::log;
 import std::thread, std::atomic, std::math;

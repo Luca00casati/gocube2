@@ -1,5 +1,5 @@
 // Logging to stderr (the console in debug builds) and the debugger's output
-// window. (src/log.h)
+// window.
 module gocube::log;
 import std::io, gocube::win;
 

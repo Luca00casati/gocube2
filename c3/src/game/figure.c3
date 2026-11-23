@@ -5,7 +5,6 @@
 // -> elbow -> forearm, and hips -> thigh -> knee -> shin. Each frame the owner
 // sets the inputs; the figure blends towards the pose they ask for (joint by
 // joint), so changes never snap. swing() plays a strike with the right arm.
-// (src/game/figure.*)
 module gocube::game::figure;
 import gocube::maths, std::math;
 

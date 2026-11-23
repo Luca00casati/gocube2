@@ -1,5 +1,5 @@
 // The game's own UI (ui/gui), with a fixed-width "font" (8 x 16 pixels a
-// character at 15): clicks, controls, text fields. (tests/test_gui.cpp)
+// character at 15): clicks, controls, text fields.
 module gocube::test::gui_test;
 import gocube::gui, gocube::util::vec;
 import std::math, std::io;

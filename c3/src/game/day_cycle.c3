@@ -1,7 +1,7 @@
 // The time of day (0..1, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset) and what
 // follows from it: daylight, the sky's colours, where the sun is. A day lasts
 // day_length seconds (a real day by default: new worlds start at the
-// computer's clock time). (src/game/day_cycle.h)
+// computer's clock time).
 module gocube::game::day_cycle;
 import gocube::win, std::math;
 

@@ -1,11 +1,11 @@
 // The base game loaded and a world (seed 4242) around the origin, played
-// without a window: for the tests. (tests/play.h)
+// without a window: for the tests.
 module gocube::test::play;
 import gocube::content, gocube::game, gocube::game::blocks, gocube::game::player, gocube::world, gocube::voxel, gocube::clock, gocube::util::vec;
 import std::io, std::math;
 
 // Where the game's content is, from where the tests run (c3/).
-const String CONTENT_DIR = "../mods/core";
+const String CONTENT_DIR = "../content";
 
 struct Setup
 {

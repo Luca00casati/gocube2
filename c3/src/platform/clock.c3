@@ -1,7 +1,7 @@
 // A steady clock in seconds (from an arbitrary start): for timeouts and rates.
 // And fine sleeping: Windows wakes sleeping threads on its timer tick, 15.6
 // ms by default, so sleeping 1 ms takes up to 16 ms; fine_sleep(true) asks
-// for a 1 ms tick (per process). (src/platform/clock.h, fine_sleep.h)
+// for a 1 ms tick (per process).
 module gocube::clock @link("winmm");
 import gocube::win;
 

@@ -3,7 +3,7 @@
 // mixed like light and as bright as it goes (red + green is yellow, 2 red + 1
 // green orange); greys (white, black) shade it, by their share of all the
 // gems (red + white is pink, blue + black navy; white and black alone make
-// greys). Only the counts matter, not the order. (src/game/dye.*)
+// greys). Only the counts matter, not the order.
 module gocube::game::dye;
 import gocube::voxel, std::math;
 

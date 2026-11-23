@@ -1,6 +1,6 @@
 // Turns a chunk (plus its 6 neighbours, for faces on the border) into vertex
 // arrays: an opaque surface, a cutout surface (blocks whose textures have
-// see-through pixels) and a fluid surface. Thread-safe. (src/voxel/mesher.*)
+// see-through pixels) and a fluid surface. Thread-safe.
 module gocube::voxel;
 import gocube::util::vec, std::math;
 

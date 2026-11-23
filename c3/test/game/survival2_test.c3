@@ -1,5 +1,5 @@
 // Survival, continued: the day, beds, plants, trees, fluids, sounds,
-// creatures and Block Eaters, the void, game modes. (tests/test_survival.cpp)
+// creatures and Block Eaters, the void, game modes.
 module gocube::test::survival2_test;
 import gocube::test::play, gocube::content, gocube::data, gocube::game, gocube::game::inventory, gocube::game::player;
 import gocube::game::creatures, gocube::game::day_cycle, gocube::world, gocube::util::vec, gocube::clock;

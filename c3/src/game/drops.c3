@@ -1,6 +1,6 @@
 // Items lying in the world: they pop out of broken blocks, fall, merge with
 // the same item nearby, drift to the player and go into their inventory,
-// and disappear after LIFETIME. (src/game/drops.*)
+// and disappear after LIFETIME.
 module gocube::game::drops;
 import gocube::game::inventory, gocube::world, gocube::voxel, gocube::content, gocube::content::item_models, gocube::util::vec, gocube::util::rand, gocube::util::intern;
 import std::math;

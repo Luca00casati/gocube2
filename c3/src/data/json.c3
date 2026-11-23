@@ -1,6 +1,6 @@
 // Data files and data as text: JSON (RFC 8259), read and written by our own
 // code. A world's world.json, the settings, the game's content and what
-// travels over the network are JSON. (src/data/json.*: the same output.)
+// travels over the network are JSON.
 //
 // Objects keep their keys in the order they're written; a number without a
 // fraction or exponent that fits is an integer, any other a float. Reading is

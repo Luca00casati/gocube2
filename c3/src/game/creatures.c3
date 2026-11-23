@@ -2,7 +2,7 @@
 // turning towards where they head), how they look while they do (the walk
 // cycle, a squash or a red flash when hurt) and being hit. What they do is
 // game::core's (it spawns them, sets where they head and how fast, and
-// handles hits). (src/game/creatures.*)
+// handles hits).
 //
 // A kind is content ("creatures"): "model" (how it's drawn: "block_eater" or
 // "figure": a person), "box" [width, height, depth] (collision, picking),

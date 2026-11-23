@@ -1,7 +1,7 @@
 // Multiplayer: a host and a client in one process, over TCP and UDP on
 // localhost. The client is driven as a person would (aim, click); the host
 // checks what it asks and does it as that player. Both worlds must agree
-// after. (tests/test_multiplayer.cpp)
+// after.
 module gocube::test::multiplayer_test;
 import gocube::test::netplay, gocube::test::play, gocube::net::session, gocube::game, gocube::game::inventory, gocube::game::block_entities;
 import gocube::content, gocube::data, gocube::world, gocube::voxel, gocube::win, gocube::util::vec;

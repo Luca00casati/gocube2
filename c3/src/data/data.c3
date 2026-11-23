@@ -1,7 +1,7 @@
 // The game's dynamic data value: what a JSON file (data/json.c3) holds and
 // what goes over the network. Null, a boolean, an integer, a float, a
 // string, a list or an object (string keys, kept in the order they were
-// added). (src/data/data.*)
+// added).
 //
 // A Data owns what it holds (on the heap): free() it. Values handed to
 // set(), push() and add() are taken over (don't free them after); copy()

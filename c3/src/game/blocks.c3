@@ -1,7 +1,6 @@
 // Block rules for playing: which blocks can be placed, which variant a
 // placement makes (slabs, stairs, torches, ladders, doors, beds), the other
 // half of a door or bed, opening doors, and what needs support.
-// (src/game/blocks.*)
 module gocube::game::blocks;
 import gocube::content, gocube::data, gocube::world, gocube::util::vec, std::math;
 

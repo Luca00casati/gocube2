@@ -2,7 +2,6 @@
 // face texture tiled once a metre (a Block Eater that ate a block looks made
 // of it). Vertices in world space for shaders/creatures.hlsl, which shades
 // each face by its own normal and the light where the creature is.
-// (src/game/creature_models.*)
 module gocube::game::creature_models;
 import gocube::game::creatures, gocube::game::figure, gocube::content, gocube::content::skin, gocube::mat, gocube::maths;
 import gocube::util::vec;

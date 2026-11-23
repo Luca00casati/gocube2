@@ -1,5 +1,5 @@
 // Small math the game shares: angles (pi, a full turn, turning the short
-// way), easing, rounding toward minus infinity, 3-vectors. (src/maths.h)
+// way), easing, rounding toward minus infinity, 3-vectors.
 module gocube::maths;
 import std::math;
 

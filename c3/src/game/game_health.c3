@@ -1,5 +1,4 @@
 // Game: health, damage, death and respawn, spawning on dry ground.
-// (src/game/game_health.cpp)
 module gocube::game;
 import gocube::game::blocks, gocube::game::player, gocube::game::inventory, gocube::game::drops, gocube::game::block_entities;
 import gocube::game::creatures, gocube::game::rules, gocube::game::vitals, gocube::game::dye;

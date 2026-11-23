@@ -1,4 +1,4 @@
-// The base game's behaviour (the core mod's code: src/core_mod/core_mod.cpp):
+// The base game's behaviour (formerly the core mod's code):
 // plants (growing, falling, support, leaf decay, trees sprouting), flowing
 // water and lava, and the Block Eaters. It hears of block changes a tick
 // after they happen (Game.tick) and runs every frame.

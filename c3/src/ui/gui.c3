@@ -4,7 +4,7 @@
 // clicked from the mouse and keys, and it records what to draw (rectangles,
 // gradients, text, item icons) for a backend to draw (ui/gui_d3d: Direct3D
 // 11, text rasterized by GDI). Text is measured through a callback, so tests
-// run it with a fixed-width "font". (src/ui/gui.*)
+// run it with a fixed-width "font".
 //
 // A widget's label is also its id, unique within its window and push_id
 // scope; "##" starts the part that is only id ("Address##join" shows

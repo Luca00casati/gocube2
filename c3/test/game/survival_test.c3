@@ -1,6 +1,6 @@
 // Survival: the inventory, the base game's mining and drop rules, breaking
 // with drops that get picked up, placing that uses up blocks, starting items,
-// containers, health. (tests/test_survival.cpp)
+// containers, health.
 module gocube::test::survival_test;
 import gocube::test::play, gocube::content, gocube::data, gocube::game, gocube::game::inventory, gocube::game::rules;
 import gocube::game::player, gocube::game::block_entities, gocube::world, gocube::util::vec, gocube::util::rand;

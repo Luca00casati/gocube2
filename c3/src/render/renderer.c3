@@ -1,5 +1,5 @@
 // Direct3D 11: device, flip-model swap chain, depth buffer; the UI drawn over
-// it. (src/render/renderer.*)
+// it.
 //
 // Direct3D 11, not 12: Intel disabled Direct3D 12 on 4th-generation
 // (Haswell) graphics such as the HD 4600, where every Direct3D 12 draw hangs

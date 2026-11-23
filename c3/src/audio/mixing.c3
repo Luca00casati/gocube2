@@ -2,7 +2,7 @@
 // through XAudio2): reading .wav files, how loud a sound at a place is in
 // each ear, and the underwater low-pass filter. The numbers are miniaudio's
 // (the library the game played its sounds through first), so the game
-// sounds the same. (src/audio/mixing.*)
+// sounds the same.
 module gocube::sound;
 import gocube::util::vec;
 import std::math, std::io;

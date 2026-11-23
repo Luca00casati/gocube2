@@ -1,5 +1,5 @@
 // Throwing items (Q) and the dye vat: gems thrown in make its dye, blocks
-// thrown in come out that colour. (src/game/game_dye.cpp)
+// thrown in come out that colour.
 module gocube::game;
 import gocube::game::blocks, gocube::game::player, gocube::game::inventory, gocube::game::drops, gocube::game::block_entities;
 import gocube::game::creatures, gocube::game::rules, gocube::game::vitals, gocube::game::dye;

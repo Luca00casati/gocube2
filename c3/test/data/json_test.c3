@@ -1,4 +1,4 @@
-// JSON: written and read back the same; only data. (tests/test_save.cpp's JSON cases)
+// JSON: written and read back the same; only data.
 module gocube::data::json_test;
 import gocube::data, gocube::data::json, std::io;
 

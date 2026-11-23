@@ -1,6 +1,5 @@
 // The network under multiplayer (net/session): messages between a host and
-// its clients over TCP and UDP, through Winsock only. (src/net/transport.*:
-// the same frames and datagrams.)
+// its clients over TCP and UDP, through Winsock only.
 //
 // TCP carries everything that must arrive, in order: each message a frame
 // (u32 length, u8 kind, the bytes). It also carries the transport's own

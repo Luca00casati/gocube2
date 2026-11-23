@@ -1,14 +1,13 @@
 {
-  // GoCube in C3: the port of src/ (C++), module by module. The C++ game is
-  // the reference until this one does all it does; each part ported is
-  // checked against it (see README.md).
+  // GoCube, in C3 (see ../README.md). `nob` builds it: it compiles the
+  // shaders first (build/shaders/*.cso), which the game embeds.
   "langrev": "1",
   "version": "0.1.0",
   "sources": [ "src/**" ],
   "test-sources": [ "test/**" ],
   "output": "../build/c3",
-  // Floats as the C++ build computes them (no fused multiply-add, no
-  // reordering): worlds must generate the same, bit for bit.
+  // Strict floats (no fused multiply-add, no reordering): worlds generate the
+  // same, bit for bit, on every machine and as they did before the port.
   "fp-math": "strict",
   "x86cpu": "sse4",
   "targets": {

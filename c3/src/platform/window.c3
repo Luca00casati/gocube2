@@ -1,4 +1,4 @@
-// The game's one Win32 window. (src/platform/window.*)
+// The game's one Win32 window.
 module gocube::window;
 import gocube::win, gocube::util::vec;
 import std::io;

@@ -2,7 +2,7 @@
 // by our own code: inflate, filters, interlacing; any colour type and depth,
 // as 8-bit RGBA); every other face is painted here from a colour and some
 // noise, as a block's definition describes it (its `textures` face given as
-// a table). (src/content/image.*: the same pixels.)
+// a table).
 module gocube::content::image;
 import gocube::data, gocube::data::json, gocube::util::vec, std::io, std::math;
 

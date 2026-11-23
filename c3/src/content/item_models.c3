@@ -2,7 +2,7 @@
 // texture, shrunk to a slab's or a door's single box), a whole bed for beds,
 // else the item's icon given depth (each opaque pixel a little block, walls
 // where it borders a clear one). Used for dropped items and the item in the
-// first-person hand. (src/content/item_models.*)
+// first-person hand.
 //
 // Models are centred on the origin (a cube stands on the bottom of its 0.25
 // cell: a slab's top is at 0), in metres, with atlas uvs; built once per item.

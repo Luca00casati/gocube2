@@ -1,4 +1,4 @@
-// The base game's rules (what the core mod's code set: src/core_mod): mining
+// The base game's rules (formerly set by the core mod's code): mining
 // time, what breaking a block drops, fall and void damage, food, the two
 // hand recipes, the dye vat's palette and what a new player starts with.
 module gocube::game::rules;

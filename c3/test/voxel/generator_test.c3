@@ -1,7 +1,7 @@
 // The generator configured by hand to use everything it has (ores, every
 // tree style, biomes with frozen seas, mountains, bare rock, caps and snow),
 // its output hashed (FNV-1a, 64 bits): the same configuration and hash as the
-// C++ test in tests/test_worldgen.cpp, so the port makes the same worlds.
+// C++ game's test, so worlds made before the port stay the same.
 module gocube::voxel::generator_test;
 import gocube::voxel, gocube::util::vec;
 

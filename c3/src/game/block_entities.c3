@@ -4,7 +4,7 @@
 // "block_entity": "chest" or "vat"; when it goes, its contents spill. Saved in
 // world.json's block_entities:
 //   {"x,y,z": {type, slots: [[id, count] or false, ...], charge}}
-// (src/game/block_entities.*; the furnace's smelting was only ever a mod's.)
+// (No furnace: its smelting was only ever a mod's.)
 module gocube::game::block_entities;
 import gocube::game::inventory, gocube::content, gocube::data, gocube::world, gocube::util::vec, gocube::util::map, gocube::util::intern;
 import std::math;

@@ -2,7 +2,7 @@
 // frame (@profile("name") { ... }), added up per frame, shown on the F3
 // screen as an average and the worst frame of the last WINDOW frames. Nested
 // timers show under the one around them. Main thread only: work on the
-// world's threads isn't timed here. (src/profiler.*)
+// world's threads isn't timed here.
 module gocube::profiler;
 import gocube::clock, gocube::util::vec;
 

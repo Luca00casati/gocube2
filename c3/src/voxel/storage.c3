@@ -1,6 +1,6 @@
 // Saving and loading edited chunks: one small file per chunk, run-length
 // encoded block ids. Safe to call from worker threads for different files.
-// (src/voxel/storage.*: the same format, so worlds carry over.)
+// (the same format, so worlds carry over.)
 module gocube::voxel;
 import gocube::util::vec, std::io, std::sort, gocube::fs;
 

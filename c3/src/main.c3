@@ -1,6 +1,6 @@
 // GoCube: a voxel sandbox. The title menu lists the worlds (play, create,
 // delete); a world is a folder with world.json (a data table); the game's
-// content is data (mods/core/content.json, its textures and sounds). Esc
+// content is data (content/content.json, its textures and sounds). Esc
 // pauses. Started with --world, --world-dir or a testing option, it goes
 // straight into that world (see app/options.c3 for the options).
 //

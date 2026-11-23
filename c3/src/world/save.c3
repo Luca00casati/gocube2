@@ -4,7 +4,7 @@
 //                entities, growing plants...)
 //   chunks/      one file per edited chunk (unedited chunks are generated again)
 // Fields this version doesn't use are kept as they are, so a world opened and
-// saved loses nothing. (src/world/save.*: the same files.)
+// saved loses nothing. (the same files.)
 module gocube::world::save;
 import gocube::data, gocube::data::json, gocube::log, gocube::win, gocube::util::vec, std::io;
 

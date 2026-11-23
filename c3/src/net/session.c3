@@ -1,5 +1,5 @@
-// Multiplayer over TCP and UDP (net/transport). (src/net/session.*, without
-// mods: everyone plays the same game, so the hello checks the protocol only.)
+// Multiplayer over TCP and UDP (net/transport). Everyone plays the same game
+// (there are no mods), so the hello checks the protocol only.
 //
 // The host is an authoritative server that also plays. World generation is
 // deterministic, so clients generate terrain themselves from the seed and only
