@@ -51,7 +51,7 @@ struct Settings
 	float render_scale;
 	bool clock_24h;          // 07:19 instead of 7:19 AM
 	int worker_threads;      // chunk threads (0: as many as cores, less one); file only
-	float master_volume, effects_volume, ambience_volume; // 0..1
+	float master_volume, effects_volume, ambience_volume, music_volume; // 0..1
 	int[ACTION_COUNT] keys;  // by ACTIONS' order
 	char[64] name_buf;
 	sz name_len;
@@ -63,7 +63,7 @@ struct Settings
 fn Settings new()
 {
 	Settings s = { .view_distance = 128, .mouse_sensitivity = 0.003f, .vsync = true, .smooth_lighting = false, .retro_filter = true,
-		.shadow_mode = "blocks", .render_scale = 1.0f, .master_volume = 1.0f, .effects_volume = 1.0f, .ambience_volume = 0.7f };
+		.shadow_mode = "blocks", .render_scale = 1.0f, .master_volume = 1.0f, .effects_volume = 1.0f, .ambience_volume = 0.7f, .music_volume = 0.7f };
 	s.reset_keys();
 	s.set_player_name("Player");
 	s.set_last_address("127.0.0.1");
@@ -170,6 +170,9 @@ fn bool Settings.load(&self, String path, DString* error = null) => @pool()
 	v = self.ambience_volume;
 	number(&d, "ambience_volume", 0, 1, &v);
 	self.ambience_volume = (float)v;
+	v = self.music_volume;
+	number(&d, "music_volume", 0, 1, &v);
+	self.music_volume = (float)v;
 	if (Data* keys = d.get("keys"))
 	{
 		foreach (i, a : ACTIONS)
@@ -204,6 +207,7 @@ fn bool Settings.save(&self, String path) => @pool()
 	d.set_double("master_volume", self.master_volume);
 	d.set_double("effects_volume", self.effects_volume);
 	d.set_double("ambience_volume", self.ambience_volume);
+	d.set_double("music_volume", self.music_volume);
 	d.set("keys", keys);
 	d.set_string("player_name", self.player_name());
 	d.set_string("last_address", self.last_address());

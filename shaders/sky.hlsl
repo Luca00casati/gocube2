@@ -15,7 +15,8 @@ cbuffer Sky : register(b0) {
 	float3 sun_dir;      // towards the sun
 	float time;
 	float2 cloud_offset; // drifting clouds, in cloud cells
-	float2 pad;
+	float moon_phase;    // 0 full .. 0.5 new .. 1
+	float pad;
 };
 
 static const float SUN_SIZE = 0.075;   // half-width, in the sun's tangent plane
@@ -110,19 +111,28 @@ float4 ps_main(PSIn i) : SV_Target {
 	float glow = max(dot(dir, sun_dir), 0.0);
 	col += float3(1.0, 0.8, 0.5) * pow(glow, 60.0) * 0.5 * sun_vis;
 
-	// Moon: opposite the sun, an 8x8 pixel disc with darker craters.
+	// Moon: opposite the sun, an 8x8 pixel disc with darker craters, lit as
+	// its phase says (the dark part a faint shape against the sky): waning
+	// from full, the shadow comes in from one side; waxing, it leaves by the
+	// other.
 	float3 moon_dir = -sun_dir;
 	float2 mu = square_uv(dir, moon_dir, MOON_SIZE);
+	float phase_angle = moon_phase * 6.2831853;
+	float moon_bright = 0.5 + 0.5 * cos(phase_angle);
 	if (max(abs(mu.x), abs(mu.y)) < 1.0 && moon_dir.y > -0.1) {
 		float2 px = floor((mu * 0.5 + 0.5) * 8.0); // 0..7
 		float2 c = px - 3.5;
 		if (length(c) < 4.2) {
 			float crater = step(0.72, hash2(px + 3.0));
 			float3 moon = lerp(float3(0.86, 0.88, 0.92), float3(0.62, 0.64, 0.7), crater);
+			float side = moon_phase < 0.5 ? 1.0 : -1.0;
+			float edge = sqrt(max(1.0 - (c.y / 4.0) * (c.y / 4.0), 0.0)) * 4.0; // the disc's half-width on this row
+			bool lit = c.x * side >= -cos(phase_angle) * edge - 0.01;
+			if (!lit) moon = lerp(col, moon, 0.06);
 			col = lerp(col, moon, smoothstep(-0.1, 0.05, moon_dir.y));
 		}
 	}
-	col += float3(0.6, 0.7, 0.9) * pow(max(dot(dir, moon_dir), 0.0), 120.0) * 0.25 * (1.0 - day);
+	col += float3(0.6, 0.7, 0.9) * pow(max(dot(dir, moon_dir), 0.0), 120.0) * 0.25 * (1.0 - day) * moon_bright;
 
 	// Clouds: a flat layer above, blocky cells from smooth noise, drifting.
 	if (h > 0.0) {

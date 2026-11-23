@@ -4,7 +4,7 @@
 module gocube::voxel::generator_test;
 import gocube::voxel, gocube::util::vec;
 
-const ulong HAND_GENERATOR_HASH = 0x4a085ea686637dde;
+const ulong HAND_GENERATOR_HASH = 0x734f9b7ef097877d;
 
 fn ulong fnv(ulong h, void* data, sz size)
 {
@@ -15,7 +15,7 @@ fn ulong fnv(ulong h, void* data, sz size)
 
 fn void hand_configure(Generator* g)
 {
-	GeneratorIds ids = { .stone = 1, .dirt = 2, .grass = 3, .sand = 4, .water = 5, .lava = 6, .gravel = 8, .snow = 10 };
+	GeneratorIds ids = { .stone = 1, .dirt = 2, .grass = 3, .sand = 4, .water = 5, .lava = 6, .gravel = 8, .snow = 10, .cobblestone = 12 };
 	TreeKind[*] trees = {
 		{ .log = 30, .leaves = 31, .min_trunk = 4, .max_trunk = 6, .style = ROUND_OAK, .percent = 8 },
 		{ .log = 32, .leaves = 33, .min_trunk = 6, .max_trunk = 9, .style = BIG_OAK, .percent = 10 },

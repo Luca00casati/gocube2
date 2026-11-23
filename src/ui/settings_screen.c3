@@ -127,8 +127,8 @@ fn bool SettingsScreen.draw(&self, Gui* g, Settings* s, Window* window, bool esc
 	}
 	if (g.combo("##scale", &at, &scale_names)) s.render_scale = settings::RENDER_SCALES[at];
 	if (g.item_hovered()) g.tooltip("Draws the world at a lower resolution and stretches it: blurrier, but much less GPU.");
-	String[3] volume_names = { "Master volume", "Effects volume", "Ambience volume" };
-	float*[3] volumes = { &s.master_volume, &s.effects_volume, &s.ambience_volume };
+	String[4] volume_names = { "Master volume", "Effects volume", "Ambience volume", "Music volume" };
+	float*[4] volumes = { &s.master_volume, &s.effects_volume, &s.ambience_volume, &s.music_volume };
 	foreach (i, name : volume_names)
 	{
 		row(g, string::tformat("%s: %d%%", name, (int)math::round(*volumes[i] * 100)), column);

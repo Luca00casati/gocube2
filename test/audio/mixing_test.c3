@@ -78,7 +78,7 @@ fn void wav_files() @test
 	w.free();
 	@pool()
 	{
-		assert(sound::read_wav("content/sounds/ambience_day.wav", &w, &error), "%s", error);
+		assert(sound::read_wav("content/sounds/wind.wav", &w, &error), "%s", error);
 	};
 	assert(w.frames() > 0);
 }

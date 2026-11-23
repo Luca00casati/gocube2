@@ -7,11 +7,18 @@ enemies. Survival: mining by hand, drops, chests, health, the day and night,
 trees coming up on grass by themselves, flowing water and lava; sound;
 creative; multiplayer (one player hosts, others join); a title menu and pause
 menu. A sky with a sun, moon, stars and drifting clouds; moonlit nights (the
-moon lights the land and casts the block shadows); fog, block shadows,
-light from lamps and a little of the player's own, dropped blocks and a
-first-person arm in your skin.
+moon lights the land and casts the block shadows, and goes through its
+phases: a new moon's night is very dark); an orange-red haze at sunset; fog,
+block shadows, light from lamps and a little of the player's own, dropped
+blocks and a first-person arm in your skin.
+A lonely mood: wind out in the open, rare strange sounds underground, now
+and then a slow piano piece between long silences (the sounds are made by
+`tools/make_mood_sounds.py`).
 The terrain comes from 3D noise: hills, cliffs, overhangs, seas with sand and
-gravel beaches, caves and lava deep down. Players wear skins in the
+gravel beaches, caves and lava deep down, huge dark hollows and ravines,
+rare floating islands and perfectly flat patches, and here and there an
+empty structure nobody explains (a pillar, a dirt hut, a shaft to a tunnel
+that goes nowhere, a broken wall). Players wear skins in the
 usual box-figure layout (`%APPDATA%\GoCube\skin.png`, 64x64 or 64x32, a
 PNG with see-through parts), and everyone sees each player's. The game's
 content is data (`content/content.json`: blocks, trees,

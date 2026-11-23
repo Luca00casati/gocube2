@@ -109,7 +109,7 @@ fn void png_read_with_alpha() @test
 // --- Seed 777: the same terrain as ever, but stone where ore veins were
 // (worlds made before keep their own block table) ----------------------------
 
-const String WORLD_FINGERPRINT = "ffbc1e4f68fc0d1d";
+const String WORLD_FINGERPRINT = "556c40d3704a47a1";
 const int CHUNK_Y_MIN = -3;
 const int CHUNK_Y_MAX = 3;
 

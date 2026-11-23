@@ -89,7 +89,7 @@ const char H_REJECTED @private = 65;    // reason
 const char H_PLAYERS @private = 66;     // u16 count, {id u32, name, eye, yaw, pitch, item, flags u8, swings u32} (unreliable)
 const char H_BLOCK @private = 67;       // block, id u16
 const char H_CHUNK @private = 68;       // chunk position, bytes
-const char H_TIME @private = 69;        // time f64, day_length f64
+const char H_TIME @private = 69;        // clock f64 (days + time), day_length f64
 const char H_CORRECT @private = 70;     // eye
 const char H_INVENTORY @private = 71;   // done u32, {inventory, cursor} (data)
 const char H_HEALTH @private = 72;      // i32
@@ -736,7 +736,7 @@ fn void Session.hello(&self, Peer* p, char[] data) => @pool()
 	defer info.free();
 	info.set_long("id", p.id);
 	info.set_string("mode", self.a.game.creative ? "creative" : "survival");
-	info.set_double("time", self.a.day ? self.a.day.time : 0.3);
+	info.set_double("time", self.a.day ? self.a.day.clock() : 0.3); // (days + time)
 	info.set_double("day_length", self.a.day ? self.a.day.day_length : day_cycle::DEFAULT_DAY_LENGTH);
 	info.set("spawn", float3_data(p.eye));
 	if (self.a.game.has_world_spawn) info.set("world_spawn", float3_data(self.a.game.world_spawn));
@@ -1240,9 +1240,8 @@ fn void Session.on_client_message(&self, char[] data) => @pool()
 			if (r.ok() && self.a.day)
 			{
 				self.a.day.day_length = math::max(10.0, length);
-				double diff = (t - self.a.day.time) % 1.0;
-				diff = diff - math::round(diff);
-				if (math::abs(diff) * self.a.day.day_length > 0.5) self.a.day.time = ((t % 1.0) + 1.0) % 1.0; // (seconds)
+				double diff = t - self.a.day.clock(); // (t: days + time)
+				if (math::abs(diff) * self.a.day.day_length > 0.5) self.a.day.set_clock(t); // (seconds)
 			}
 		case H_CORRECT:
 			float[3] eye = r.vec3();
@@ -1421,7 +1420,7 @@ fn void Session.host_update(&self, float dt) => @pool()
 	{
 		self.time_timer = 0;
 		Writer w = wire::new(H_TIME);
-		w.f64(self.a.day.time).f64(self.a.day.day_length);
+		w.f64(self.a.day.clock()).f64(self.a.day.day_length);
 		self.to_players(w.view());
 		w.free();
 	}
@@ -1706,7 +1705,7 @@ fn double Session.time(&self) @dynamic => self.a.day ? self.a.day.time : 0.0;
 fn void Session.set_time(&self, double t) @dynamic
 {
 	if (!self.a.day) return;
-	self.a.day.time = t;
+	self.a.day.set_time(t);
 	self.time_timer = TIME_SYNC_SECONDS; // (everyone gets it at once)
 }
 
@@ -1897,7 +1896,7 @@ fn void Session.night_skipped(&self)
 	if (self.a.day)
 	{
 		Writer w = wire::new(H_TIME);
-		w.f64(self.a.day.time).f64(self.a.day.day_length);
+		w.f64(self.a.day.clock()).f64(self.a.day.day_length);
 		self.to_players(w.view());
 		w.free();
 	}

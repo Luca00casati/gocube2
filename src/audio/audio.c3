@@ -2,8 +2,9 @@
 // "sound_sets": a list of files per kind), a random one of its files, its
 // pitch varied a little so repeats don't sound the same, heard from where it
 // is (full volume within UNIT_SIZE blocks, then falling off, silent beyond
-// MAX_DISTANCE). Two ambience loops (day and night) crossfade with the
-// daylight; underwater, everything is muffled.
+// MAX_DISTANCE). A wind loop, as loud as the game says (set_wind: how open
+// it is around), and now and then a piece of music (play_music: in both
+// ears, one at a time); underwater, everything is muffled.
 //
 // Sounds (.wav) are read once and kept; at most VOICES play at a time (the
 // oldest stops for a new one). How loud each is in each ear and the
@@ -15,7 +16,8 @@ import std::math, std::atomic;
 
 const float MAX_DISTANCE = 32.0f;
 const float UNIT_SIZE = 6.0f;
-const float AMBIENCE_DB = -14.0f;
+const float AMBIENCE_DB = -12.0f;
+const float MUSIC_DB = -4.0f;
 const int VOICES = 24;
 const float MUFFLE_HZ @private = 700.0f; // the underwater low-pass
 
@@ -343,10 +345,10 @@ struct Audio
 	bool ok;
 	Map{String, Sound*} loaded; // by path (keys owned; never moved: voices point into them)
 	Vec{Voice} voices;
-	Voice day, night;
-	String day_path, night_path; // (heap)
+	Voice wind, music;
+	String wind_path; // (heap)
 	float[3] listener, forward;
-	float master_volume, effects, ambience, daylight;
+	float master_volume, effects, ambience, music_volume, wind_amount;
 	bool underwater;
 }
 
@@ -440,7 +442,7 @@ fn void Audio.stop_engine(&self)
 	self.ok = false;
 	foreach (&v : self.voices) v.voice.destroy();
 	self.voices.clear();
-	foreach (v : (Voice*[2]){ &self.day, &self.night })
+	foreach (v : (Voice*[2]){ &self.wind, &self.music })
 	{
 		if (v.voice) v.voice.destroy();
 		v.voice = null;
@@ -456,28 +458,29 @@ fn void Audio.stop_engine(&self)
 	}
 }
 
+// A voice not placed anywhere: in both ears as it is.
+fn void Audio.unplaced(&self, Voice* v)
+{
+	float[4] matrix = v.sound.wav.channels == 1 ? { 1, 1, 0, 0 } : { 1, 0, 0, 1 };
+	v.voice.set_output_matrix(self.all, v.sound.wav.channels, 2, &matrix);
+}
+
 fn void Audio.start_ambience(&self)
 {
-	foreach (i, v : (Voice*[2]){ &self.day, &self.night })
-	{
-		String path = i == 0 ? self.day_path : self.night_path;
-		v.sound = path.len ? self.load(path) : null;
-		v.voice = v.sound ? self.start_voice(v.sound, true) : null;
-		if (!v.voice) continue;
-		// Not placed: in both ears as it is.
-		float[4] matrix = v.sound.wav.channels == 1 ? { 1, 1, 0, 0 } : { 1, 0, 0, 1 };
-		v.voice.set_output_matrix(self.all, v.sound.wav.channels, 2, &matrix);
-		v.voice.set_volume(0.0f);
-		v.voice.start();
-	}
+	Voice* v = &self.wind;
+	v.sound = self.wind_path.len ? self.load(self.wind_path) : null;
+	v.voice = v.sound ? self.start_voice(v.sound, true) : null;
+	if (!v.voice) return;
+	self.unplaced(v);
+	v.voice.set_volume(0.0f);
+	v.voice.start();
 	self.apply_ambience();
 }
 
 fn void Audio.apply_ambience(&self)
 {
-	float base = db_to_linear(AMBIENCE_DB) * self.ambience;
-	if (self.day.voice) self.day.voice.set_volume(base * self.daylight);
-	if (self.night.voice) self.night.voice.set_volume(base * (1.0f - self.daylight));
+	if (self.wind.voice) self.wind.voice.set_volume(db_to_linear(AMBIENCE_DB) * self.ambience * self.wind_amount);
+	if (self.music.voice) self.music.voice.set_volume(db_to_linear(MUSIC_DB) * self.music_volume);
 }
 
 // A random file of a sound set's kind (heap; "" if none).
@@ -496,11 +499,10 @@ fn String Audio.pick(&self, String set, String kind) => @pool()
 // `content` must outlive this.
 fn bool Audio.init(&self, Content* content, float master_volume = 1.0f)
 {
-	*self = { .content = content, .random = rand::seed_random(), .forward = { 0, 0, -1 }, .master_volume = master_volume, .effects = 1, .ambience = 1 };
+	*self = { .content = content, .random = rand::seed_random(), .forward = { 0, 0, -1 }, .master_volume = master_volume, .effects = 1, .ambience = 1,
+		.music_volume = 1 };
 	self.com = co_initialize_ex(null, 0) >= 0; // (COINIT_MULTITHREADED; RPC_E_CHANGED_MODE: COM is already up on this thread)
-	// The ambience: two loops, faded against each other with the daylight.
-	self.day_path = self.pick("core:ambience", "day");
-	self.night_path = self.pick("core:ambience", "night");
+	self.wind_path = self.pick("core:ambience", "wind");
 	self.start_engine();
 	if (!self.ok) return false;
 	self.start_ambience();
@@ -518,8 +520,7 @@ fn void Audio.free(&self)
 	};
 	self.loaded.free();
 	self.voices.free();
-	if (self.day_path.len) free(self.day_path.ptr);
-	if (self.night_path.len) free(self.night_path.ptr);
+	if (self.wind_path.len) free(self.wind_path.ptr);
 	if (self.com) co_uninitialize();
 	*self = {};
 }
@@ -561,18 +562,41 @@ fn void Audio.set_listener(&self, float[3] position, float[3] forward)
 	self.forward = forward;
 }
 
-// day: 0 at night .. 1 in full day.
-fn void Audio.update_ambience(&self, float day)
+// How much wind: 0 (none: in a cave) .. 1 (out in the open, up high).
+fn void Audio.set_wind(&self, float amount)
 {
-	self.daylight = math::clamp(day, 0.0f, 1.0f);
+	self.wind_amount = math::clamp(amount, 0.0f, 1.0f);
 	self.apply_ambience();
 }
 
-// Volumes, 0..1: everything, the game's sounds, the ambience.
-fn void Audio.set_volumes(&self, float master, float effects, float ambience)
+// Starts a random file of a sound set's kind as music (one at a time; a
+// piece already playing stops).
+fn void Audio.play_music(&self, String set, String kind)
+{
+	if (!self.ok) return;
+	String path = self.pick(set, kind);
+	if (!path.len) return;
+	defer free(path.ptr);
+	Sound* s = self.load(path);
+	if (!s) return;
+	if (self.music.voice) self.music.voice.destroy();
+	self.music = { .sound = s };
+	self.music.voice = self.start_voice(s, false);
+	if (!self.music.voice) return;
+	self.unplaced(&self.music);
+	self.apply_ambience();
+	self.music.voice.start();
+}
+
+fn bool Audio.music_playing(&self) => self.music.voice != null;
+
+// Volumes, 0..1: everything, the game's sounds, the ambience (wind), music.
+fn void Audio.set_volumes(&self, float master, float effects, float ambience, float music = 1.0f)
 {
 	self.effects = math::clamp(effects, 0.0f, 1.0f);
 	self.ambience = math::clamp(ambience, 0.0f, 1.0f);
+	self.music_volume = math::clamp(music, 0.0f, 1.0f);
+	self.apply_ambience();
 	master = math::clamp(master, 0.0f, 1.0f);
 	if (master == self.master_volume) return;
 	self.master_volume = master;
@@ -606,6 +630,16 @@ fn void Audio.update(&self)
 		if (self.ok) self.start_ambience();
 	}
 	if (!self.ok) return;
+	if (self.music.voice)
+	{
+		VoiceState state;
+		self.music.voice.state(&state);
+		if (state.buffers_queued == 0) // the piece is over
+		{
+			self.music.voice.destroy();
+			self.music.voice = null;
+		}
+	}
 	for (sz i = 0; i < self.voices.len();)
 	{
 		VoiceState state;

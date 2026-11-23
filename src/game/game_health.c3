@@ -42,7 +42,7 @@ fn void Game.after_move(&self, float dt)
 			float fall = self.fall_peak - y;
 			if (fall > 0.6f)
 			{
-				self.play_block_sound(below, "step", p.position); // landing
+				self.play_block_sound(below, "step", p.position, -6.0f); // landing
 				self.damage(rules::fall_damage(fall));
 			}
 		}
@@ -67,7 +67,7 @@ fn void Game.after_move(&self, float dt)
 		if (self.step_distance >= STRIDE * (p.sneaking ? 0.6f : 1.0f))
 		{
 			self.step_distance = 0;
-			self.play_block_sound(below, "step", p.position, -6.0f);
+			self.play_block_sound(below, "step", p.position, -13.0f); // (quiet: the silence matters)
 		}
 	}
 	self.last_feet = p.position;

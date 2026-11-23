@@ -11,6 +11,7 @@ import std::math, gocube::util::vec, gocube::util::map, std::thread, std::atomic
 struct GeneratorIds
 {
 	BlockId stone, dirt, grass, sand, water, lava, gravel, snow;
+	BlockId cobblestone; // the empty structures' (0: none built)
 }
 
 // Tree shapes.
@@ -58,6 +59,23 @@ const float CAVERN_PERIOD = 40.0f;
 const int CAVERN_MAX_Y = -18;    // big caverns only deep down
 const int TREE_CELL = 8;         // at most one tree in each TREE_CELL x TREE_CELL
 const int TREE_REACH = 5;        // how far a tree's leaves spread
+// Huge hollows: big dark chambers at middle depths, under the land.
+const float HOLLOW_PERIOD = 70.0f;
+const int HOLLOW_MAX_Y = 12;
+const int HOLLOW_MIN_Y = -64;
+const int HOLLOW_ROOF = 7;       // at least this much ground over one
+// Ravines: long, narrow cuts down from the surface, here and there.
+const float RAVINE_SCALE = 0.006f;
+const int RAVINE_DEPTH = 34;
+// Floating islands, over low land and the sea (rare); perfectly flat
+// patches of land (rare).
+const int ISLAND_Y = 36;
+const float FLAT_Y = 10.5f;      // the flat patches' top: y 10
+// Empty structures: at most one in each STRUCTURE_CELL x STRUCTURE_CELL,
+// STRUCTURE_PERCENT of them; no further than STRUCTURE_REACH from its spot.
+const int STRUCTURE_CELL = 80;
+const int STRUCTURE_PERCENT = 18;
+const int STRUCTURE_REACH = 12;
 // The density lattice: a value every LX, LY, LZ blocks (interpolated
 // between), from BOTTOM_Y up LY_COUNT points; solid where above 0.
 const int LX = 4;
@@ -193,6 +211,8 @@ struct LandColumn @private
 	float target; // the height the land leans to
 	float squash; // blocks for the density to go from 0 to 1 (the 3D part's reach)
 	float rough;
+	float flat;   // 1: a perfectly flat patch (no 3D noise)
+	float island; // 1: floating islands may hang here
 }
 
 fn LandColumn Generator.land_column(&self, int x, int z)
@@ -205,13 +225,32 @@ fn LandColumn Generator.land_column(&self, int x, int z)
 	float target = (float)SEA_LEVEL - 5.0f + LAND_BASE + continent * 52.0f + hills * HILL_HEIGHT * (0.7f + 0.9f * rough);
 	target += rough * 18.0f; // rough land is highland
 	target += self.mountain_shape(x, z) * MOUNTAINS * 1.3f;
-	return { target, 8.0f + rough * 26.0f, rough };
+	float squash = 8.0f + rough * 26.0f;
+	// Now and then the land goes perfectly flat, as if someone levelled it.
+	float flat = smoothstep01((noise2(fx * 0.006f, fz * 0.006f, self.seed + 821) - 0.42f) / 0.08f);
+	if (flat > 0.0f)
+	{
+		target += (FLAT_Y - target) * flat;
+		squash += (1.0f - squash) * flat;
+		rough *= 1.0f - flat;
+	}
+	// Floating islands over low land and the sea, in rare places.
+	float island = smoothstep01((fbm2(fx * 0.0045f, fz * 0.0045f, self.seed + 811, 2) - 0.42f) / 0.1f) *
+		math::clamp((22.0f - target) / 12.0f, 0.0f, 1.0f);
+	return { target, squash, rough, flat, island };
 }
 
 fn float Generator.density(&self, LandColumn* c, int x, int y, int z)
 {
 	float n = fbm3((float)x * 0.017f, (float)y * 0.028f, (float)z * 0.017f, self.seed + 707, 4);
-	float d = (c.target - (float)y) / c.squash + n * (0.3f + 0.9f * c.rough);
+	float d = (c.target - (float)y) / c.squash + n * (0.3f + 0.9f * c.rough) * (1.0f - c.flat);
+	if (c.island > 0.0f && y > ISLAND_Y - 20 && y < ISLAND_Y + 12)
+	{
+		// Flat-topped lumps, ragged underneath: solid where the 3D noise is
+		// high, in a band that's thick at its top and thins out downwards.
+		float band = y >= ISLAND_Y ? 1.0f - (float)(y - ISLAND_Y) / 6.0f : 1.0f - (float)(ISLAND_Y - y) / 16.0f;
+		d = math::max(d, (n * 2.4f + band - 1.0f) * c.island * 3.0f);
+	}
 	if (y > TOP_LIMIT - 20) d -= (float)(y - (TOP_LIMIT - 20)) / 10.0f; // nothing reaches the top
 	if (y < BOTTOM_Y + 24) d += (float)(BOTTOM_Y + 24 - y) / 6.0f;     // solid at the bottom
 	return d;
@@ -373,15 +412,16 @@ fn BlockId Generator.top_block(&self, int x, int h, int z, int* filler_depth, Bl
 	return self.ids.grass;
 }
 
-fn bool Generator.is_cave(&self, int x, int y, int z)
+// Whether a cave goes through (x, y, z), under land whose top is at `land`.
+fn bool Generator.is_cave(&self, int x, int y, int z, int land)
 {
-	Noise3Cell[3] cells;
-	return self.is_cave_cached(x, y, z, &cells);
+	Noise3Cell[4] cells;
+	return self.is_cave_cached(x, y, z, land, &cells);
 }
 
 // The same, keeping each noise's lattice cell in `cells` between calls
 // (called for every block underground, nearby ones one after another).
-fn bool Generator.is_cave_cached(&self, int x, int y, int z, Noise3Cell[3]* cells)
+fn bool Generator.is_cave_cached(&self, int x, int y, int z, int land, Noise3Cell[4]* cells)
 {
 	float s = 1.0f / CAVE_PERIOD;
 	float ys = (float)y * CAVE_Y_SQUASH * s;
@@ -400,9 +440,34 @@ fn bool Generator.is_cave_cached(&self, int x, int y, int z, Noise3Cell[3]* cell
 		float c = 1.0f / CAVERN_PERIOD;
 		float n = noise3_cached(fx * c, (float)y * 1.5f * c, fz * c, self.seed + 404, &(*cells)[2]);
 		float fade = math::clamp((float)(CAVERN_MAX_Y - y) / 14.0f, 0.0f, 1.0f);
-		return n * fade > 0.36f;
+		if (n * fade > 0.36f) return true;
+	}
+	// Huge hollows, nearer the surface, with ground still over them.
+	if (y < HOLLOW_MAX_Y && y > HOLLOW_MIN_Y && y < land - HOLLOW_ROOF)
+	{
+		float h = 1.0f / HOLLOW_PERIOD;
+		float n = noise3_cached(fx * h, (float)y * 1.7f * h, fz * h, self.seed + 505, &(*cells)[3]);
+		float fade = math::min(math::clamp((float)(HOLLOW_MAX_Y - y) / 10.0f, 0.0f, 1.0f), math::clamp((float)(y - HOLLOW_MIN_Y) / 10.0f, 0.0f, 1.0f));
+		fade = math::min(fade, math::clamp((float)(land - HOLLOW_ROOF - y) / 6.0f, 0.0f, 1.0f));
+		return n * fade > 0.4f;
 	}
 	return false;
+}
+
+// How far down a ravine cuts at a column whose land is at `land`: carve from
+// the returned height up (the land's height + 1: no ravine).
+fn int Generator.ravine_floor(&self, int x, int z, int land)
+{
+	if (land <= SEA_LEVEL + 3) return land + 1;
+	float fx = (float)x;
+	float fz = (float)z;
+	float where = noise2(fx * 0.0025f, fz * 0.0025f, self.seed + 803); // (only some places have them)
+	if (where < 0.15f) return land + 1;
+	float v = math::abs(noise2(fx * RAVINE_SCALE, fz * RAVINE_SCALE, self.seed + 801));
+	float width = 0.022f * math::min((where - 0.15f) / 0.1f, 1.0f);
+	if (v >= width) return land + 1;
+	float depth = (1.0f - v / width);
+	return land - (int)(depth * depth * (float)RAVINE_DEPTH) - 3;
 }
 
 // Trees whose leaves may reach columns [x0, x1) x [z0, z1).
@@ -429,7 +494,7 @@ fn void Generator.trees_near(&self, int x0, int z0, int x1, int z1, TreeList* ou
 			}
 			if (kind < 0) continue;
 			int ground = self.height_at(tx, tz);
-			if (ground <= SEA_LEVEL + 1 || self.is_cave(tx, ground, tz)) continue; // beach, sea or a cave mouth
+			if (ground <= SEA_LEVEL + 1 || self.is_cave(tx, ground, tz, ground) || self.ravine_floor(tx, tz, ground) <= ground) continue; // beach, sea or a cave mouth
 			int depth;
 			BlockId filler;
 			if (self.top_block(tx, ground, tz, &depth, &filler) != self.ids.grass) continue; // a beach, gravel, bare stone
@@ -450,7 +515,7 @@ fn void Generator.generate(&self, ChunkData* chunk, int ox, int oy, int oz)
 	int top_y = oy + CHUNK - 1;
 	if (oy > math::max(cols.max_h, SEA_LEVEL) + TREE_ROOM) return; // all air
 	bool terrain = oy <= math::max(cols.max_h, SEA_LEVEL) + 1;
-	Noise3Cell[3] cave_cells;
+	Noise3Cell[4] cave_cells;
 	// From a little above the chunk (the filler under a surface just above
 	// it) to one below (snow on a surface just under it).
 	int scan_top = math::min(top_y + 8, BOTTOM_Y + (LY_COUNT - 1) * LY - 1);
@@ -467,6 +532,7 @@ fn void Generator.generate(&self, ChunkData* chunk, int ox, int oy, int oz)
 			float fz = (float)(z % LZ) / (float)LZ;
 			int land = cols.heights[i]; // the column's topmost solid block
 			bool caves_allowed = land > SEA_LEVEL + 2;
+			int ravine = self.ravine_floor(wx, wz, land);
 			int filler_depth = 0;
 			BlockId filler = AIR;
 			// Blocks since the last surface, going down (-1: in air or water).
@@ -504,9 +570,13 @@ fn void Generator.generate(&self, ChunkData* chunk, int ox, int oy, int oz)
 						b = self.ids.stone;
 					}
 					// Caves: on land, or deep under the sea.
-					if (wy >= oy && wy > CAVE_MIN_Y && (caves_allowed || wy < land - 8) && self.is_cave_cached(wx, wy, wz, &cave_cells))
+					if (wy >= oy && wy > CAVE_MIN_Y && (caves_allowed || wy < land - 8) && self.is_cave_cached(wx, wy, wz, land, &cave_cells))
 					{
 						b = wy <= LAVA_LEVEL && self.ids.lava ? self.ids.lava : AIR;
+					}
+					else if (wy >= ravine)
+					{
+						b = AIR;
 					}
 				}
 				if (wy >= oy && wy <= top_y && b != AIR) chunk.set(x, wy - oy, z, b);
@@ -520,6 +590,14 @@ fn void Generator.generate(&self, ChunkData* chunk, int ox, int oy, int oz)
 		self.trees_near(ox, oz, ox + CHUNK, oz + CHUNK, &trees);
 		TreeSink sink = { .chunk = chunk, .ox = ox, .oy = oy, .oz = oz };
 		foreach (t : trees) self.build_tree(t, &sink);
+	}
+	if (self.ids.cobblestone)
+	{
+		StructureList found;
+		defer found.free();
+		self.structures_near(ox, oz, ox + CHUNK, oz + CHUNK, &found);
+		TreeSink sink = { .chunk = chunk, .ox = ox, .oy = oy, .oz = oz };
+		foreach (st : found) self.build_structure(st, &sink);
 	}
 	chunk.compact();
 }
@@ -589,6 +667,136 @@ fn void Generator.leaf_blob(&self, TreeSink* put, BlockId leaves, int cx, int cy
 }
 
 fn int round_i(float v) @private @inline => (int)math::round(v);
+
+// A block inside the chunk, whatever is there (air too: a structure's inside).
+fn void TreeSink.force(&self, int wx, int wy, int wz, BlockId id)
+{
+	int x = wx - self.ox;
+	int y = wy - self.oy;
+	int z = wz - self.oz;
+	if (x < 0 || y < 0 || z < 0 || x >= CHUNK || y >= CHUNK || z >= CHUNK || !self.chunk) return;
+	self.chunk.set(x, y, z, id);
+}
+
+// --- Empty structures ----------------------------------------------------------------
+// Rare, small and abandoned, with nothing in them and nothing to say who
+// made them: a lone pillar, a dirt hut, a shaft down to a tunnel that goes
+// nowhere, a broken wall.
+
+enum StructureKind : char
+{
+	PILLAR,
+	HUT,
+	SHAFT,
+	WALL,
+}
+
+struct Structure
+{
+	int x, z, ground;
+	StructureKind kind;
+	uint r; // (its shape's dice)
+}
+
+alias StructureList = Vec{Structure};
+
+// Structures that may reach columns [x0, x1) x [z0, z1).
+fn void Generator.structures_near(&self, int x0, int z0, int x1, int z1, StructureList* out)
+{
+	for (int cz = floor_div(z0 - STRUCTURE_REACH, STRUCTURE_CELL); cz <= floor_div(z1 + STRUCTURE_REACH, STRUCTURE_CELL); cz++)
+	{
+		for (int cx = floor_div(x0 - STRUCTURE_REACH, STRUCTURE_CELL); cx <= floor_div(x1 + STRUCTURE_REACH, STRUCTURE_CELL); cx++)
+		{
+			uint r = hash_point(cx, 13, cz, self.seed + 91);
+			if (r % 100 >= STRUCTURE_PERCENT) continue;
+			int px = cx * STRUCTURE_CELL + 16 + (int)((r >> 8) % (uint)(STRUCTURE_CELL - 32));
+			int pz = cz * STRUCTURE_CELL + 16 + (int)((r >> 16) % (uint)(STRUCTURE_CELL - 32));
+			if (px + STRUCTURE_REACH < x0 || px - STRUCTURE_REACH >= x1 || pz + STRUCTURE_REACH < z0 || pz - STRUCTURE_REACH >= z1) continue;
+			int ground = self.height_at(px, pz);
+			if (ground <= SEA_LEVEL + 1 || ground > TOP_LIMIT - 16 || self.is_cave(px, ground, pz, ground)) continue; // the sea, a cave mouth
+			out.push({ .x = px, .z = pz, .ground = ground, .kind = StructureKind::from_ordinal((int)((r >> 24) % 4)), .r = hash_point(px, ground, pz, self.seed + 93) });
+		}
+	}
+}
+
+fn void Generator.build_structure(&self, Structure st, TreeSink* put)
+{
+	BlockId cobble = self.ids.cobblestone;
+	BlockId dirt = self.ids.dirt;
+	int g = st.ground;
+	switch (st.kind)
+	{
+		case PILLAR:
+			// 2 x 2, 4 to 8 high, sunk into the ground; its top a little broken.
+			int h = 4 + (int)(st.r % 5);
+			for (int dz = 0; dz < 2; dz++)
+			{
+				for (int dx = 0; dx < 2; dx++)
+				{
+					int top = g + h - (int)((st.r >> (uint)(4 + (dz * 2 + dx) * 2)) % 2);
+					for (int y = g - 3; y <= top; y++) put.force(st.x + dx, y, st.z + dz, cobble);
+				}
+			}
+		case HUT:
+			// 5 x 5 of dirt, 3 high inside a roof, a doorway and nothing else;
+			// its walls go down into the ground.
+			int door = (int)(st.r % 4);
+			for (int dz = -2; dz <= 2; dz++)
+			{
+				for (int dx = -2; dx <= 2; dx++)
+				{
+					bool wall = dx == -2 || dx == 2 || dz == -2 || dz == 2;
+					for (int y = g - 3; y <= g; y++) put.put(st.x + dx, y, st.z + dz, dirt, true); // (a footing)
+					put.force(st.x + dx, g, st.z + dz, dirt); // the floor
+					for (int y = g + 1; y <= g + 3; y++) put.force(st.x + dx, y, st.z + dz, wall ? dirt : AIR);
+					put.force(st.x + dx, g + 4, st.z + dz, dirt); // the roof
+				}
+			}
+			int[2][4] doors = { { 0, -2 }, { 2, 0 }, { 0, 2 }, { -2, 0 } };
+			for (int y = g + 1; y <= g + 2; y++) put.force(st.x + doors[door][0], y, st.z + doors[door][1], AIR);
+		case SHAFT:
+			// A cobblestone rim around a 1 x 2 hole straight down, then a
+			// tunnel along, 2 high, that ends in stone.
+			int depth = 12 + (int)(st.r % 6);
+			int run = 6 + (int)((st.r >> 4) % 6);
+			bool along_x = ((st.r >> 8) & 1) != 0;
+			for (int dz = -1; dz <= 2; dz++)
+			{
+				for (int dx = -1; dx <= 1; dx++)
+				{
+					bool hole = dx == 0 && (dz == 0 || dz == 1);
+					put.force(st.x + dx, g, st.z + dz, hole ? AIR : cobble);
+					for (int y = g + 1; y <= g + 3; y++) if (hole) put.force(st.x + dx, y, st.z + dz, AIR);
+				}
+			}
+			for (int y = g - depth; y < g; y++)
+			{
+				put.force(st.x, y, st.z, AIR);
+				put.force(st.x, y, st.z + 1, AIR);
+			}
+			for (int s = 1; s <= run; s++)
+			{
+				int tx = along_x ? st.x + s : st.x;
+				int tz = along_x ? st.z : st.z + 1 + s;
+				for (int y = g - depth; y <= g - depth + 1; y++) put.force(tx, y, tz, AIR);
+			}
+		case WALL:
+			// 7 long, 2 high, some of it fallen.
+			bool along_x = (st.r & 1) != 0;
+			for (int s = -3; s <= 3; s++)
+			{
+				int wx = along_x ? st.x + s : st.x;
+				int wz = along_x ? st.z : st.z + s;
+				for (int y = g - 2; y <= g; y++) put.force(wx, y, wz, cobble);
+				for (int y = g + 1; y <= g + 2; y++)
+				{
+					uint k = hash_point(wx, y, wz, self.seed + 95) % 100;
+					if (k < (y == g + 2 ? 45u : 12u)) continue; // (gaps, more at the top)
+					put.force(wx, y, wz, cobble);
+				}
+			}
+	}
+}
 
 fn void Generator.build_tree(&self, Tree t, TreeSink* put)
 {

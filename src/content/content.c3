@@ -488,7 +488,8 @@ fn void Content.configure_generator(&self, Generator* generator, uint seed)
 	GeneratorIds ids = {
 		.stone = self.block("core:stone"), .dirt = self.block("core:dirt"), .grass = self.block("core:grass"),
 		.sand = self.block("core:sand"), .water = self.block("core:water"), .lava = self.block("core:lava"),
-		.gravel = self.block("core:gravel"), .snow = self.block("core:snow") };
+		.gravel = self.block("core:gravel"), .snow = self.block("core:snow"),
+		.cobblestone = self.block("core:cobblestone") };
 
 	// Trees with a known log and leaves (or a cactus), sorted by id.
 	Vec{String} order;

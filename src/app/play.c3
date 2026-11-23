@@ -85,7 +85,7 @@ struct Puff
 	float size, age;
 }
 
-const float NIGHT_FIGURE_LIGHT @private = 0.07f;
+const float NIGHT_FIGURE_LIGHT @private = 0.02f;
 const int OWN_SKIN @private = chunk_renderer::SKIN_SLOTS - 1;
 
 // Our skin (RGBA, SKIN_BYTES): %APPDATA%\GoCube\skin.png if it's one (not
@@ -146,6 +146,7 @@ fn void apply_day(DayCycle* day, float view, SkyParams* sky) @private
 	sky.dusk = day.dusk();
 	sky.sky_angle = day.angle();
 	sky.cloud_offset = day.cloud_offset;
+	sky.moon_phase = (float)day.moon_phase() / (float)day_cycle::MOON_PHASES;
 }
 
 fn Data player_state(Player* p) @private
@@ -200,6 +201,7 @@ struct Playing
 	Audio audio;
 	Hand hand;
 	DayCycle day;
+	Mood mood;
 	SkyParams sky;
 	Camera camera;
 	SettingsScreen settings_screen;
@@ -468,13 +470,13 @@ fn End Playing.run(&self)
 	self.day.time = day_cycle::new().time; // a new world starts in the morning
 	if (self.has_save)
 	{
-		if (Data* t = self.save.field("time")) if (t.is_number()) self.day.time = t.as_double() % 1.0;
+		if (Data* t = self.save.field("time")) if (t.is_number()) self.day.set_clock(t.as_double()); // (days + time)
 		if (Data* l = self.save.field("day_length")) if (l.is_number()) self.day.day_length = math::max(10.0, l.as_double());
 	}
-	if (options.time >= 0) self.day.time = options.time % 1.0;
+	if (options.time >= 0) self.day.time = options.time % 1.0; // (the same day)
 	if (self.joining)
 	{
-		self.day.time = welcome.num("time", self.day.time);
+		self.day.set_clock(welcome.num("time", self.day.clock()));
 		self.day.day_length = math::max(10.0, welcome.num("day_length", self.day.day_length));
 	}
 	// Multiplayer: as a client (the host does what we do to the world), or
@@ -569,7 +571,7 @@ fn void Playing.save_all(&self) => @pool()
 	foreach (&f : gp.fields()) state.set(f.key, f.value.copy());
 	gp.free();
 	self.save.set_field("block_entities", self.game.entities.serialize());
-	self.save.set_field("time", data::number(self.day.time));
+	self.save.set_field("time", data::number(self.day.clock())); // (days + time)
 	self.save.set_field("plants", self.game.save_plants());
 	self.save.set_field("mode", data::string(self.game.creative ? "creative" : "survival"));
 	Data ops = data::array();
@@ -772,7 +774,7 @@ fn bool Playing.step(&self)
 		// client gets up when it says so).
 		if (self.sleeping >= 2.5f && !self.joining && session.peers_sleeping())
 		{
-			self.day.time = day_cycle::MORNING;
+			self.day.set_time(day_cycle::MORNING);
 			self.sleeping = -1;
 			session.night_skipped();
 		}
@@ -825,8 +827,8 @@ fn bool Playing.step(&self)
 		Vec{SoundEvent} sounds = game.take_sounds();
 		foreach (&e : sounds) self.audio.play(e.set, e.kind, e.at, e.volume_db);
 		sounds.free();
-		self.audio.set_volumes(options.hidden ? 0.0f : settings.master_volume, settings.effects_volume, settings.ambience_volume);
-		self.audio.update_ambience(self.day.day_amount());
+		self.audio.set_volumes(options.hidden ? 0.0f : settings.master_volume, settings.effects_volume, settings.ambience_volume, settings.music_volume);
+		self.mood.update(&self.audio, &self.world, cam, paused ? 0.0f : dt);
 		self.audio.set_underwater(in_fluid);
 		self.audio.update();
 	};

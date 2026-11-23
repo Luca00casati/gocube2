@@ -15,7 +15,7 @@ import std::math;
 // where the eyes are, one less per block away (counted along x, y and z, as
 // placed light spreads), whatever is in hand. (Through walls too: cheap, and
 // only what you see is lit.) The terrain shader does the same (Frame.player_light).
-const int PLAYER_LIGHT = 9;
+const int PLAYER_LIGHT = 6; // (small: the dark stays a threat)
 
 // The player's light at `at` from `eye` (0..15).
 fn int player_light_at(float[3] eye, float[3] at)

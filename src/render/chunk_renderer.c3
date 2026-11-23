@@ -38,6 +38,7 @@ struct SkyParams
 	float[3] sky_top, sky_horizon, sky_ground;
 	float day, dusk, sky_angle;
 	float[2] cloud_offset;
+	float moon_phase;  // 0 full .. 0.5 new .. 1 (a fraction of the moon's cycle)
 	int player_light; // the light the player gives (level at the eyes, one less per block; 0: none)
 }
 
@@ -84,7 +85,8 @@ struct SkyConstants @private
 	float[3] sun_dir;
 	float time;
 	float[2] cloud_offset;
-	float[2] pad;
+	float moon_phase;
+	float pad;
 }
 
 // Matches cbuffer Items in items.hlsl.
@@ -407,7 +409,7 @@ fn void ChunkRenderer.draw_sky(&self, Camera* camera, float aspect, SkyParams* s
 	Matrix vp = camera.view() * camera.projection(aspect);
 	SkyConstants k = { .inv_view_proj = vp.inverse().m, .top = sky.sky_top, .horizon = sky.sky_horizon, .ground = sky.sky_ground,
 		.day = sky.day, .dusk = sky.dusk, .sky_angle = sky.sky_angle, .sun_dir = mat::normalize(sky.sun_dir), .time = sky.time,
-		.cloud_offset = sky.cloud_offset };
+		.cloud_offset = sky.cloud_offset, .moon_phase = sky.moon_phase };
 	if (!self.write(self.sky_cb, &k, SkyConstants::size)) return;
 	DeviceContext* ctx = self.context;
 	ctx.ia_set_input_layout(null);
@@ -578,7 +580,7 @@ fn void ChunkRenderer.draw(&self, Camera* camera, float aspect, SkyParams* sky, 
 {
 	Matrix vp = camera.view() * camera.projection(aspect);
 	FrameConstants f = { .view_proj = vp.m, .camera_pos = camera.position, .daylight = sky.daylight, .sun_dir = mat::normalize(sky.light_dir),
-		.sun_amount = sky.sun_amount, .sky_tint = sky.sky_tint, .min_light = 0.02f, .fog_color = sky.fog_color, .fog_start = sky.fog_start,
+		.sun_amount = sky.sun_amount, .sky_tint = sky.sky_tint, .min_light = 0.004f, .fog_color = sky.fog_color, .fog_start = sky.fog_start,
 		.fog_end = sky.fog_end, .block_light_color = { 1.0f, 0.85f, 0.62f }, .time = sky.time, .player_light = (float)sky.player_light };
 	self.write(self.frame_cb, &f, FrameConstants::size);
 	// The frustum's planes, from the view-projection matrix's columns (row

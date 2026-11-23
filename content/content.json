@@ -541,8 +541,16 @@
 	},
 	"sound_sets": {
 		"ambience": {
-			"day": ["sounds/ambience_day.wav"],
-			"night": ["sounds/ambience_night.wav"]
+			"wind": ["sounds/wind.wav"]
+		},
+		"cave": {
+			"sounds": [
+				"sounds/cave_drip.wav", "sounds/cave_moan.wav", "sounds/cave_pebbles.wav",
+				"sounds/cave_rumble.wav", "sounds/cave_scrape.wav", "sounds/cave_steps.wav"
+			]
+		},
+		"music": {
+			"pieces": ["music/drift_1.wav", "music/drift_2.wav", "music/drift_3.wav"]
 		},
 		"effects": {
 			"hurt": ["sounds/hurt.wav"],
