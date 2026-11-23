@@ -150,3 +150,59 @@ TEST_CASE("the base game's atlas: painted faces and PNG images, no missing ones"
 		CHECK(magenta < 8);
 	}
 }
+
+// The base game's block table and atlas, hashed (FNV-1a, 64 bits): the C3
+// port's test (c3/test/content/content_test.c3) builds them from the same
+// content.json and must get the same number (the same block ids, shapes,
+// tiles and pixels).
+TEST_CASE("the base game's block table and atlas hash as recorded (and as the C3 port's)") {
+	gc::Content content;
+	load_base_game(content);
+	content.freeze();
+	const gc::BlockTable table = gc::build_block_table(content);
+	uint64_t h = 14695981039346656037ull;
+	auto put = [&](const void *data, size_t size) {
+		const unsigned char *p = static_cast<const unsigned char *>(data);
+		for (size_t i = 0; i < size; i++) {
+			h = (h ^ p[i]) * 1099511628211ull;
+		}
+	};
+	auto put_int = [&](int64_t v) { put(&v, 8); };
+	for (const std::string &id : content.block_ids()) {
+		put(id.data(), id.size());
+		put_int(0);
+	}
+	for (const gocube::BlockInfo &b : table.blocks) {
+		put_int(b.solid);
+		put_int(b.opaque);
+		put_int(b.fluid);
+		put_int(b.cutout);
+		put_int(b.emit);
+		put_int(b.fluid_level);
+		put_int(b.random_rotation);
+		put_int(b.tint);
+		put_int(b.shape);
+		for (int t : b.tiles) {
+			put_int(t);
+		}
+		for (const auto *boxes : {&b.model, &b.collision}) {
+			put_int(int64_t(boxes->size()));
+			for (const gocube::Box &x : *boxes) {
+				put(x.mn, 12);
+				put(x.mx, 12);
+				put(&x.ty, 4);
+				put(&x.tx, 4);
+				put(&x.tz, 4);
+				put_int(x.undyed);
+			}
+		}
+	}
+	for (const auto &[id, tile] : table.icons) {
+		put(id.data(), id.size());
+		put_int(tile);
+	}
+	put_int(table.atlas.width);
+	put_int(table.atlas.height);
+	put(table.atlas.rgba.data(), table.atlas.rgba.size());
+	CHECK(h == 0x190569335bc1a6d9ull);
+}

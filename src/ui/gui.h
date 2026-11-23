@@ -4,7 +4,7 @@
 // regions and tooltips. Each frame the screens call it, it works out what is
 // hovered and clicked from the mouse and keys, and it records what to draw
 // (rectangles, gradients, text, item icons) for a backend to draw
-// (ui/gui_d2d.h: Direct2D and DirectWrite). Text is measured through a
+// (ui/gui_d3d.h: Direct3D 11, text rasterized by GDI). Text is measured through a
 // callback, so tests run it with a fixed-width "font".
 //
 // As in Dear ImGui: a widget's label is also its id, unique within its

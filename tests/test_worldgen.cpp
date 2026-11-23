@@ -253,3 +253,107 @@ TEST_CASE("the land: seas, beaches, overhangs, bare stone, trees") {
 	CHECK(highest > 45);
 	CHECK(highest < Generator::TOP_LIMIT);
 }
+
+// The generator alone, configured by hand to use everything it has (ores,
+// every tree style, biomes with frozen seas, mountains, bare rock, caps and
+// snow), its output hashed (FNV-1a, 64 bits). The C3 port's test
+// (c3/test/voxel/generator_test.c3) builds the same generator and must get the
+// same hash: the two are checked against each other through this number.
+namespace {
+
+constexpr uint64_t HAND_GENERATOR_HASH = 0x36fff692a3aedbe3ull;
+
+uint64_t fnv(uint64_t h, const void *data, size_t size) {
+	const unsigned char *p = static_cast<const unsigned char *>(data);
+	for (size_t i = 0; i < size; i++) {
+		h = (h ^ p[i]) * 1099511628211ull;
+	}
+	return h;
+}
+
+void hand_configure(Generator &g) {
+	GeneratorIds ids;
+	ids.stone = 1, ids.dirt = 2, ids.grass = 3, ids.sand = 4, ids.water = 5, ids.lava = 6, ids.ice = 7, ids.gravel = 8;
+	std::vector<OreKind> ores = {
+		{20, 1, -90, 10, 6, 3, 9, 1234u},
+		{21, 1, -90, -30, 2, 2, 5, 99u},
+	};
+	std::vector<TreeKind> trees = {
+		{30, 31, 4, 6, TREE_ROUND_OAK},
+		{32, 33, 6, 9, TREE_BIG_OAK},
+		{34, 0, 2, 4, TREE_CACTUS},
+	};
+	g.configure(4242, ids, ores, trees);
+	BiomeKind plains;
+	plains.height = 14, plains.surface = 3, plains.filler = 2, plains.trees = {{0, 8}};
+	BiomeKind forest;
+	forest.temperature = 0.2f, forest.humidity = 0.6f, forest.height = 18, forest.surface = 3, forest.filler = 2;
+	forest.trees = {{0, 30}, {1, 10}};
+	BiomeKind desert;
+	desert.temperature = 0.7f, desert.humidity = -0.6f, desert.height = 10, desert.surface = 4, desert.filler = 4;
+	desert.trees = {{2, 6}};
+	BiomeKind peaks;
+	peaks.temperature = -0.6f, peaks.humidity = 0.1f, peaks.height = 26, peaks.base = 6, peaks.surface = 3, peaks.filler = 2;
+	peaks.frozen = true, peaks.mountains = 60, peaks.rock = 1, peaks.rock_above = 40, peaks.cap = 9, peaks.cap_above = 70;
+	peaks.cover = 10, peaks.cover_above = 45, peaks.trees = {{0, 5}};
+	g.set_biomes({plains, forest, desert, peaks});
+}
+
+uint64_t hand_generator_hash(const Generator &g) {
+	uint64_t h = 14695981039346656037ull;
+	std::vector<std::pair<int, int>> columns;
+	for (int cz = -1; cz <= 1; cz++) {
+		for (int cx = -1; cx <= 1; cx++) {
+			columns.push_back({cx, cz});
+		}
+	}
+	// The land on a coarse grid, and a chunk column in each biome (the first found).
+	bool found[4] = {};
+	for (int z = -3000; z <= 3000; z += 250) {
+		for (int x = -3000; x <= 3000; x += 250) {
+			const int32_t biome = g.biome_at(x, z), height = g.height_at(x, z);
+			h = fnv(h, &biome, 4);
+			h = fnv(h, &height, 4);
+			if (biome >= 0 && biome < 4 && !found[biome]) {
+				found[biome] = true;
+				columns.push_back({floor_div(x, CHUNK), floor_div(z, CHUNK)});
+			}
+		}
+	}
+	CHECK((found[0] && found[1] && found[2] && found[3]));
+	ChunkData c;
+	for (const auto &[cx, cz] : columns) {
+		for (int cy = -3; cy <= 3; cy++) {
+			g.generate(c, cx * CHUNK, cy * CHUNK, cz * CHUNK);
+			for (int y = 0; y < CHUNK; y++) {
+				for (int z = 0; z < CHUNK; z++) {
+					for (int x = 0; x < CHUNK; x++) {
+						const BlockId b = c.get(x, y, z);
+						h = fnv(h, &b, 2);
+					}
+				}
+			}
+		}
+	}
+	for (int kind = 0; kind < 3; kind++) {
+		std::vector<TreeBlock> blocks;
+		g.tree_blocks(kind, 5, 20, -7, blocks);
+		for (const TreeBlock &t : blocks) {
+			const uint8_t only_air = t.only_air;
+			h = fnv(h, &t.x, 4);
+			h = fnv(h, &t.y, 4);
+			h = fnv(h, &t.z, 4);
+			h = fnv(h, &t.id, 2);
+			h = fnv(h, &only_air, 1);
+		}
+	}
+	return h;
+}
+
+} // namespace
+
+TEST_CASE("the generator configured by hand hashes as recorded (and as the C3 port's)") {
+	Generator g;
+	hand_configure(g);
+	CHECK(hand_generator_hash(g) == HAND_GENERATOR_HASH);
+}

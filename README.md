@@ -39,11 +39,12 @@ configure. From a **Developer PowerShell for VS** (it puts them on the path),
 in this folder:
 
     cl nob.c                  # once: afterwards nob rebuilds itself when nob.c changes
-    nob                       # build Dev: the one to work with
-    nob test                  # build, then run the tests
+    nob                       # build the game (the C3 port in c3\: see c3\README.md)
+    nob test                  # build, then run its tests
     nob run -- --world=Test   # build, then play (arguments after --)
-    nob release               # build Release (also: nob test release, nob run release)
-    nob clean                 # delete build\
+    nob cpp                   # the old C++ game: build Dev (also: nob cpp test, nob cpp run)
+    nob cpp release           # build Release (also: nob cpp test release, nob cpp run release)
+    nob cpp clean             # delete build\
 
 Three configurations, each in its own folder (`build\Release`, `build\Dev`,
 `build\Debug`):
@@ -63,7 +64,7 @@ includes is newer (the compiler lists those headers for each object), so
 changing a header compiles only the files that use it. The standard
 library headers are precompiled once (`src/pch.h`).
 
-`unity` (e.g. `nob test release unity`, what CI does) compiles a few files
+`unity` (e.g. `nob cpp test release unity`, what CI does) compiles a few files
 that each include several sources, so code they share is compiled once per
 batch, not once per file: faster from scratch, slower after a small change
 (the whole batch again). It builds in `build\<Config>-Unity`. Because of it,
@@ -296,8 +297,8 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
 - `src/profiler.h`: the frame profiler (F3, `--profile`).
 - `src/ui/`: the UI, our own: an immediate-mode core (`gui.h`: windows, layout,
   buttons, text fields, sliders, drop-downs, scrolling; tested with a fake font)
-  drawn with Direct2D and DirectWrite (`gui_d2d.h`) in Windows' own UI
-  font (Segoe UI); the inventory, container and settings screens.
+  drawn with Direct3D 11 (`gui_d3d.h`, `shaders/gui.hlsl`) in Windows' own UI
+  font (Segoe UI, rasterized by GDI); the inventory, container and settings screens.
 - `mods/core/`: the base game: its manifest, content and assets.
 - `tests/`: unit tests (with our own small framework, `tests/check.h`): world generation (a fingerprint, what the land
   is like), player movement and editing, saving, mods (DLLs loading, failing
@@ -308,7 +309,7 @@ for byte by git (`.gitattributes`), since fingerprints depend on the bytes.
   round between a host and a client in two processes (CTest runs it).
 
 ## Dependencies
-None but Windows' own: Direct3D 11, Direct2D and DirectWrite (the UI, in
+None but Windows' own: Direct3D 11, GDI (the UI's text, in
 Windows' font), XAudio2 (sound), Winsock (multiplayer), WIC (PNG images and
 screenshots), the Compression API (mod packs). The build uses
 [nob.h](https://github.com/tsoding/nob.h) 3.10.1 (`nob.h`, MIT or public

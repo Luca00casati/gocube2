@@ -10,6 +10,8 @@
 //     nob test [CONFIG] [unity]    # build, then run the tests
 //     nob run [CONFIG] [-- ARGS]   # build, then run the game
 //     nob clean                    # delete build\
+//     nob c3 [build|test|run]      # the C3 port (c3/, see c3/README.md), with c3c:
+//                                  # on the path, or where the C3C variable says
 //
 // CONFIG is one of:
 //   release   optimized (/O2): the game as players get it; slow to compile
@@ -93,7 +95,7 @@ static const char *GAME_SOURCES[] = {
 	"src/platform/window.cpp",
 	"src/render/chunk_renderer.cpp",
 	"src/render/renderer.cpp",
-	"src/ui/gui_d2d.cpp",
+	"src/ui/gui_d3d.cpp",
 	"src/ui/screens.cpp",
 	"src/ui/settings_screen.cpp",
 };
@@ -157,6 +159,8 @@ static const Shader SHADERS[] = {
 	{"shaders/creatures.hlsl", "ps_main", "ps_5_0", "creatures_ps"},
 	{"shaders/blit.hlsl", "vs_main", "vs_5_0", "blit_vs"},
 	{"shaders/blit.hlsl", "ps_main", "ps_5_0", "blit_ps"},
+	{"shaders/gui.hlsl", "vs_main", "vs_5_0", "gui_vs"},
+	{"shaders/gui.hlsl", "ps_main", "ps_5_0", "gui_ps"},
 };
 
 // Windows' own libraries the executables link.
@@ -164,7 +168,7 @@ static const char *SYSTEM_LIBS[] = {
 	"kernel32.lib", "user32.lib", "gdi32.lib", "advapi32.lib", "shell32.lib", "ole32.lib", "oleaut32.lib", "uuid.lib",
 	"bcrypt.lib", "ws2_32.lib", "winmm.lib", "cabinet.lib", "windowscodecs.lib",
 };
-static const char *GAME_LIBS[] = {"d2d1.lib", "dwrite.lib", "xaudio2.lib", "d3d11.lib", "dxgi.lib", "dxguid.lib"};
+static const char *GAME_LIBS[] = {"xaudio2.lib", "d3d11.lib", "dxgi.lib", "dxguid.lib"};
 
 // --- Helpers ----------------------------------------------------------------------
 
@@ -741,7 +745,51 @@ static int tests(void) {
 }
 
 static void usage(void) {
-	fprintf(stderr, "usage: nob [build|test|run|clean] [release|dev|debug] [unity] [-- game arguments]\n");
+	fprintf(stderr, "usage: nob [build|test|run|clean] [release|dev|debug] [unity] [-- game arguments]\n"
+					"       nob c3 [build|test|run] [-- game arguments]\n");
+}
+
+// The C3 port: c3c builds, tests or runs it with its own project file
+// (c3/project.json, into build/c3).
+// The shaders as compiled bytecode (build/shaders/*.cso), which the C3 game
+// embeds ($embed).
+static bool c3_shaders(void) {
+	if (!make_dirs(BUILD "/shaders")) {
+		return false;
+	}
+	Procs procs = {0};
+	Cmd cmd = {0};
+	bool ok = true;
+	for (size_t i = 0; i < ARRAY_LEN(SHADERS); i++) {
+		const Shader *s = &SHADERS[i];
+		const char *out = temp_sprintf(BUILD "/shaders/%s.cso", s->name);
+		const char *inputs[] = {s->file, "shaders/color.hlsli"};
+		if (!stale(out, inputs, ARRAY_LEN(inputs), 0)) {
+			continue;
+		}
+		cmd_append(&cmd, "fxc.exe", "/nologo", "/T", s->profile, "/E", s->entry, "/O3", "/WX", "/Fo", out, s->file);
+		if (!cmd_run(&cmd, .async = &procs)) {
+			ok = false;
+		}
+	}
+	return procs_flush(&procs) && ok;
+}
+
+static int c3(const char *action, int argc, char **argv, int i) {
+	if (!c3_shaders()) {
+		return 1;
+	}
+	const char *c3c = getenv("C3C");
+	const char *what = strcmp(action, "test") == 0 ? "test" : strcmp(action, "run") == 0 ? "run" : "build";
+	Cmd cmd = {0};
+	cmd_append(&cmd, c3c && *c3c ? c3c : "c3c", what, "--path", "c3");
+	if (strcmp(what, "run") == 0 && i < argc) {
+		cmd_append(&cmd, "--");
+		for (; i < argc; i++) {
+			cmd_append(&cmd, argv[i]);
+		}
+	}
+	return cmd_run(&cmd) ? 0 : 1;
 }
 
 int main(int argc, char **argv) {
@@ -760,6 +808,7 @@ int main(int argc, char **argv) {
 	}
 
 	const char *action = "build";
+	bool port = true; // the C3 game, unless "cpp"
 	int i = 1;
 	for (; i < argc; i++) {
 		const char *a = argv[i];
@@ -774,6 +823,10 @@ int main(int argc, char **argv) {
 			config = DEBUG;
 		} else if (strcmp(a, "unity") == 0) {
 			unity = true;
+		} else if (strcmp(a, "c3") == 0) {
+			port = true;
+		} else if (strcmp(a, "cpp") == 0) {
+			port = false;
 		} else if (strcmp(a, "build") == 0 || strcmp(a, "test") == 0 || strcmp(a, "run") == 0 ||
 				strcmp(a, "clean") == 0) {
 			action = a;
@@ -783,6 +836,14 @@ int main(int argc, char **argv) {
 		}
 	}
 
+	if (port) {
+		if (strcmp(action, "clean") == 0) {
+			Cmd cmd = {0};
+			cmd_append(&cmd, "cmd.exe", "/c", "if exist " BUILD "\\c3 rmdir /s /q " BUILD "\\c3");
+			return cmd_run(&cmd) ? 0 : 1;
+		}
+		return c3(action, argc, argv, i);
+	}
 	debug = config == DEBUG;
 	if (strcmp(action, "clean") == 0) {
 		Cmd cmd = {0};

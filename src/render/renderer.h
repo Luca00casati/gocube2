@@ -8,7 +8,7 @@
 // The world is drawn into the plain back buffer: its shaders work out linear
 // light and write it back through the sRGB curve (shaders/color.hlsli), so
 // see-through surfaces blend in sRGB numbers; the UI's
-// colours (Direct2D, ui/gui_d2d.h) are already what the screen shows. With a render scale below
+// colours (ui/gui_d3d.h) are already what the screen shows. With a render scale below
 // 1 the world is drawn into a smaller target first, then stretched over the
 // window (bilinear), under the full-size UI.
 

@@ -277,7 +277,7 @@ void Renderer::begin_frame(const float clear_linear[4], bool clear_color) {
 }
 
 bool Renderer::end_frame(const std::function<void()> &overlay, const char *screenshot_png) {
-	gpu_mark("scaling, UI (Direct2D)");
+	gpu_mark("scaling, UI");
 	if (scaled()) {
 		// Stretch the world over the window.
 		ID3D11RenderTargetView *full[] = {target_.Get()};

@@ -21,7 +21,7 @@ jobs:
       # Graphics Tools, so the debug layer is skipped there. Unity builds: CI
       # always builds from scratch, where they're fastest.
       - name: Build and test (Debug)
-        run: .\nob.exe test debug unity
+        run: .\nob.exe cpp test debug unity
 
       - name: Build and test (Release)
-        run: .\nob.exe test release unity
+        run: .\nob.exe cpp test release unity

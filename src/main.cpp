@@ -80,7 +80,7 @@
 #include "world/world.h"
 
 #include "ui/gui.h"
-#include "ui/gui_d2d.h"
+#include "ui/gui_d3d.h"
 
 #include <shellapi.h>
 #include <shlobj.h>
@@ -336,10 +336,10 @@ int number_pressed(const gc::Window &window, Controls &controls) {
 	return pressed;
 }
 
-// The UI: the game's own (ui/gui.h), drawn with Direct2D (ui/gui_d2d.h).
+// The UI: the game's own (ui/gui.h), drawn with Direct3D 11 (ui/gui_d3d.h).
 struct Ui {
-	gc::GuiD2D d2d;
-	gc::ui::Gui gui{[this](std::string_view text, float size, float wrap) { return d2d.measure(text, size, wrap); }};
+	gc::GuiD3D painter;
+	gc::ui::Gui gui{[this](std::string_view text, float size, float wrap) { return painter.measure(text, size, wrap); }};
 	std::vector<gc::ui::DrawCmd> cmds;
 	std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
 };
@@ -380,7 +380,7 @@ void end_ui() {
 
 // For Renderer::end_frame: the UI, over the frame.
 std::function<void()> ui_overlay(gc::Renderer &renderer) {
-	return [&renderer] { the_ui->d2d.draw(renderer.swap_chain(), renderer.context(), the_ui->cmds); };
+	return [&renderer] { the_ui->painter.draw(renderer.context(), renderer.width(), renderer.height(), the_ui->cmds); };
 }
 
 std::string format(const char *f, ...) {
@@ -1264,7 +1264,7 @@ End play(const Options &options, WorldChoice &choice, bool from_menu, gc::Window
 	gc::log("%zu blocks, %zu atlas tiles", table.blocks.size(), table.atlas.tiles.size());
 
 	gc::ChunkRenderer chunks;
-	the_ui->d2d.set_icons(table.atlas); // (item icons)
+	the_ui->painter.set_icons(table.atlas); // (item icons)
 	if (!chunks.init(renderer.device(), table.atlas)) {
 		gc::log("Couldn't set up the terrain renderer");
 		return End::FAILED;
@@ -2112,8 +2112,8 @@ int main(int argc, char **argv) {
 	renderer.set_render_scale(render_scale(options));
 	Ui ui; // (before the renderer goes: it draws with its device)
 	the_ui = &ui;
-	if (!ui.d2d.init(renderer.device())) {
-		gc::log("Couldn't start Direct2D for the UI");
+	if (!ui.painter.init(renderer.device())) {
+		gc::log("Couldn't set up the UI's drawing");
 		return 1;
 	}
 	ui.gui.clipboard = [&window] { return window.clipboard_text(); };
