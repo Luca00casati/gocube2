@@ -24,6 +24,7 @@ struct LightRegion
 {
 	char[] sky, block, opaque;
 	Vec{int} sky_queue, block_queue; // (working space)
+	Vec{char} kinds; // per block id: 0x80 opaque | the light it gives off (working space)
 }
 
 fn int light_index(int x, int y, int z) @inline => (y * LIGHT_SIZE + z) * LIGHT_SIZE + x;
@@ -46,6 +47,7 @@ fn void LightRegion.free(&self)
 	self.opaque = {};
 	self.sky_queue.free();
 	self.block_queue.free();
+	self.kinds.free();
 }
 
 fn void LightRegion.reset(&self, char sky)
@@ -64,13 +66,16 @@ fn void LightRegion.reset(&self, char sky)
 }
 
 // Breadth-first flood: each step into a non-opaque cell loses one level.
-fn void flood(char[] light, Vec{int}* queue, char[] opaque) @private
+// (Raw pointers: every index is inside the region, by the checks on x, y, z.)
+fn void flood(char[] light_cells, Vec{int}* queue, char[] opaque_cells) @private
 {
 	const int S = LIGHT_SIZE;
 	const int SS = S * S;
+	char* light = light_cells.ptr;
+	char* opaque = opaque_cells.ptr;
 	for (sz head = 0; head < queue.len(); head++)
 	{
-		int i = (*queue)[head];
+		int i = queue.items[head];
 		char l = light[i];
 		if (l <= 1) continue;
 		char next = l - 1;
@@ -86,7 +91,7 @@ fn void flood(char[] light, Vec{int}* queue, char[] opaque) @private
 	}
 }
 
-fn void visit(char[] light, Vec{int}* queue, char[] opaque, int j, char next) @private @inline
+fn void visit(char* light, Vec{int}* queue, char* opaque, int j, char next) @private @inline
 {
 	if (!opaque[j] && light[j] < next)
 	{
@@ -162,8 +167,12 @@ fn void compute_light(LightRegion* out, ChunkData*[27]* chunks, ColumnTops*[9]* 
 	}
 
 	// Opaque cells and glowing blocks, one neighbour chunk's part of the region
-	// at a time (a uniform one in whole rows).
+	// at a time (a uniform one in whole rows). What each block id is, packed
+	// small (the block infos are large, and this is per cell).
 	sz count = blocks.len;
+	out.kinds.clear();
+	foreach (&b : blocks) out.kinds.push((char)((b.opaque ? 0x80 : 0) | (b.emit & 15)));
+	char* kinds = out.kinds.items;
 	for (int oy = -1; oy <= 1; oy++)
 	{
 		for (int oz = -1; oz <= 1; oz++)
@@ -198,6 +207,8 @@ fn void compute_light(LightRegion* out, ChunkData*[27]* chunks, ColumnTops*[9]* 
 					}
 					continue;
 				}
+				BlockId* ids = c.blocks.ptr;
+				char* op = opaque.ptr;
 				for (int y = part_lo(oy); y < part_hi(oy); y++)
 				{
 					for (int z = part_lo(oz); z < part_hi(oz); z++)
@@ -206,13 +217,13 @@ fn void compute_light(LightRegion* out, ChunkData*[27]* chunks, ColumnTops*[9]* 
 						int i = light_index(x0, y, z);
 						for (int x = x0; x < x1; x++, i++, src++)
 						{
-							BlockId id = c.blocks[src];
+							BlockId id = ids[src];
 							if (id >= count) continue;
-							BlockInfo* b = &blocks[id];
-							opaque[i] = b.opaque ? 1 : 0;
-							if (b.emit > 0)
+							char k = kinds[id];
+							op[i] = k >> 7;
+							if (k & 15)
 							{
-								out.block[i] = b.emit;
+								out.block[i] = k & 15;
 								out.block_queue.push(i);
 							}
 						}
@@ -224,22 +235,41 @@ fn void compute_light(LightRegion* out, ChunkData*[27]* chunks, ColumnTops*[9]* 
 
 	// Sky: full light straight down each column until its topmost opaque block
 	// (the lowest lit cell of each column kept).
+	// Layer by layer from the top (a layer's cells are next to each other in
+	// memory, a column's a layer apart), each column until it stops.
 	short[S * S] lowest;
 	lowest[..] = (short)S;
+	int[S * S] top_y;   // region y of the column's topmost opaque block (from its tops)
+	bool[S * S] lit;    // still lit going down
+	int alive = 0;
 	for (int z = 0; z < S; z++)
 	{
 		for (int x = 0; x < S; x++)
 		{
 			ColumnTops* t = (*tops)[(chunk_offset[z] + 1) * 3 + (chunk_offset[x] + 1)];
 			int top = t ? (*t)[local[z] * CHUNK + local[x]] : NO_TOP;
-			for (int y = S - 1; y >= 0; y--)
+			int c = z * S + x;
+			top_y[c] = top == NO_TOP ? -1 : math::max(top - (chunk_y * CHUNK - M), -1);
+			lit[c] = true;
+			alive++;
+		}
+	}
+	char* sky = out.sky.ptr;
+	char* op = opaque.ptr;
+	for (int y = S - 1; y >= 0 && alive > 0; y--)
+	{
+		int layer = y * S * S;
+		for (int c = 0; c < S * S; c++)
+		{
+			if (!lit[c]) continue;
+			if (y <= top_y[c] || op[layer + c])
 			{
-				int wy = chunk_y * CHUNK + y - M;
-				int i = light_index(x, y, z);
-				if (wy <= top || opaque[i]) break;
-				out.sky[i] = (char)LIGHT_MAX;
-				lowest[z * S + x] = (short)y;
+				lit[c] = false;
+				alive--;
+				continue;
 			}
+			sky[layer + c] = (char)LIGHT_MAX;
+			lowest[c] = (short)y;
 		}
 	}
 	// The flood starts only from lit cells next to an unlit open one: from any

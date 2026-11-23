@@ -38,21 +38,13 @@ fn void ChunkMesh.free(&self)
 }
 
 // A vertex of the world's meshes (chunk.hlsl's input): position, normal, uv,
-// colour (sky light, block light, occlusion, marks), dye (rgb 0..1, a = 1 if
-// dyed).
+// colour (sky light, block light, occlusion, marks).
 struct WorldVertex
 {
 	float[3] pos;
 	float[3] normal;
 	float[2] uv;
 	float[4] color;
-	float[4] dye;
-}
-
-fn void WorldVertex.set_dye(&self, Dye d)
-{
-	self.dye = { (float)((d >> 16) & 255) / 255.0f, (float)((d >> 8) & 255) / 255.0f, (float)(d & 255) / 255.0f,
-		d != voxel::NO_DYE ? 1.0f : 0.0f };
 }
 
 struct WorldStats
@@ -235,7 +227,7 @@ extern fn uint get_active_processor_count(ushort group) @cname("GetActiveProcess
 fn void World.init(&self, BlockInfo[] blocks, AtlasLayout* atlas, Generator* generator, String save_dir = "", int worker_threads = 0)
 {
 	*self = { .blocks = blocks, .atlas = atlas, .generator = generator, .save_dir = save_dir.copy(mem), .view_distance = 128, .next_serial = 1 };
-	self.smooth_lighting.store(1);
+	self.smooth_lighting.store(0);
 	self.sun_step.store(45);
 	self.job_mutex.init()!!;
 	self.job_cv.init()!!;
@@ -317,6 +309,16 @@ fn int worker_main(void* arg) @private
 {
 	World* self = arg;
 	allocators::thread_allocator = self.allocator;
+	int result;
+	@pool_init(self.allocator, 64 * 1024) // (reading chunk files uses temp memory; only the main thread has it on its own)
+	{
+		result = worker_loop(self);
+	};
+	return result;
+}
+
+fn int worker_loop(World* self) @private
+{
 	while (true)
 	{
 		self.job_mutex.lock();
@@ -436,7 +438,6 @@ fn void copy_chunk(ChunkData* to, ChunkData* from)
 		to.blocks = mem::alloc_array(BlockId, CHUNK_VOLUME);
 		to.blocks[..] = from.blocks[..];
 	}
-	from.dyes.@each(; ushort i, Dye d) { to.dyes[i] = d; };
 }
 
 // --- Main thread ---------------------------------------------------------------
@@ -915,16 +916,6 @@ fn BlockId World.block_at(&self, int x, int y, int z)
 	return id < 0 ? voxel::AIR : (BlockId)id;
 }
 
-// A block's dye (NO_DYE: undyed, or not loaded).
-fn Dye World.dye_at(&self, int x, int y, int z)
-{
-	int lx;
-	int ly;
-	int lz;
-	ChunkData* d = self.chunk_data_at(x, y, z, &lx, &ly, &lz);
-	return d ? d.dye(lx, ly, lz) : voxel::NO_DYE;
-}
-
 fn bool World.is_loaded(&self, int x, int y, int z)
 {
 	int lx;
@@ -952,65 +943,8 @@ fn void World.light_at(&self, int x, int y, int z, int* sky, int* block)
 	*block = v & 15;
 }
 
-// Light held in hand (a torch: x, y, z, level 0..15) spread like placed
-// light, one level less per block and stopped by opaque blocks, in the cube
-// of `size` blocks from `origin`: a level per block, indexed
-// (y * size + z) * size + x, into `vol` (resized).
-fn void World.held_light(&self, BlockPos origin, int size, float[4][] lights, Vec{char}* vol)
-{
-	size = math::clamp(size, 1, 128);
-	vol.clear();
-	vol.resize((sz)size * size * size);
-	Vec{int} queue;
-	defer queue.free();
-	foreach (l : lights)
-	{
-		int x = (int)math::floor(l[0]) - origin.x;
-		int y = (int)math::floor(l[1]) - origin.y;
-		int z = (int)math::floor(l[2]) - origin.z;
-		int level = math::clamp((int)l[3], 0, voxel::LIGHT_MAX);
-		if (x < 0 || y < 0 || z < 0 || x >= size || y >= size || z >= size) continue;
-		int i = (y * size + z) * size + x;
-		if (level <= (*vol)[i]) continue;
-		(*vol)[i] = (char)level;
-		queue.push(i);
-	}
-	int[3][6] dirs = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
-	for (sz q = 0; q < queue.len(); q++)
-	{
-		int i = queue[q];
-		int x = i % size;
-		int z = (i / size) % size;
-		int y = i / (size * size);
-		int next = (*vol)[i] - 1;
-		if (next <= 0) continue;
-		foreach (d : dirs)
-		{
-			int nx = x + d[0];
-			int ny = y + d[1];
-			int nz = z + d[2];
-			if (nx < 0 || ny < 0 || nz < 0 || nx >= size || ny >= size || nz >= size) continue;
-			int n = (ny * size + nz) * size + nx;
-			if ((*vol)[n] >= next || !self.light_passes(origin, nx, ny, nz)) continue;
-			(*vol)[n] = (char)next;
-			queue.push(n);
-		}
-	}
-}
-
-// Whether light passes through the block at a volume position (unloaded: no;
-// above the world: open air).
-fn bool World.light_passes(&self, BlockPos origin, int x, int y, int z)
-{
-	int wy = origin.y + y;
-	if (floor_div(wy, CHUNK) > CHUNK_Y_MAX) return true;
-	int id = self.block_id_at(origin.x + x, wy, origin.z + z);
-	return id >= 0 && (id >= self.blocks.len || !self.blocks[id].opaque);
-}
-
-// Changes a block (and its dye: a new block is undyed unless given one);
-// false if its chunk isn't loaded.
-fn bool World.set_block(&self, BlockPos p, BlockId id, Dye dye = voxel::NO_DYE)
+// Changes a block; false if its chunk isn't loaded.
+fn bool World.set_block(&self, BlockPos p, BlockId id)
 {
 	if (id >= self.blocks.len) return false;
 	int cx = floor_div(p.x, CHUNK);
@@ -1021,27 +955,11 @@ fn bool World.set_block(&self, BlockPos p, BlockId id, Dye dye = voxel::NO_DYE)
 	int lx = p.x - cx * CHUNK;
 	int ly = p.y - cy * CHUNK;
 	int lz = p.z - cz * CHUNK;
-	if (id == voxel::AIR) dye = voxel::NO_DYE;
-	if (chunk.data.value.get(lx, ly, lz) == id)
-	{
-		if (chunk.data.value.dye(lx, ly, lz) == dye) return true;
-		// Only the dye: this chunk's mesh, nothing else (light doesn't change).
-		SharedChunk* copy = shared::new{ChunkData}();
-		copy_chunk(&copy.value, &chunk.data.value);
-		copy.value.set_dye(lx, ly, lz, dye);
-		chunk.data.release();
-		chunk.data = copy;
-		chunk.dirty = true;
-		self.revision_++;
-		self.request_remesh(cx, cy, cz);
-		if (self.on_block_changed) self.on_block_changed(self.on_block_changed_context, p, id);
-		return true;
-	}
+	if (chunk.data.value.get(lx, ly, lz) == id) return true;
 	// Copy-on-write: mesh jobs may still be reading the old snapshot.
 	SharedChunk* copy = shared::new{ChunkData}();
 	copy_chunk(&copy.value, &chunk.data.value);
 	copy.value.set(lx, ly, lz, id);
-	copy.value.set_dye(lx, ly, lz, dye);
 	copy.value.compact();
 	chunk.data.release();
 	chunk.data = copy;
@@ -1115,8 +1033,8 @@ fn void World.set_block_shadows(&self, bool enabled)
 
 fn bool World.block_shadows_on(&self) => self.block_shadows.load() != 0;
 
-// Smooth lighting (corner shading and soft light, the default); turning it
-// on or off remeshes every chunk.
+// Smooth lighting (corner shading and soft light; off by default: one flat
+// light per face, hard-edged); turning it on or off remeshes every chunk.
 fn void World.set_smooth_lighting(&self, bool enabled)
 {
 	int on = enabled ? 1 : 0;
@@ -1127,12 +1045,13 @@ fn void World.set_smooth_lighting(&self, bool enabled)
 	}
 }
 
-// Where the sun is (radians above the eastern horizon); shadows follow it in
-// SUN_STEP_DEGREES steps. At night the last step stays, for the morning.
+// Where the sun (or at night the moon) is, radians above the eastern horizon;
+// shadows follow it in SUN_STEP_DEGREES steps. Below the horizon the last
+// step stays.
 fn void World.set_sun_angle(&self, float radians)
 {
 	float degrees = radians * 180.0f / 3.14159265f;
-	if (!(degrees > 0.0f && degrees < 180.0f)) return; // night: keep the last shadows for the morning's first frames
+	if (!(degrees > 0.0f && degrees < 180.0f)) return; // (down: keep the last shadows)
 	int last = 180 / SUN_STEP_DEGREES - 1;
 	int step = math::clamp((int)math::round(degrees / SUN_STEP_DEGREES), 1, last);
 	if (self.sun_step.load() != step)

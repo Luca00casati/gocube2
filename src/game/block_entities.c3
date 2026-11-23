@@ -1,21 +1,18 @@
-// Data attached to some blocks: chests (27 slots) and dye vats (the gems in
-// its dye, one slot per kind, and how many blocks it can still dye:
-// "charge"). A block gets one when it appears, if its definition has
-// "block_entity": "chest" or "vat"; when it goes, its contents spill. Saved in
-// world.json's block_entities:
-//   {"x,y,z": {type, slots: [[id, count] or false, ...], charge}}
+// Data attached to some blocks: chests (27 slots). A block gets one when it
+// appears, if its definition has "block_entity": "chest"; when it goes, its
+// contents spill. Saved in world.json's block_entities:
+//   {"x,y,z": {type, slots: [[id, count] or false, ...]}}
+// (Worlds from before dyeing went may have dye vats: they're dropped.)
 module gocube::game::block_entities;
 import gocube::game::inventory, gocube::content, gocube::data, gocube::world, gocube::util::vec, gocube::util::map, gocube::util::intern;
 import std::math;
 
 const int CHEST_SLOTS = 27;
-const int VAT_KINDS = 8; // kinds of gem in one dye
 
 struct BlockEntity
 {
-	String type;       // "chest", "vat" (interned)
+	String type;       // "chest" (interned)
 	Vec{Stack} slots;
-	int charge;        // vats: blocks it can still dye
 }
 
 fn void BlockEntity.free(&self) => self.slots.free();
@@ -23,11 +20,11 @@ fn void BlockEntity.free(&self) => self.slots.free();
 fn BlockEntity make(String type) @private
 {
 	BlockEntity e = { .type = intern::intern(type) };
-	e.slots.resize(type == "chest" ? CHEST_SLOTS : VAT_KINDS);
+	e.slots.resize(CHEST_SLOTS);
 	return e;
 }
 
-fn bool known_type(String type) @private => type == "chest" || type == "vat";
+fn bool known_type(String type) @private => type == "chest";
 
 struct BlockEntities
 {
@@ -97,11 +94,10 @@ fn void BlockEntities.block_changed(&self, BlockPos p, String block, Vec{Stack}*
 }
 
 // Mouse-style click on a slot while holding `held`; returns what is held now.
-// (A vat's gems are its dye: not taken by hand.)
 fn Stack BlockEntities.click(&self, BlockPos p, int slot, Stack held)
 {
 	BlockEntity* e = self.at(p);
-	if (!e || slot < 0 || slot >= e.slots.len() || e.type == "vat") return held;
+	if (!e || slot < 0 || slot >= e.slots.len()) return held;
 	Stack* here = e.slots.get_ref(slot);
 	if (!held.is_empty() && here.id == held.id)
 	{
@@ -140,7 +136,6 @@ fn Data entity_to_data(BlockEntity* e) @private
 	Data d = data::object();
 	d.set_string("type", e.type);
 	d.set("slots", slots_data(e));
-	d.set_long("charge", e.charge);
 	return d;
 }
 
@@ -175,13 +170,12 @@ fn BlockEntity* BlockEntities.entity_from(&self, Data* d)
 		{
 			Data* s = saved.at(i);
 			if (s && s.is_array() && s.len() == 2 && s.at(0).is_string() && s.at(1).is_number() &&
-				(self.content.items.has(s.at(0).s) || self.content.blocks.has(content::undyed(s.at(0).s))))
+				self.content.blocks.has(s.at(0).s))
 			{
 				e.slots[i] = inventory::stack(s.at(0).s, (int)s.at(1).as_double());
 			}
 		}
 	}
-	e.charge = math::max(0, (int)d.num("charge", 0));
 	return e;
 }
 

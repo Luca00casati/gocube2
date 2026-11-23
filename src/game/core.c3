@@ -1,10 +1,10 @@
 // The base game's behaviour (formerly the core mod's code):
 // plants (growing, falling, support, leaf decay, trees sprouting), flowing
-// water and lava, and the Block Eaters. It hears of block changes a tick
+// water and lava. It hears of block changes a tick
 // after they happen (Game.tick) and runs every frame.
 module gocube::game;
 import gocube::game::blocks, gocube::game::player, gocube::game::inventory, gocube::game::drops, gocube::game::block_entities;
-import gocube::game::creatures, gocube::game::rules, gocube::game::vitals, gocube::game::dye;
+import gocube::game::rules, gocube::game::vitals;
 import gocube::content, gocube::data, gocube::world, gocube::voxel, gocube::maths;
 import gocube::util::vec, gocube::util::map, gocube::util::rand, gocube::util::intern;
 import std::math, std::sort;
@@ -71,23 +71,6 @@ fn void CellQueue.free(&self)
 	*self = {};
 }
 
-enum EaterState : char
-{
-	IDLE,
-	WANDER,
-	FLEE,
-}
-
-struct Eater
-{
-	EaterState state;
-	double time;
-	int health;
-	bool has_heading;
-	double heading;
-	double flee_x, flee_z;
-}
-
 struct FluidLevel
 {
 	String block; // (interned)
@@ -114,9 +97,6 @@ struct Core
 	Vec{long} batch;              // this tick's
 	sz batch_head;
 	double fluid_timer;
-	// Creatures.
-	Map{int, Eater} eaters;
-	double spawn_timer;
 }
 
 fn void Core.free(&self)
@@ -130,7 +110,6 @@ fn void Core.free(&self)
 	self.steps.free();
 	self.pending.free();
 	self.batch.free();
-	self.eaters.free();
 	*self = {};
 }
 
@@ -196,7 +175,7 @@ fn void Game.players(&self, Vec{PlayerAt}* out)
 // Falling: blocks with "falls" (sand, gravel) drop while there's air or a
 // fluid under them.
 // Support: plants ("plant_on") need one of those blocks below; blocks with
-// "needs_support" need a solid block below or behind them (torches, ladders,
+// "needs_support" need a solid block below or behind them (ladders,
 // doors); unsupported blocks pop off and drop their item.
 // Leaf decay: leaves more than LEAF_REACH steps (through leaves) from a log
 // fall after a short random delay, now and then dropping a sapling; placed
@@ -668,225 +647,6 @@ fn void Game.fluids_tick(&self, double dt)
 // How many cells wait to be looked at (for tests).
 fn sz Game.fluids_pending(&self) => self.core.pending.len() + (self.core.batch.len() - self.core.batch_head);
 
-// --- Creatures (nothing here is hostile) -----------------------------------------------
-// The game moves their bodies (gravity, steps, turning towards `heading` at
-// `speed`); this decides where they go, spawns and despawns them, and handles
-// hits.
-//
-// Block Eaters are rare: one comes out by day now and then (every
-// SPAWN_EVERY seconds, at most MAX_EATERS) on grass open to the sky, 20-48
-// blocks from a player, and goes when no player is within DESPAWN_DISTANCE.
-// They graze (idle), wander, turn away from water and drops, and run off when
-// hit. Grazing, now and then one eats the block in front of its feet: the
-// block is gone. (One made of a block drops it when defeated.)
-
-const int MAX_EATERS @private = 2;
-const double SPAWN_EVERY @private = 45.0;
-const double SPAWN_MIN @private = 20.0;
-const double SPAWN_MAX @private = 48.0;
-const double DESPAWN_DISTANCE @private = 80.0;
-const String EATER @private = "core:block_eater";
-const int EATER_HEALTH @private = 8;
-const double WALK_SPEED @private = 1.2;
-const double FLEE_SPEED @private = 3.4;
-const double EAT_CHANCE @private = 0.3; // each time one starts grazing
-
-fn void Game.block_sound_at(&self, String id, String kind, double x, double y, double z, float db = 0)
-{
-	Data* s = self.def_id(id).get("sound");
-	if (s && s.is_string()) self.play_shared_sound(s.s, kind, { (float)x, (float)y, (float)z }, db);
-}
-
-// Water at the next step, or a fall of more than 3 blocks.
-fn bool Game.danger_ahead(&self, Creature* c, double heading)
-{
-	int ax = (int)math::floor(c.pos[0] - math::sin(heading) * 0.9);
-	int az = (int)math::floor(c.pos[2] - math::cos(heading) * 0.9);
-	int ay = (int)math::floor(c.pos[1]);
-	for (int dy = 1; dy >= -3; dy--)
-	{
-		String b = self.block_id(ax, ay + dy, az);
-		if (self.is_fluid_id(b)) return true;
-		if (b.len && b != "core:air") return false;
-	}
-	return true;
-}
-
-// Whether a Block Eater eats this block: solid, not a fluid, never storage
-// (the contents would spill) nor half of a door or bed.
-fn bool Game.edible(&self, String id)
-{
-	if (!id.len || id == "core:air") return false;
-	Data* d = self.def_id(id);
-	String shape = d.str("shape");
-	return d.flag("solid", true) && !d.has("fluid") && !d.has("block_entity") && shape != "door" && shape != "bed";
-}
-
-// Eats the block in front of its feet: it's gone.
-fn void Game.try_eat(&self, Creature* c)
-{
-	double yaw = c.yaw;
-	int x = (int)math::floor(c.pos[0] - math::sin(yaw) * 0.9);
-	int y = (int)math::floor(c.pos[1] - 0.5);
-	int z = (int)math::floor(c.pos[2] - math::cos(yaw) * 0.9);
-	String id = self.block_id(x, y, z);
-	if (self.edible(id) && self.set_block_id(x, y, z, "core:air")) self.block_sound_at(id, "break", x + 0.5, y + 0.5, z + 0.5);
-}
-
-fn void Game.pick_state(&self, Eater* s, Creature* c)
-{
-	if (s.state == FLEE || self.random_unit() < 0.45)
-	{
-		s.state = IDLE; // graze a while
-		s.time = self.rand_range(2.0, 5.0);
-		if (self.random_unit() < EAT_CHANCE) self.try_eat(c);
-	}
-	else
-	{
-		s.state = WANDER;
-		s.time = self.rand_range(2.5, 6.0);
-		s.heading = (s.has_heading ? s.heading : (double)c.heading) + self.rand_range(-1.6, 1.6);
-		s.has_heading = true;
-	}
-}
-
-fn void Game.eater(&self, Eater* s, Creature* c, double dt)
-{
-	s.time -= dt;
-	if (s.time <= 0) self.pick_state(s, c);
-	double speed = 0;
-	double heading = s.has_heading ? s.heading : (double)c.heading;
-	if (s.state == WANDER)
-	{
-		speed = WALK_SPEED;
-		if (c.hit_wall) heading += math::PI * 0.5 + self.random_unit() * math::PI; // blocked: try another way
-	}
-	else if (s.state == FLEE)
-	{
-		speed = FLEE_SPEED;
-		double ax = c.pos[0] - s.flee_x;
-		double az = c.pos[2] - s.flee_z;
-		if (ax * ax + az * az > 0.01) heading = math::atan2(-ax, -az);
-	}
-	c.hit_wall = false; // (looked at)
-	if (speed > 0 && self.danger_ahead(c, heading)) heading += math::PI * (0.5 + self.random_unit()); // water or a drop ahead: turn away
-	s.heading = heading;
-	s.has_heading = true;
-	c.heading = (float)heading;
-	c.speed = math::clamp((float)speed, 0.0f, 20.0f);
-}
-
-fn void Game.spawn_eater(&self, PlayerAt[] players)
-{
-	PlayerAt p = players[(sz)math::floor(self.random_unit() * (double)players.len)];
-	double angle = self.random_unit() * 2 * math::PI;
-	double dist = self.rand_range(SPAWN_MIN, SPAWN_MAX);
-	int x = (int)math::floor(p.feet[0] + math::cos(angle) * dist);
-	int z = (int)math::floor(p.feet[2] + math::sin(angle) * dist);
-	RayHit hit = self.raycast_down(x + 0.5f, (float)SKY_Y, z + 0.5f);
-	if (!hit.hit || self.rules.id_of(hit.block) != "core:grass") return; // only on grass, open to the sky
-	int fy = hit.position.y + 1;
-	if (!self.world.is_box_free({ x + 0.5f, (float)fy, z + 0.5f }, { 0.9f, 0.95f, 0.9f })) return;
-	int id = self.creatures.spawn(self.content, EATER, { x + 0.5f, (float)fy, z + 0.5f });
-	if (id) self.core.eaters[id] = { .state = IDLE, .health = EATER_HEALTH, .has_heading = true, .heading = self.random_unit() * 2 * math::PI };
-}
-
-fn void Game.despawn_far(&self, PlayerAt[] players)
-{
-	Vec{int} gone;
-	defer gone.free();
-	foreach (&c : self.creatures.all())
-	{
-		bool nearby = false;
-		foreach (p : players)
-		{
-			double dx = (double)p.feet[0] - (double)c.pos[0];
-			double dy = (double)p.feet[1] - (double)c.pos[1];
-			double dz = (double)p.feet[2] - (double)c.pos[2];
-			nearby = nearby || dx * dx + dy * dy + dz * dz < DESPAWN_DISTANCE * DESPAWN_DISTANCE;
-		}
-		if (!nearby || c.pos[1] < -200) gone.push(c.id);
-	}
-	foreach (id : gone)
-	{
-		self.creatures.remove(id);
-		self.core.eaters.remove(id);
-	}
-}
-
-fn void Game.creatures_tick(&self, double dt)
-{
-	foreach (&c : self.creatures.all())
-	{
-		if (c.kind != EATER) continue;
-		bool made;
-		Eater* s = self.core.eaters.slot(c.id, &made);
-		if (made) *s = { .state = IDLE, .health = EATER_HEALTH, .has_heading = true, .heading = c.heading };
-		self.eater(s, c, dt);
-	}
-	self.core.spawn_timer += dt;
-	if (self.core.spawn_timer < SPAWN_EVERY) return;
-	self.core.spawn_timer = 0;
-	Vec{PlayerAt} players;
-	defer players.free();
-	self.players(&players);
-	self.despawn_far(players.array_view());
-	if (players.is_empty()) return;
-	int eaters = 0;
-	foreach (&c : self.creatures.all()) eaters += c.kind == EATER ? 1 : 0;
-	if (self.day > 0.3 && eaters < MAX_EATERS) self.spawn_eater(players.array_view());
-}
-
-// A player (peer 0: the local one) standing at `from` hit a creature: hurt,
-// knocked back, runs off; defeated, it drops what it's made of.
-fn void Game.creature_hit(&self, int id, int damage, float[3] from, int attacker)
-{
-	Creature* c = self.creatures.find(id);
-	if (!c || c.kind != EATER) return;
-	double fx = from[0];
-	double fz = from[2];
-	double cx = c.pos[0];
-	double cy = c.pos[1];
-	double cz = c.pos[2];
-	bool made;
-	Eater* s = self.core.eaters.slot(id, &made);
-	if (made) *s = { .state = IDLE, .health = EATER_HEALTH };
-	String variant = c.variant;
-	if (!variant.len)
-	{
-		self.play_shared_sound("core:effects", "hurt", { (float)cx, (float)cy, (float)cz }, -4.0f);
-	}
-	else
-	{
-		self.block_sound_at(variant, "break", cx, cy, cz);
-	}
-	s.health -= damage;
-	s.state = FLEE;
-	s.time = 3.0;
-	s.flee_x = fx;
-	s.flee_z = fz;
-	double px = cx - fx;
-	double pz = cz - fz;
-	double len = math::sqrt(px * px + pz * pz);
-	if (len > 1e-4)
-	{
-		px /= len;
-		pz /= len;
-	}
-	else
-	{
-		px = pz = 0;
-	}
-	c.hurt();
-	c.push({ (float)(px * 4.0), 5.0f, (float)(pz * 4.0) });
-	if (s.health <= 0)
-	{
-		if (variant.len) self.drop_at_cell((int)math::floor(cx), (int)math::floor(cy + 0.5), (int)math::floor(cz), variant, 1);
-		self.creatures.remove(id);
-		self.core.eaters.remove(id);
-	}
-}
-
 // --- Hooking it up ------------------------------------------------------------------
 
 fn void Game.core_block_changed(&self, BlockPos p, BlockId id)
@@ -900,5 +660,4 @@ fn void Game.core_tick(&self, double dt)
 {
 	self.plants_tick(dt);
 	self.fluids_tick(dt);
-	self.creatures_tick(dt);
 }

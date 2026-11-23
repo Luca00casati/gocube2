@@ -1,5 +1,7 @@
 // The time of day (0..1, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset) and what
-// follows from it: daylight, the sky's colours, where the sun is. A day lasts
+// follows from it: daylight, the sky's colours, where the sun is. The moon is
+// always opposite the sun: at night it is the light that shines (and casts
+// the block shadows), weaker and blue. A day lasts
 // day_length seconds (a real day by default: new worlds start at the
 // computer's clock time).
 module gocube::game::day_cycle;
@@ -10,19 +12,22 @@ alias Rgb = float[<3>];
 fn Rgb lerp(Rgb a, Rgb b, float t) => a + (b - a) * t;
 
 const double DEFAULT_DAY_LENGTH = 86400.0;
-const float NIGHT_LIGHT = 0.02f;    // sky light at night: dark, bring a torch
+const float NIGHT_LIGHT = 0.48f;    // sky light at night: dim, but you can see the land (shaded in sRGB: about a tenth of the day)
+const float MOON_LIGHT = 0.6f;      // how strongly the moon shines (the sun: 1)
 const double MORNING = 0.26;        // what sleeping wakes you at
 const float PI = 3.14159265358979f;
 // (Colours: linear, as the shaders get them.)
 const Rgb NIGHT_TINT = { 0.6f, 0.7f, 1.0f }; // moonlight is a cool blue
-const Rgb DAY_TOP = { 0.32f, 0.52f, 0.86f };
-const Rgb DAY_HORIZON = { 0.68f, 0.79f, 0.92f };
+const Rgb DAY_TOP = { 0.2f, 0.38f, 1.0f };       // a deep, plain blue
+const Rgb DAY_HORIZON = { 0.6f, 0.74f, 1.0f };    // pale and hazy: the fog's colour
 const Rgb DUSK_HORIZON = { 0.95f, 0.55f, 0.32f };
-const Rgb NIGHT_TOP = { 0.015f, 0.02f, 0.06f };
-const Rgb NIGHT_HORIZON = { 0.05f, 0.07f, 0.14f };
-const Rgb NIGHT_FOG = { 0.006f, 0.008f, 0.02f };
-const float NIGHT_FOG_BEGIN = 4.0f;
-const float NIGHT_FOG_END = 40.0f;
+const Rgb NIGHT_TOP = { 0.02f, 0.035f, 0.09f };
+const Rgb NIGHT_HORIZON = { 0.07f, 0.1f, 0.2f };
+const Rgb NIGHT_FOG = { 0.06f, 0.085f, 0.17f };  // a moonlit haze (near the horizon's: no dark band between)
+const float DAY_FOG_BEGIN = 0.12f;   // of the view distance
+const float DAY_FOG_END = 0.6f;
+const float NIGHT_FOG_BEGIN = 0.08f;
+const float NIGHT_FOG_END = 0.45f;
 
 struct DayCycle
 {
@@ -64,6 +69,21 @@ fn float DayCycle.dusk(&self) => math::clamp(1.0f - math::abs(self.sun_height())
 // Towards the sun: it rises in the east (+x), overhead at noon, sets in the west.
 fn float[3] DayCycle.sun_dir(&self) => { math::cos(self.angle()), math::sin(self.angle()), 0 };
 
+// The moon: opposite the sun, rising as it sets.
+fn float DayCycle.moon_amount(&self) => MOON_LIGHT * (1.0f - self.day_amount()) * math::clamp(-self.sun_height() * 3.0f, 0.0f, 1.0f);
+
+// What lights the land: the sun by day, the moon by night. How much it
+// shines (0 at dusk and dawn, either way), and where it is, in radians above
+// the eastern horizon (0..PI while it's up).
+fn float DayCycle.light_amount(&self) => self.sun_amount() + self.moon_amount();
+fn float DayCycle.light_angle(&self)
+{
+	float a = self.angle();
+	if (self.sun_height() >= 0.0f) return a;
+	return a < 0.0f ? a + PI : a - PI;
+}
+fn float[3] DayCycle.light_dir(&self) => { math::cos(self.light_angle()), math::sin(self.light_angle()), 0 };
+
 fn Rgb DayCycle.haze(&self)
 {
 	float day = self.day_amount();
@@ -72,9 +92,10 @@ fn Rgb DayCycle.haze(&self)
 
 fn Rgb DayCycle.sky_top(&self) => lerp(NIGHT_TOP, DAY_TOP, self.day_amount());
 fn Rgb DayCycle.sky_horizon(&self) => lerp(lerp(NIGHT_HORIZON, DAY_HORIZON, self.day_amount()), DUSK_HORIZON, self.dusk() * 0.65f);
-// Depth fog: from 0.45 of the view distance, thick at 0.95, by day; much nearer at night.
-fn float DayCycle.fog_begin(&self, float view) => NIGHT_FOG_BEGIN + (view * 0.45f - NIGHT_FOG_BEGIN) * self.day_amount();
-fn float DayCycle.fog_end(&self, float view) => NIGHT_FOG_END + (view * 0.95f - NIGHT_FOG_END) * self.day_amount();
+// Depth fog, near and moody: from DAY_FOG_BEGIN of the view distance,
+// thick at DAY_FOG_END, by day; nearer still at night (the moonlit haze).
+fn float DayCycle.fog_begin(&self, float view) => view * (NIGHT_FOG_BEGIN + (DAY_FOG_BEGIN - NIGHT_FOG_BEGIN) * self.day_amount());
+fn float DayCycle.fog_end(&self, float view) => view * (NIGHT_FOG_END + (DAY_FOG_END - NIGHT_FOG_END) * self.day_amount());
 
 // "7:05 AM" or "07:05" (temp).
 fn String clock_text(double time, bool use_24h)

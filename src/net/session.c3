@@ -14,17 +14,17 @@
 //     looks (the held item, sneaking, asleep, flying, arm swings)
 //   - survival: the host keeps every joined player's inventory (saved in its
 //     world by name) and health (falls, lava and drowning from where it says
-//     it is, creatures, healing, food: Vitals), and sends them. A client does
+//     it is, healing: Vitals), and sends them. A client does
 //     each inventory click at once and tells the host, which does the same to
 //     its copy. A break comes no sooner than the block's mining time after
 //     the client said it started mining it
-//   - the host's creatures, dropped items and chests, time of day, sounds and
+//   - the host's dropped blocks and chests, time of day, sounds and
 //     sights; beds and skipping the night
 //   - the host checks what clients say: movement (speed, walls), reach,
 //     request rates, what they hold
 module gocube::net::session;
 import gocube::net::transport, gocube::net::wire, gocube::game, gocube::game::player, gocube::game::inventory, gocube::game::vitals;
-import gocube::game::figure, gocube::game::commands, gocube::game::blocks, gocube::game::creatures, gocube::game::drops, gocube::game::day_cycle;
+import gocube::game::figure, gocube::game::commands, gocube::game::blocks, gocube::game::drops, gocube::game::day_cycle;
 import gocube::game::rules, gocube::game::block_entities;
 import gocube::content, gocube::content::skin, gocube::data, gocube::data::json, gocube::world, gocube::voxel, gocube::maths, gocube::clock, gocube::log;
 import gocube::util::vec, gocube::util::map, gocube::util::intern;
@@ -33,7 +33,7 @@ import std::math;
 alias Message = Vec{char};
 alias Messages = Vec{Message};
 
-const int PROTOCOL = 7; // (any change to the messages: one more)
+const int PROTOCOL = 8; // (any change to the messages: one more)
 const int DEFAULT_PORT = 24680;
 const int MAX_PLAYERS = 8;
 const int HOST_ID = 1;
@@ -41,17 +41,16 @@ const int FLAG_SNEAK = 1;
 const int FLAG_SLEEP = 2;
 const int FLAG_FLY = 4;
 const float STATE_INTERVAL = 0.05f; // positions: 20 a second
-const float WORLD_INTERVAL = 0.1f;  // creatures, drops, containers: 10 a second
+const float WORLD_INTERVAL = 0.1f;  // drops, containers: 10 a second
 const float TIME_SYNC_SECONDS = 5.0f;
 const float EDIT_REACH = 16.0f;     // from a player's eyes to a block it changes
 const float USE_EYE_SLACK = 2.5f;   // a click's eye from where we last had it
 const float CONTAINER_REACH = 8.0f;
-const float CREATURE_REACH = 6.0f;
 const double CONNECT_TIMEOUT = 8.0;
 const sz NAME_LENGTH = 16;
 // Host-side movement check: the fastest a player can go (horizontal, up,
-// down), in blocks a second; survival covers sprinting and a creature's knock
-// back, creative sprint-flying.
+// down), in blocks a second; survival covers sprinting and falling, creative
+// sprint-flying.
 const float[3] MOVE_SURVIVAL = { 14, 13, 62 };
 const float[3] MOVE_CREATIVE = { 28, 28, 62 };
 const float MOVE_BURST = 0.75f; // seconds of movement that may arrive at once (lag)
@@ -74,8 +73,6 @@ const char C_STATE @private = 2;     // eye, yaw, pitch, item, flags u8, swings 
 const char C_MINING @private = 3;    // block
 const char C_BREAK @private = 4;     // block, slot u8
 const char C_USE @private = 5;       // eye, dir, slot u8, item, sneak
-const char C_EAT @private = 6;       // slot u8
-const char C_HIT @private = 7;       // creature id u32
 const char C_INVENTORY @private = 8; // seq u32, action (data)
 const char C_OPEN @private = 9;      // block (a container screen)
 const char C_CLOSE @private = 10;    // block
@@ -89,16 +86,14 @@ const char C_THROW @private = 17;    // eye, dir, slot u8, item, whole bool (Q)
 
 const char H_WELCOME @private = 64;     // info (data), chunks (u32 count, position + bytes)
 const char H_REJECTED @private = 65;    // reason
-const char H_PLAYERS @private = 66;     // u16 count, {id u32, name, eye, yaw, pitch, item, flags u8, swings u32, light u8} (unreliable)
-const char H_BLOCK @private = 67;       // block, id u16, dye u32
+const char H_PLAYERS @private = 66;     // u16 count, {id u32, name, eye, yaw, pitch, item, flags u8, swings u32} (unreliable)
+const char H_BLOCK @private = 67;       // block, id u16
 const char H_CHUNK @private = 68;       // chunk position, bytes
 const char H_TIME @private = 69;        // time f64, day_length f64
 const char H_CORRECT @private = 70;     // eye
 const char H_INVENTORY @private = 71;   // done u32, {inventory, cursor} (data)
 const char H_HEALTH @private = 72;      // i32
-const char H_STRUCK @private = 73;      // damage i32, push
 const char H_DROPS @private = 74;       // u16 count, {item, count u16, pos, age f32, turn f32} (unreliable)
-const char H_CREATURES @private = 75;   // u16 count, {id u32, kind, variant, pos, yaw, flags u8, flash f32, hurt f32, strikes u16} (unreliable)
 const char H_CONTAINER @private = 76;   // block, entity (data; false: none)
 const char H_PICKED @private = 77;      // item, count u16
 const char H_SOUND @private = 78;       // set, kind, at, dB f32
@@ -114,11 +109,10 @@ enum RateKind : char
 {
 	EDIT,      // breaking and right clicks (creative mines fast)
 	THROW,     // Q
-	HIT,
 	CHUNK,
 	CONTAINER,
 	OTHER,     // bed, sleeping
-	INV,       // clicks in screens, eating
+	INV,       // clicks in screens
 	MINE,
 	SKIN,      // a player's skin (sent once, maybe again)
 	CHAT,      // lines and commands typed
@@ -129,7 +123,7 @@ struct Rate
 	float per_second, burst;
 }
 
-const Rate[*] RATES = { { 20, 40 }, { 8, 16 }, { 8, 12 }, { 30, 120 }, { 20, 40 }, { 4, 10 }, { 30, 60 }, { 20, 40 }, { 0.2f, 2 }, { 2, 6 } };
+const Rate[*] RATES = { { 20, 40 }, { 8, 16 }, { 30, 120 }, { 20, 40 }, { 4, 10 }, { 30, 60 }, { 20, 40 }, { 0.2f, 2 }, { 2, 6 } };
 
 // How the local player looks to others (set every frame).
 struct LocalPose
@@ -140,7 +134,6 @@ struct LocalPose
 	int selected;  // hotbar slot
 	int flags;     // FLAG_*
 	int swings;    // Game.swings
-	int light;     // the held item's light (a torch: 13)
 }
 
 // Another player as we see them: where the host last said, and smoothed
@@ -152,7 +145,7 @@ struct Avatar
 	float[3] eye;  // as sent
 	float yaw, pitch;
 	String item;   // (interned)
-	int flags, swings, light;
+	int flags, swings;
 	// Drawn: eye position and facing, speed (from how it moves), the figure.
 	float[3] shown;
 	float shown_yaw;
@@ -185,7 +178,7 @@ struct Peer
 	float[3] eye;
 	float yaw, pitch;
 	String item; // (interned)
-	int flags, swings, selected, light;
+	int flags, swings, selected;
 	// The movement check.
 	float[3] budget;
 	double time;
@@ -265,8 +258,6 @@ struct Session (Remote, GameEvents, CommandWorld)
 	bool woken;
 	bool has_correction;
 	float[3] correction;
-	bool has_push;
-	float[3] push;
 	uint inventory_seq; // a client: inventory actions sent
 	Data world_info;
 	Vec{EditedChunk} welcome_chunks;
@@ -479,7 +470,7 @@ fn void on_block_hook(void* context, BlockPos p, BlockId id) @private
 	if (self.previous_hook) self.previous_hook(self.previous_hook_context, p, id);
 	Writer w = wire::new(H_BLOCK);
 	defer w.free();
-	block_pos(&w, p).u16(id).u32(self.a.world.dye_at(p.x, p.y, p.z));
+	block_pos(&w, p).u16(id);
 	self.to_players(w.view());
 }
 
@@ -958,13 +949,10 @@ fn void Session.on_host_message(&self, Peer* p, char[] data) => @pool()
 			p.selected = math::clamp(selected, 0, inventory::HOTBAR - 1);
 			p.flags = flags;
 			p.swings = swings;
-			// Only a real item (survival: the one in its hand in our copy); its
-			// light comes from its definition, not from the client.
-			bool known = self.a.content.items.has(item) || self.a.rules.is_placeable(item);
+			// Only a real block (survival: the one in its hand in our copy).
+			bool known = self.a.rules.is_placeable(item);
 			p.item = known ? intern::intern(item) : "";
 			p.item = self.held_item(p);
-			Data* def = self.a.content.blocks.get(content::undyed(p.item));
-			p.light = def ? math::clamp((int)def.num("light", 0), 0, 15) : 0;
 			if (self.survival()) p.vitals.moved(self.a.world, self.a.rules, p.feet(), (p.flags & (FLAG_FLY | FLAG_SLEEP)) != 0);
 		case C_MINING:
 			BlockPos pos = read_block(&r);
@@ -1027,7 +1015,7 @@ fn void Session.on_host_message(&self, Peer* p, char[] data) => @pool()
 			{
 				item = p.inv.slots[slot].id;
 			}
-			else if (!self.a.content.items.has(item) && !self.a.rules.is_placeable(item))
+			else if (!self.a.rules.is_placeable(item))
 			{
 				item = "";
 			}
@@ -1038,26 +1026,6 @@ fn void Session.on_host_message(&self, Peer* p, char[] data) => @pool()
 			Actor who = { .peer = p.id, .body = &body, .inventory = p.inv, .selected = slot, .item = intern::intern(item) };
 			game.use(&who, sneak);
 			p.inv_changed = p.inv != null;
-		case C_EAT:
-			int slot = r.u8();
-			if (!r.ok() || !p.inv || !self.survival() || !self.allow(p, INV) || slot >= inventory::HOTBAR) return;
-			p.inv_changed = true;
-			String item = p.inv.slots[slot].id;
-			int food = item.len ? rules::food(self.a.content, item) : 0;
-			if (food > 0 && !p.vitals.dead && p.vitals.health < vitals::MAX_HEALTH)
-			{
-				p.vitals.heal(food);
-				p.inv.take_one(slot);
-			}
-		case C_HIT:
-			int id = (int)r.u32();
-			if (!r.ok() || !self.allow(p, HIT) || dead) return;
-			Creature* c = game.creatures.find(id);
-			if (!c) return;
-			if (distance({ c.pos[0], c.pos[1] + c.box[1] * 0.5f, c.pos[2] }, p.eye) > CREATURE_REACH) return;
-			Data* item_def = self.a.content.items.get(self.held_item(p));
-			int damage = item_def ? (int)item_def.num("damage", 2.0) : 2;
-			game.creature_hit(id, damage, p.feet(), p.id);
 		case C_INVENTORY:
 			uint seq = r.u32();
 			Data action = r.data(512);
@@ -1218,7 +1186,6 @@ fn void Session.on_client_message(&self, char[] data) => @pool()
 				a.item = intern::intern(r.str(128));
 				a.flags = r.u8();
 				a.swings = (int)r.u32();
-				a.light = math::min((int)r.u8(), 15);
 				states.push(a);
 			}
 			if (!r.ok()) return;
@@ -1238,10 +1205,9 @@ fn void Session.on_client_message(&self, char[] data) => @pool()
 		case H_BLOCK:
 			BlockPos pos = read_block(&r);
 			BlockId id = r.u16();
-			uint dye = r.u32();
 			if (!r.ok()) return;
 			int old = self.a.world.block_id_at(pos.x, pos.y, pos.z);
-			if (old < 0 || !self.a.world.set_block(pos, id, (dye >> 24) == 0xFF ? dye : voxel::NO_DYE))
+			if (old < 0 || !self.a.world.set_block(pos, id))
 			{
 				// Not loaded here: get the whole chunk (else it would come back as
 				// the generator makes it).
@@ -1307,14 +1273,6 @@ fn void Session.on_client_message(&self, char[] data) => @pool()
 		case H_HEALTH:
 			int h = r.i32();
 			if (r.ok()) game.set_health_from_host(h);
-		case H_STRUCK:
-			r.i32();
-			float[3] push = r.vec3();
-			if (r.ok())
-			{
-				self.has_push = true;
-				self.push = push;
-			}
 		case H_DROPS:
 			int count = r.u16();
 			Vec{Drop} drops;
@@ -1328,27 +1286,6 @@ fn void Session.on_client_message(&self, char[] data) => @pool()
 				drops.push(d);
 			}
 			if (r.ok()) game.drops.set_all(drops.array_view());
-		case H_CREATURES:
-			int count = r.u16();
-			Vec{CreatureState} states;
-			defer states.free();
-			for (int i = 0; i < count && i < creatures::MAX && r.ok(); i++)
-			{
-				CreatureState s = { .id = (int)r.u32() };
-				s.kind = intern::intern(r.str(128));
-				s.variant = intern::intern(r.str(128));
-				s.pos = r.vec3();
-				s.yaw = r.f32();
-				int flags = r.u8();
-				s.walking = (flags & 1) != 0;
-				s.on_floor = (flags & 2) != 0;
-				s.blocked = (flags & 4) != 0;
-				s.flash = r.f32();
-				s.hurt_time = r.f32();
-				s.strikes = r.u16();
-				states.push(s);
-			}
-			if (r.ok()) game.creatures.apply_states(self.a.content, states.array_view());
 		case H_CONTAINER:
 			BlockPos pos = read_block(&r);
 			Data got = r.data();
@@ -1408,16 +1345,16 @@ fn void Session.players_message(&self, LocalPose* pose, Writer* w)
 	foreach (p : self.peers) count += p.joined ? 1 : 0;
 	w.u16((ushort)count);
 	w.u32(HOST_ID).str(self.name).vec3(pose.eye).f32(pose.yaw).f32(pose.pitch).str(pose.item).u8((char)(pose.flags & 7))
-		.u32((uint)pose.swings).u8((char)math::clamp(pose.light, 0, 15));
+		.u32((uint)pose.swings);
 	foreach (p : self.peers)
 	{
 		if (!p.joined) continue;
-		w.u32((uint)p.id).str(p.name).vec3(p.eye).f32(p.yaw).f32(p.pitch).str(p.item).u8((char)p.flags).u32((uint)p.swings).u8((char)p.light);
+		w.u32((uint)p.id).str(p.name).vec3(p.eye).f32(p.yaw).f32(p.pitch).str(p.item).u8((char)p.flags).u32((uint)p.swings);
 	}
 }
 
 // Other players: chunks stay loaded around them; the game knows where they
-// are (creatures, drops, placing) and their inventories (picking things up).
+// are (drops, placing) and their inventories (picking things up).
 fn void Session.tell_game_others(&self)
 {
 	Vec{OtherPlayer} others;
@@ -1502,19 +1439,6 @@ fn void Session.host_update(&self, float dt) => @pool()
 		}
 		self.to_players(d.view(), false);
 		d.free();
-		Writer c = wire::new(H_CREATURES);
-		Vec{CreatureState} states;
-		defer states.free();
-		game.creatures.states(&states);
-		c.u16((ushort)states.len());
-		foreach (s : states)
-		{
-			c.u32((uint)s.id).str(s.kind).str(s.variant).vec3(s.pos).f32(s.yaw)
-				.u8((char)((s.walking ? 1 : 0) | (s.on_floor ? 2 : 0) | (s.blocked ? 4 : 0)))
-				.f32(s.flash).f32(s.hurt_time).u16((ushort)s.strikes);
-		}
-		self.to_players(c.view(), false);
-		c.free();
 		// Containers players look at: when they change.
 		foreach (p : self.peers)
 		{
@@ -1555,7 +1479,7 @@ fn void Session.host_update(&self, float dt) => @pool()
 		{
 			if (!p.joined) continue;
 			states.push({ .id = p.id, .name = p.name, .eye = p.eye, .yaw = p.yaw, .pitch = p.pitch, .item = p.item, .flags = p.flags,
-				.swings = p.swings, .light = p.light });
+				.swings = p.swings });
 		}
 		self.merge_avatars(states.array_view());
 		Writer w = wire::new(H_PLAYERS);
@@ -1690,13 +1614,8 @@ fn void Session.players(&self, Vec{CommandPlayer}* out) @dynamic
 	}
 }
 
-// (Blocks may have a dye after them: "core:stone#ff8800".)
-fn bool dye_ok(String id) @private => !id.contains_char('#') || content::dye_of(id) != voxel::NO_DYE;
-
-fn bool Session.is_block(&self, String id) @dynamic => self.a.content && self.a.content.block_index(content::undyed(id)) >= 0 && dye_ok(id);
-fn bool Session.is_item(&self, String id) @dynamic
-	=> self.a.content && (self.a.content.items.has(id) || (self.a.rules && self.a.rules.is_placeable(id) && dye_ok(id)));
-fn bool Session.is_creature(&self, String id) @dynamic => self.a.content && self.a.content.creatures.has(id);
+fn bool Session.is_block(&self, String id) @dynamic => self.a.content && self.a.content.block_index(id) >= 0;
+fn bool Session.is_item(&self, String id) @dynamic => self.a.rules && self.a.rules.is_placeable(id);
 
 fn bool Session.teleport(&self, int peer, float[3] feet) @dynamic
 {
@@ -1793,11 +1712,10 @@ fn void Session.set_time(&self, double t) @dynamic
 
 fn bool Session.set_block(&self, BlockPos pos, String id) @dynamic
 {
-	int index = self.a.content ? self.a.content.block_index(content::undyed(id)) : -1;
-	return index >= 0 && self.a.world && self.a.world.set_block(pos, (BlockId)index, content::dye_of(id));
+	int index = self.a.content ? self.a.content.block_index(id) : -1;
+	return index >= 0 && self.a.world && self.a.world.set_block(pos, (BlockId)index);
 }
 
-fn bool Session.summon(&self, String kind, float[3] at) @dynamic => self.a.game && self.a.content && self.a.game.creatures.spawn(self.a.content, kind, at) > 0;
 
 fn bool Session.kick(&self, int peer, String why) @dynamic
 {
@@ -1907,7 +1825,6 @@ fn void Session.merge_avatars(&self, Avatar[] states)
 		a.item = s.item;
 		a.flags = s.flags;
 		a.swings = s.swings;
-		a.light = s.light;
 	}
 }
 
@@ -1950,15 +1867,6 @@ fn int Session.player_count(&self)
 		return n;
 	}
 	return self.is_client() ? self.player_count_ : 1;
-}
-
-// Other players' held lights (x, y, z, level) for the world's light.
-fn void Session.held_lights(&self, Vec{float[4]}* out)
-{
-	foreach (&a : self.avatars)
-	{
-		if (a.light > 0) out.push({ a.shown[0], a.shown[1], a.shown[2], (float)a.light });
-	}
 }
 
 // --- Beds and sleeping --------------------------------------------------------------
@@ -2015,15 +1923,6 @@ fn bool Session.take_correction(&self, float[3]* eye)
 	return true;
 }
 
-// A client: knocked back by a creature (velocity to add).
-fn bool Session.take_push(&self, float[3]* v)
-{
-	if (!self.has_push) return false;
-	self.has_push = false;
-	*v = self.push;
-	return true;
-}
-
 // We keep its inventory and health (back from last time); a new player gets
 // the starting items (survival) or nothing (creative).
 fn void Session.load_player(&self, Peer* p)
@@ -2036,10 +1935,6 @@ fn void Session.load_player(&self, Peer* p)
 	if (saved && saved.is_object() && saved.has("inventory"))
 	{
 		p.inv.deserialize(saved.get("inventory"));
-	}
-	else if (self.survival())
-	{
-		self.a.game.give_starting_items(p.inv);
 	}
 	if (saved && saved.get("health") && saved.get("health").is_number()) p.vitals.health = math::clamp(saved.int_of("health"), 1, vitals::MAX_HEALTH);
 	p.vitals.changed = true;
@@ -2100,24 +1995,10 @@ fn void Session.request_use(&self, float[3] eye, float[3] dir, int slot, String 
 	self.send_host_message(&w);
 }
 
-fn void Session.request_eat(&self, int slot) @dynamic
-{
-	Writer w = wire::new(C_EAT);
-	w.u8((char)math::clamp(slot, 0, 255));
-	self.send_host_message(&w);
-}
-
 fn void Session.request_throw(&self, float[3] eye, float[3] dir, int slot, String item, bool whole) @dynamic
 {
 	Writer w = wire::new(C_THROW);
 	w.vec3(eye).vec3(dir).u8((char)math::clamp(slot, 0, 255)).str(item).boolean(whole);
-	self.send_host_message(&w);
-}
-
-fn void Session.hit_creature(&self, int id) @dynamic
-{
-	Writer w = wire::new(C_HIT);
-	w.u32((uint)id);
 	self.send_host_message(&w);
 }
 
@@ -2158,22 +2039,6 @@ fn void Session.close_container(&self, BlockPos p)
 }
 
 // --- GameEvents: what happens to other players here, and what everyone sees -------------
-
-fn void Session.damage_peer(&self, int peer, int amount, String source, float[3] push) @dynamic
-{
-	Peer* p = self.peer_by_id(peer);
-	if (!p) return;
-	if (p.inv && source == "mob") // armour takes off 4% a point, up to 60% (as Game.damage)
-	{
-		float kept = 1.0f - math::min(0.6f, (float)p.inv.armor_points() * 0.04f);
-		amount = math::max(1, (int)math::round((float)amount * kept));
-	}
-	if (p.inv) p.vitals.hurt(amount);
-	Writer w = wire::new(H_STRUCK);
-	w.i32(amount).vec3(push);
-	self.send(p.conn, w.view());
-	w.free();
-}
 
 fn void Session.picked_up(&self, int peer, Stack s) @dynamic
 {

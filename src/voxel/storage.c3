@@ -7,15 +7,15 @@ import gocube::util::vec, std::io, std::sort, gocube::fs;
 alias Bytes = Vec{char};
 
 // File layout (little-endian):
-//   "GCC2"                     magic + format version ("GCC1": no dyes)
+//   "GCC1"                     magic + format version
 //   u8   uniform               1 = every block is `value`
 //   u16  value                 (uniform only)
 //   u32  run_count             (non-uniform only)
 //   run_count x { u16 length, u16 id }   runs over chunk_index order
-//   u32  dye_count
-//   dye_count x { u16 index, u8 r, u8 g, u8 b }   dyed blocks, by index
-const char[4] CHUNK_MAGIC @private = { 'G', 'C', 'C', '2' };
-const char[4] CHUNK_MAGIC_V1 @private = { 'G', 'C', 'C', '1' };
+// "GCC2" (from when blocks could be dyed) is read too: after the runs,
+//   u32  dye_count, dye_count x { u16 index, u8 r, u8 g, u8 b }, skipped
+const char[4] CHUNK_MAGIC @private = { 'G', 'C', 'C', '1' };
+const char[4] CHUNK_MAGIC_DYED @private = { 'G', 'C', 'C', '2' };
 
 fn String chunk_file_path(Allocator allocator, String dir, int cx, int cy, int cz)
 {
@@ -34,28 +34,6 @@ fn void put32(Bytes* out, uint v) @inline
 	put16(out, v >> 16);
 }
 
-struct DyeEntry @private
-{
-	ushort index;
-	Dye dye;
-}
-
-fn void put_dyes(Bytes* out, ChunkData* chunk) @private
-{
-	Vec{DyeEntry} dyes;
-	defer dyes.free();
-	chunk.dyes.@each(; ushort index, Dye d) { dyes.push({ index, d }); };
-	sort::quicksort(dyes.array_view(), fn int(DyeEntry a, DyeEntry b) => (int)a.index - (int)b.index); // (the same chunk: the same bytes)
-	put32(out, (uint)dyes.len());
-	foreach (e : dyes)
-	{
-		put16(out, e.index);
-		out.push((char)(e.dye >> 16));
-		out.push((char)(e.dye >> 8));
-		out.push((char)e.dye);
-	}
-}
-
 // Appends the chunk, encoded, to out.
 fn void encode_chunk(ChunkData* chunk, Bytes* out)
 {
@@ -64,7 +42,6 @@ fn void encode_chunk(ChunkData* chunk, Bytes* out)
 	if (!chunk.mixed)
 	{
 		put16(out, chunk.uniform_value);
-		put_dyes(out, chunk);
 		return;
 	}
 	Vec{ushort} runs; // pairs: length, id
@@ -89,7 +66,6 @@ fn void encode_chunk(ChunkData* chunk, Bytes* out)
 	runs.push(current);
 	put32(out, (uint)(runs.len() / 2));
 	foreach (v : runs) put16(out, v);
-	put_dyes(out, chunk);
 }
 
 struct Reader @private
@@ -118,8 +94,8 @@ fn bool Reader.get32(&self, uint* v)
 // Decodes into `chunk` (replacing it); false (chunk untouched) if the data isn't a chunk.
 fn bool decode_chunk(char[] data, ChunkData* chunk)
 {
-	bool v1 = data.len >= 4 && data[:4] == CHUNK_MAGIC_V1[..];
-	if (data.len < 5 || (!v1 && data[:4] != CHUNK_MAGIC[..])) return false;
+	bool dyed = data.len >= 4 && data[:4] == CHUNK_MAGIC_DYED[..];
+	if (data.len < 5 || (!dyed && data[:4] != CHUNK_MAGIC[..])) return false;
 	Reader r = { data, 4 };
 	ChunkData result;
 	char uniform = data[r.pos++];
@@ -154,7 +130,7 @@ fn bool decode_chunk(char[] data, ChunkData* chunk)
 			return false;
 		}
 	}
-	if (!v1)
+	if (dyed) // dyed blocks (the dye vat's, from before dyeing went): skipped
 	{
 		uint count;
 		if (!r.get32(&count) || count > CHUNK_VOLUME || data.len - r.pos < (sz)count * 5)
@@ -162,20 +138,7 @@ fn bool decode_chunk(char[] data, ChunkData* chunk)
 			result.free();
 			return false;
 		}
-		for (uint i = 0; i < count; i++)
-		{
-			sz p = r.pos;
-			ushort index = (ushort)(data[p] | (ushort)data[p + 1] << 8);
-			Dye d = make_dye(data[p + 2], data[p + 3], data[p + 4]);
-			r.pos += 5;
-			if (index >= CHUNK_VOLUME)
-			{
-				result.free();
-				return false;
-			}
-			BlockId b = result.mixed ? result.blocks[index] : result.uniform_value;
-			if (b != AIR) result.dyes[index] = d;
-		}
+		r.pos += (sz)count * 5;
 	}
 	if (r.pos != data.len)
 	{

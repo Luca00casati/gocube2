@@ -31,7 +31,7 @@ fn void clears_presents_and_screenshots() @test
 	(void)file::delete(path);
 }
 
-// A generated world drawn from above (terrain, sky, a creature, an outline):
+// A generated world drawn from above (terrain, sky, a box, an outline):
 // the ground isn't the clear colour, the sky above the horizon is the sky's.
 fn void draws_the_world() @test
 {

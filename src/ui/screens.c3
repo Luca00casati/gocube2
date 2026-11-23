@@ -1,7 +1,6 @@
 // Game screens (ui/gui): the inventory (E) with hand crafting, or in
-// creative a palette of every block and item: click a slot to pick its stack
-// up, click another to put it down (same items stack, others swap); chests
-// and dye vats.
+// creative a palette of every block: click a slot to pick its stack up,
+// click another to put it down (same blocks stack, others swap); chests.
 module gocube::screens;
 import gocube::gui, gocube::game, gocube::game::inventory, gocube::game::rules, gocube::game::block_entities, gocube::content;
 import gocube::world, gocube::data, gocube::util::vec;
@@ -18,8 +17,8 @@ struct UiIcons
 	Content* content;
 }
 
-// Draws an item's icon in a rectangle.
-fn void UiIcons.draw(&self, DrawList* dl, String id, Area r) => dl.image(r, self.table.icon(content::undyed(id)), content::dye_of(id));
+// Draws a block's icon in a rectangle.
+fn void UiIcons.draw(&self, DrawList* dl, String id, Area r) => dl.image(r, self.table.icon(id));
 
 fn void count_text(Gui* g, DrawList* dl, Pt corner, int count) @private => @pool()
 {
@@ -34,7 +33,7 @@ fn void dim_background(Gui* g) @private => g.background.fill({ 0, 0, g.in.width,
 
 fn WindowOptions centred(Gui* g) @private => { .pos = { g.in.width * 0.5f, g.in.height * 0.5f }, .pivot = { 0.5f, 0.5f }, .alpha = 0.92f };
 
-// A slot: its icon and count, a tooltip with the item's name. True when clicked.
+// A slot: its icon and count, a tooltip with the block's name. True when clicked.
 fn bool slot_button(Gui* g, String id, Stack stack, UiIcons* icons, bool highlight, bool show_count, float size = 48) => @pool()
 {
 	g.push_id(id);
@@ -84,7 +83,7 @@ fn bool inventory_screen(Gui* g, Game* game, UiIcons* icons) => @pool()
 	}
 	if (!creative && !crafting) g.text_dim("E or Esc to close");
 	g.end_group();
-	// Right: crafting (survival) or every block and item (creative).
+	// Right: crafting (survival) or every block (creative).
 	if (creative || crafting)
 	{
 		g.same_line(-1, 24);
@@ -92,7 +91,7 @@ fn bool inventory_screen(Gui* g, Game* game, UiIcons* icons) => @pool()
 	}
 	if (creative)
 	{
-		g.text("All blocks and items");
+		g.text("All blocks");
 		g.begin_child("palette", { 9 * 44 + 24, 380 }, false);
 		Vec{String} ids;
 		defer ids.free();
@@ -101,7 +100,6 @@ fn bool inventory_screen(Gui* g, Game* game, UiIcons* icons) => @pool()
 			Data* def = icons.content.blocks.get(id);
 			if (def && !def.has("fluid") && id != "core:air" && !def.has("variant_of") && !def.flag("hidden")) ids.push(id);
 		}
-		foreach (&e : icons.content.items.entries) ids.push(e.id);
 		foreach (k, id : ids)
 		{
 			if (k % 9) g.same_line();
@@ -173,7 +171,7 @@ fn void inventory_rows(Gui* g, Game* game, UiIcons* icons) @private => @pool()
 	}
 }
 
-// A chest or dye vat at `pos` and the player's inventory. False when it asks
+// A chest at `pos` and the player's inventory. False when it asks
 // to close (also when the container is gone).
 fn bool container_screen(Gui* g, Game* game, BlockPos pos, UiIcons* icons) => @pool()
 {
@@ -182,7 +180,7 @@ fn bool container_screen(Gui* g, Game* game, BlockPos pos, UiIcons* icons) => @p
 	dim_background(g);
 	g.begin_window("Container", centred(g));
 	g.push_spacing({ 4, 4 });
-	g.text(e.type == "vat" ? "Dye vat" : "Chest");
+	g.text("Chest");
 	foreach (i, s : e.slots)
 	{
 		if (i % 9) g.same_line();

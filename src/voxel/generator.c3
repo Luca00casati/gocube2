@@ -1,27 +1,16 @@
 // World generation: terrain from a 3D density field (hills, cliffs,
 // overhangs, now and then a floating bit), seas with sand and gravel beaches
-// and sea floors, bare stone where the dirt runs out, biomes, caves, lava deep
-// down, ore veins and trees. Thread-safe once configured; the same seed
-// always gives the same world, block for block, as it always has (worlds made
-// by older versions carry on seamlessly; test/voxel/generator_test.c3 checks it).
+// and sea floors, bare stone where the dirt runs out, snow up high, caves,
+// lava deep down and trees. Thread-safe once configured; the same seed always gives the
+// same world, block for block (worlds made by older versions carry on
+// seamlessly, only with no new ore veins; test/voxel/generator_test.c3 checks it).
 module gocube::voxel;
 import std::math, gocube::util::vec, gocube::util::map, std::thread, std::atomic;
 
 // Terrain blocks the base shape is made of.
 struct GeneratorIds
 {
-	BlockId stone, dirt, grass, sand, water, lava, ice, gravel;
-}
-
-// One kind of ore (defined by mods): veins are random walks through `replaces`.
-struct OreKind
-{
-	BlockId id;
-	BlockId replaces;     // usually stone
-	int min_y, max_y;     // vein starting points lie in this range
-	int veins_per_chunk;  // attempts per 32^3 chunk
-	int min_size, max_size; // blocks per vein (before clipping)
-	uint salt;            // from the ore's id, so adding mods doesn't move veins
+	BlockId stone, dirt, grass, sand, water, lava, gravel, snow;
 }
 
 // Tree shapes.
@@ -47,39 +36,7 @@ struct TreeKind
 	BlockId log, leaves;  // leaves may be 0 (cactus)
 	int min_trunk, max_trunk;
 	TreeStyle style;
-}
-
-// A biome's chance of a tree kind (percent of tree cells).
-struct TreeChance
-{
-	int kind;
-	int percent;
-}
-
-// One biome (defined by mods): where it is in climate space, its ground and
-// what grows there. The nearest biome to a column's climate wins; the land's
-// height is blended between biomes so borders don't make cliffs.
-struct BiomeKind
-{
-	float temperature, humidity; // roughly -1..1
-	float height;                // hill height (blocks)
-	float base;                  // raises or lowers the land
-	BlockId surface, filler;     // top block and the ones under it
-	Vec{TreeChance} trees;
-	bool frozen;                 // ice on water
-	float mountains;             // height of mountain ranges on top of the hills (0: none)
-	BlockId rock;                // bare top (and filler) from rock_above up
-	int rock_above;
-	BlockId cap;                 // top of the highest peaks, from cap_above up
-	int cap_above;
-	BlockId cover;               // a thin layer on top of the ground (snow), from cover_above up
-	int cover_above;
-}
-
-// A biome with the defaults (no rock, cap or cover).
-fn BiomeKind biome_kind()
-{
-	return { .height = 20.0f, .rock_above = 1 << 20, .cap_above = 1 << 20, .cover_above = 1 << 20 };
+	int percent;          // of the tree cells on grass (the commoner kinds are tried first)
 }
 
 struct Tree
@@ -109,20 +66,26 @@ const int LZ = 4;
 const int BOTTOM_Y = -96;
 const int LY_COUNT = 30;
 const int TOP_LIMIT = 100;       // terrain stays under it (room for trees below the world's top, 127)
+// The land: hills, how much it is raised, mountain ranges on top, bare stone
+// from ROCK_ABOVE up and snow from SNOW_ABOVE up (a little ragged).
+const float HILL_HEIGHT = 14.0f;
+const float LAND_BASE = 2.0f;
+const float MOUNTAINS = 34.0f;
+const int ROCK_ABOVE = 46;
+const int SNOW_ABOVE = 56;
 
 const int NX @private = CHUNK / LX + 1; // lattice points across a chunk column
 const int NZ @private = CHUNK / LZ + 1;
 const int COLUMN_CACHE @private = 256;
 
 // A chunk column: the density at the lattice points over its 32 x 32
-// columns (the whole height of the world), each column's topmost solid
-// block and biome. Shared by the chunks stacked in it (the latest
+// columns (the whole height of the world) and each column's topmost solid
+// block. Shared by the chunks stacked in it (the latest
 // COLUMN_CACHE kept), counted: the last to let go frees it.
 struct Columns @private
 {
 	Atomic{int} refs;
 	int[CHUNK_AREA] heights;
-	int[CHUNK_AREA] biomes;
 	int max_h;
 	float[LY_COUNT * NZ * NX] density; // ((LY_COUNT x NZ) x NX)
 }
@@ -136,17 +99,15 @@ struct Generator
 {
 	uint seed;
 	GeneratorIds ids;
-	Vec{OreKind} ores;
 	Vec{TreeKind} trees;
-	Vec{BiomeKind} biomes;
-	BiomeKind plain;          // with no biome configured: plain grass land, no trees
+	Vec{int} tree_rolls;      // the tree kinds in the order a tree cell tries them
 	Mutex columns_mutex;
 	bool has_mutex;
 	Map{long, Columns*} columns;
 	Vec{long} columns_order; // oldest first
 }
 
-fn void Generator.configure(&self, uint seed, GeneratorIds ids, OreKind[] ores, TreeKind[] trees)
+fn void Generator.configure(&self, uint seed, GeneratorIds ids, TreeKind[] trees)
 {
 	if (!self.has_mutex)
 	{
@@ -155,43 +116,28 @@ fn void Generator.configure(&self, uint seed, GeneratorIds ids, OreKind[] ores, 
 	}
 	self.seed = seed;
 	self.ids = ids;
-	self.ores.clear();
-	self.ores.push_all(ores);
 	self.trees.clear();
 	self.trees.push_all(trees);
-	self.plain = biome_kind();
-	self.plain.surface = ids.grass;
-	self.plain.filler = ids.dirt;
-	self.forget_cached();
-}
-
-// Copies the biomes (and their tree chances).
-fn void Generator.set_biomes(&self, BiomeKind[] biomes)
-{
-	self.free_biomes();
-	foreach (b : biomes)
+	self.tree_rolls.clear();
+	for (int i = 0; i < trees.len; i++) self.tree_rolls.push(i);
+	// Commoner first; equal ones in their order (an insertion sort: stable).
+	for (sz i = 1; i < self.tree_rolls.len(); i++)
 	{
-		BiomeKind copy = b;
-		copy.trees = {};
-		copy.trees.push_all(b.trees.array_view());
-		self.biomes.push(copy);
+		for (sz j = i; j > 0 && trees[self.tree_rolls[j]].percent > trees[self.tree_rolls[j - 1]].percent; j--)
+		{
+			int t = self.tree_rolls[j];
+			self.tree_rolls[j] = self.tree_rolls[j - 1];
+			self.tree_rolls[j - 1] = t;
+		}
 	}
 	self.forget_cached();
-}
-
-fn void Generator.free_biomes(&self)
-{
-	foreach (&b : self.biomes) b.trees.free();
-	self.biomes.clear();
 }
 
 fn void Generator.free(&self)
 {
 	self.forget_cached();
-	self.free_biomes();
-	self.biomes.free();
-	self.ores.free();
 	self.trees.free();
+	self.tree_rolls.free();
 	self.columns.free();
 	self.columns_order.free();
 	if (self.has_mutex) self.columns_mutex.destroy();
@@ -223,45 +169,6 @@ fn float smoothstep01(float t) @private
 	return t * t * (3.0f - 2.0f * t);
 }
 
-fn BiomeKind* Generator.biome(&self, int index)
-{
-	if (self.biomes.is_empty()) return &self.plain;
-	return self.biomes.get_ref(math::clamp(index, 0, (int)self.biomes.len() - 1));
-}
-
-fn void Generator.climate(&self, int x, int z, float* temperature, float* humidity)
-{
-	const float F = 0.0016f;
-	const float J = 0.045f;
-	float fx = (float)x;
-	float fz = (float)z;
-	*temperature = fbm2(fx * F, fz * F, self.seed + 311, 3) * 1.7f + fbm2(fx * J, fz * J, self.seed + 313, 2) * 0.05f;
-	*humidity = fbm2(fx * F, fz * F, self.seed + 317, 3) * 1.7f + fbm2(fx * J, fz * J, self.seed + 319, 2) * 0.05f;
-}
-
-// The biome of a column (index into the biomes; 0 if none are configured).
-fn int Generator.biome_at(&self, int x, int z)
-{
-	if (self.biomes.len() < 2) return 0;
-	float t;
-	float h;
-	self.climate(x, z, &t, &h);
-	int best = 0;
-	float best_d = float::inf;
-	foreach (i, &b : self.biomes)
-	{
-		float dt = t - b.temperature;
-		float dh = h - b.humidity;
-		float d = dt * dt + dh * dh;
-		if (d < best_d)
-		{
-			best_d = d;
-			best = (int)i;
-		}
-	}
-	return best;
-}
-
 // Where mountain ranges rise: a slow noise picks the ranges, a ridged one
 // shapes their crests and valleys. 0 outside ranges, up to 1 on a crest.
 fn float Generator.mountain_shape(&self, int x, int z)
@@ -275,61 +182,36 @@ fn float Generator.mountain_shape(&self, int x, int z)
 	return range * (0.3f + 0.7f * r * r);
 }
 
-// The biomes' hill height, base and mountains, blended by closeness in climate space.
-fn void Generator.blend(&self, int x, int z, float* amp, float* base, float* mountains)
-{
-	if (self.biomes.is_empty())
-	{
-		*amp = 20.0f;
-		*base = 0.0f;
-		*mountains = 0.0f;
-		return;
-	}
-	float t;
-	float h;
-	self.climate(x, z, &t, &h);
-	float wsum = 0.0f;
-	float a = 0.0f;
-	float bs = 0.0f;
-	float m = 0.0f;
-	foreach (&b : self.biomes)
-	{
-		float dt = t - b.temperature;
-		float dh = h - b.humidity;
-		float e = dt * dt + dh * dh + 0.02f;
-		float w = 1.0f / (e * e * e);
-		wsum += w;
-		a += w * b.height;
-		bs += w * b.base;
-		m += w * b.mountains;
-	}
-	*amp = a / wsum;
-	*base = bs / wsum;
-	*mountains = m / wsum;
-}
-
 // The density at a lattice point: above 0 is solid. The land's shape from 2D
-// noise (continents and seas, hills, the biomes' mountain ranges) gives the
+// noise (continents and seas, hills, mountain ranges) gives the
 // height it leans to; 3D noise moves it up and down, more where the land is
 // rough (a slow noise): there it makes cliffs, overhangs and arches, now and
 // then a floating piece; where it's smooth, rolling hills and plains.
-fn float Generator.density(&self, int x, int y, int z)
+// (The 2D part, the same at every height: worked out once per column.)
+struct LandColumn @private
 {
-	float amp;
-	float base;
-	float mountains;
-	self.blend(x, z, &amp, &base, &mountains);
+	float target; // the height the land leans to
+	float squash; // blocks for the density to go from 0 to 1 (the 3D part's reach)
+	float rough;
+}
+
+fn LandColumn Generator.land_column(&self, int x, int z)
+{
 	float fx = (float)x;
 	float fz = (float)z;
 	float continent = fbm2(fx * 0.0032f, fz * 0.0032f, self.seed + 701, 4);
 	float hills = fbm2(fx * 0.011f, fz * 0.011f, self.seed + 703, 4);
 	float rough = smoothstep01((fbm2(fx * 0.0055f, fz * 0.0055f, self.seed + 705, 3) + 0.1f) / 0.5f);
-	float target = (float)SEA_LEVEL - 5.0f + base + continent * 52.0f + hills * amp * (0.7f + 0.9f * rough);
+	float target = (float)SEA_LEVEL - 5.0f + LAND_BASE + continent * 52.0f + hills * HILL_HEIGHT * (0.7f + 0.9f * rough);
 	target += rough * 18.0f; // rough land is highland
-	if (mountains > 0.0f) target += self.mountain_shape(x, z) * mountains * 1.3f;
-	float squash = 8.0f + rough * 26.0f; // blocks for the density to go from 0 to 1 (the 3D part's reach)
-	float n = fbm3(fx * 0.017f, (float)y * 0.028f, fz * 0.017f, self.seed + 707, 4);
-	float d = (target - (float)y) / squash + n * (0.3f + 0.9f * rough);
+	target += self.mountain_shape(x, z) * MOUNTAINS * 1.3f;
+	return { target, 8.0f + rough * 26.0f, rough };
+}
+
+fn float Generator.density(&self, LandColumn* c, int x, int y, int z)
+{
+	float n = fbm3((float)x * 0.017f, (float)y * 0.028f, (float)z * 0.017f, self.seed + 707, 4);
+	float d = (c.target - (float)y) / c.squash + n * (0.3f + 0.9f * c.rough);
 	if (y > TOP_LIMIT - 20) d -= (float)(y - (TOP_LIMIT - 20)) / 10.0f; // nothing reaches the top
 	if (y < BOTTOM_Y + 24) d += (float)(BOTTOM_Y + 24 - y) / 6.0f;     // solid at the bottom
 	return d;
@@ -378,16 +260,21 @@ fn float Columns.level(&self, int ix, int iz, float fx, float fz, int j) @inline
 }
 
 // A chunk column's lattice (the whole height), and from it each column's
-// topmost solid block and biome.
+// topmost solid block.
 fn void Generator.fill_columns(&self, Columns* c, int ox, int oz)
 {
+	LandColumn[NZ * NX] land;
+	for (int k = 0; k < NZ; k++)
+	{
+		for (int i = 0; i < NX; i++) land[k * NX + i] = self.land_column(ox + i * LX, oz + k * LZ);
+	}
 	for (int j = 0; j < LY_COUNT; j++)
 	{
 		for (int k = 0; k < NZ; k++)
 		{
 			for (int i = 0; i < NX; i++)
 			{
-				c.density[(j * NZ + k) * NX + i] = self.density(ox + i * LX, BOTTOM_Y + j * LY, oz + k * LZ);
+				c.density[(j * NZ + k) * NX + i] = self.density(&land[k * NX + i], ox + i * LX, BOTTOM_Y + j * LY, oz + k * LZ);
 			}
 		}
 	}
@@ -422,7 +309,6 @@ fn void Generator.fill_columns(&self, Columns* c, int ox, int oz)
 			}
 			h = math::min(h, top);
 			c.heights[i] = h;
-			c.biomes[i] = self.biome_at(ox + x, oz + z);
 			c.max_h = math::max(c.max_h, h);
 		}
 	}
@@ -439,9 +325,9 @@ fn int Generator.height_at(&self, int x, int z)
 }
 
 // The ground's top block at a column whose topmost solid block is at h
-// (beaches, sea floor, bare stone, the biome's surface), and the filler
+// (beaches, sea floor, bare stone, grass), and the filler
 // under it and how deep it goes (0: stone right under).
-fn BlockId Generator.top_block(&self, int x, int h, int z, BiomeKind* b, int* filler_depth, BlockId* filler)
+fn BlockId Generator.top_block(&self, int x, int h, int z, int* filler_depth, BlockId* filler)
 {
 	float fx = (float)x;
 	float fz = (float)z;
@@ -449,13 +335,13 @@ fn BlockId Generator.top_block(&self, int x, int h, int z, BiomeKind* b, int* fi
 	float stony = noise2(fx * 0.048f, fz * 0.048f, self.seed + 713);
 	float depth = noise2(fx * 0.08f, fz * 0.08f, self.seed + 715) + 0.5f * noise2(fx * 0.23f, fz * 0.23f, self.seed + 717);
 	*filler_depth = math::clamp((int)math::floor(3.6f + depth * 3.0f), 0, 5);
-	*filler = b.filler;
-	BlockId sand = self.ids.sand ? self.ids.sand : b.filler;
+	*filler = self.ids.dirt;
+	BlockId sand = self.ids.sand ? self.ids.sand : self.ids.dirt;
 	BlockId gravel = self.ids.gravel ? self.ids.gravel : sand;
 	if (h < SEA_LEVEL - 1) // the sea floor
 	{
 		*filler_depth = math::max(*filler_depth, 2);
-		*filler = stony > 0.25f ? gravel : sandy > -0.25f ? sand : b.filler;
+		*filler = stony > 0.25f ? gravel : sandy > -0.25f ? sand : self.ids.dirt;
 		return *filler;
 	}
 	if (h <= SEA_LEVEL + 2) // the shore: beaches of sand, some of gravel
@@ -479,13 +365,12 @@ fn BlockId Generator.top_block(&self, int x, int h, int z, BiomeKind* b, int* fi
 		return self.ids.stone; // the dirt ran out: bare stone
 	}
 	int jitter = (int)(hash_point(x, 7, z, self.seed + 77) % 4); // (a ragged line, not a level one)
-	if (b.cap && h >= b.cap_above + jitter) return b.cap;
-	if (b.rock && h >= b.rock_above + jitter)
+	if (h >= ROCK_ABOVE + jitter)
 	{
-		*filler = b.rock;
-		return b.rock;
+		*filler = self.ids.stone;
+		return self.ids.stone;
 	}
-	return b.surface;
+	return self.ids.grass;
 }
 
 fn bool Generator.is_cave(&self, int x, int y, int z)
@@ -510,7 +395,7 @@ fn bool Generator.is_cave_cached(&self, int x, int y, int z, Noise3Cell[3]* cell
 		return true;
 	}
 	// Big caverns deep down.
-	if (!self.biomes.is_empty() && y < CAVERN_MAX_Y)
+	if (y < CAVERN_MAX_Y)
 	{
 		float c = 1.0f / CAVERN_PERIOD;
 		float n = noise3_cached(fx * c, (float)y * 1.5f * c, fz * c, self.seed + 404, &(*cells)[2]);
@@ -523,7 +408,6 @@ fn bool Generator.is_cave_cached(&self, int x, int y, int z, Noise3Cell[3]* cell
 // Trees whose leaves may reach columns [x0, x1) x [z0, z1).
 fn void Generator.trees_near(&self, int x0, int z0, int x1, int z1, TreeList* out)
 {
-	if (self.biomes.is_empty()) return;
 	for (int cz = floor_div(z0 - TREE_REACH, TREE_CELL); cz <= floor_div(z1 + TREE_REACH, TREE_CELL); cz++)
 	{
 		for (int cx = floor_div(x0 - TREE_REACH, TREE_CELL); cx <= floor_div(x1 + TREE_REACH, TREE_CELL); cx++)
@@ -531,25 +415,24 @@ fn void Generator.trees_near(&self, int x0, int z0, int x1, int z1, TreeList* ou
 			uint r = hash_point(cx, 7, cz, self.seed + 77);
 			int tx = cx * TREE_CELL + 1 + (int)((r >> 8) % (uint)(TREE_CELL - 2));
 			int tz = cz * TREE_CELL + 1 + (int)((r >> 12) % (uint)(TREE_CELL - 2));
-			// Pick a tree kind by the biome's chances; most cells get none.
-			BiomeKind* tb = self.biome(self.biome_at(tx, tz));
+			// Pick a tree kind by their chances; most cells get none.
 			int roll = (int)(r % 100);
 			int kind = -1;
-			foreach (bt : tb.trees)
+			foreach (k : self.tree_rolls)
 			{
-				if (roll < bt.percent)
+				if (roll < self.trees[k].percent)
 				{
-					kind = bt.kind;
+					kind = k;
 					break;
 				}
-				roll -= bt.percent;
+				roll -= self.trees[k].percent;
 			}
-			if (kind < 0 || kind >= (int)self.trees.len()) continue;
+			if (kind < 0) continue;
 			int ground = self.height_at(tx, tz);
 			if (ground <= SEA_LEVEL + 1 || self.is_cave(tx, ground, tz)) continue; // beach, sea or a cave mouth
 			int depth;
 			BlockId filler;
-			if (self.top_block(tx, ground, tz, tb, &depth, &filler) != tb.surface) continue; // a beach, gravel, bare stone
+			if (self.top_block(tx, ground, tz, &depth, &filler) != self.ids.grass) continue; // a beach, gravel, bare stone
 			TreeKind tk = self.trees[kind];
 			int span = math::max(1, tk.max_trunk - tk.min_trunk + 1);
 			out.push({ .x = tx, .z = tz, .ground = ground, .trunk = tk.min_trunk + (int)((r >> 16) % (uint)span), .kind = kind });
@@ -578,7 +461,6 @@ fn void Generator.generate(&self, ChunkData* chunk, int ox, int oy, int oz)
 			int i = z * CHUNK + x;
 			int wx = ox + x;
 			int wz = oz + z;
-			BiomeKind* bm = self.biome(cols.biomes[i]);
 			int ix = x / LX;
 			int iz = z / LZ;
 			float fx = (float)(x % LX) / (float)LX;
@@ -598,20 +480,19 @@ fn void Generator.generate(&self, ChunkData* chunk, int ox, int oy, int oz)
 				{
 					run = -1;
 					b = wy <= SEA_LEVEL ? self.ids.water : AIR;
-					if (b == self.ids.water && wy == SEA_LEVEL && bm.frozen && self.ids.ice) b = self.ids.ice;
 				}
 				else
 				{
 					run = run < (1 << 20) ? run + 1 : run;
 					if (run == 0)
 					{
-						b = self.top_block(wx, wy, wz, bm, &filler_depth, &filler);
+						b = self.top_block(wx, wy, wz, &filler_depth, &filler);
 						// A thin cover (snow) on high ground, on the block above.
-						if (bm.cover && b == bm.surface && wy + 1 >= oy && wy + 1 <= top_y &&
-							wy >= bm.cover_above + (int)(hash_point(wx, 9, wz, self.seed + 79) % 3) &&
+						if (self.ids.snow && b == self.ids.grass && wy + 1 >= oy && wy + 1 <= top_y &&
+							wy >= SNOW_ABOVE + (int)(hash_point(wx, 9, wz, self.seed + 79) % 3) &&
 							chunk.get(x, wy + 1 - oy, z) == AIR)
 						{
-							chunk.set(x, wy + 1 - oy, z, bm.cover);
+							chunk.set(x, wy + 1 - oy, z, self.ids.snow);
 						}
 					}
 					else if (run <= filler_depth)
@@ -632,7 +513,6 @@ fn void Generator.generate(&self, ChunkData* chunk, int ox, int oy, int oz)
 			}
 		}
 	}
-	self.place_ores(chunk, ox, oy, oz);
 	if (top_y >= SEA_LEVEL + 2)
 	{
 		TreeList trees;
@@ -651,60 +531,6 @@ fn bool Columns.solid_at(&self, int ix, int iz, float fx, float fz, int y)
 	float fy = (float)(y - (BOTTOM_Y + j * LY)) / (float)LY;
 	float lo = self.level(ix, iz, fx, fz, j);
 	return lo + (self.level(ix, iz, fx, fz, j + 1) - lo) * fy > 0.0f;
-}
-
-const int[3][6] ORE_STEPS @private = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
-
-// Veins start in some chunk and wander up to ~max_size blocks, so they can reach
-// into neighbours: each chunk replays the veins of its 3x3x3 neighbourhood and
-// keeps the blocks that land inside it. Only stone is replaced.
-fn void Generator.place_ores(&self, ChunkData* chunk, int ox, int oy, int oz)
-{
-	if (self.ores.is_empty() || (!chunk.mixed && chunk.uniform_value == AIR)) return;
-	int ccx = ox / CHUNK; // (origins are multiples of CHUNK)
-	int ccy = oy / CHUNK;
-	int ccz = oz / CHUNK;
-	for (int dy = -1; dy <= 1; dy++)
-	{
-		for (int dz = -1; dz <= 1; dz++)
-		{
-			for (int dx = -1; dx <= 1; dx++)
-			{
-				int sx = (ccx + dx) * CHUNK;
-				int sy = (ccy + dy) * CHUNK;
-				int oz2 = (ccz + dz) * CHUNK;
-				foreach (&ore : self.ores)
-				{
-					if (sy > ore.max_y || sy + CHUNK <= ore.min_y) continue;
-					for (int v = 0; v < ore.veins_per_chunk; v++)
-					{
-						uint h = hash_point(ccx + dx, (ccy + dy) * 64 + v, ccz + dz, self.seed + ore.salt);
-						int x = sx + (int)(h % CHUNK);
-						int y = sy + (int)((h >> 5) % CHUNK);
-						int z = oz2 + (int)((h >> 10) % CHUNK);
-						if (y < ore.min_y || y > ore.max_y) continue;
-						int size = ore.min_size + (int)((h >> 15) % (uint)(ore.max_size - ore.min_size + 1));
-						for (int s = 0; s < size; s++)
-						{
-							int lx = x - ox;
-							int ly = y - oy;
-							int lz = z - oz;
-							if (lx >= 0 && ly >= 0 && lz >= 0 && lx < CHUNK && ly < CHUNK && lz < CHUNK &&
-								chunk.get(lx, ly, lz) == ore.replaces)
-							{
-								chunk.set(lx, ly, lz, ore.id);
-							}
-							h = hash_point(x, y, z, h);
-							int[3] step = ORE_STEPS[h % 6];
-							x += step[0];
-							y += step[1];
-							z += step[2];
-						}
-					}
-				}
-			}
-		}
-	}
 }
 
 // Where a tree's blocks go: into a chunk (those inside it), or a list.

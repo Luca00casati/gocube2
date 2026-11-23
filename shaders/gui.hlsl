@@ -1,8 +1,8 @@
-// The UI (src/ui/gui_d3d.cpp): every draw command is a quad in screen
+// The UI (src/ui/gui_d3d.c3): every draw command is a quad in screen
 // pixels. Rectangles, rounded or not, are worked out per pixel from their
 // distance to the edge, so their edges are smooth; text comes from the glyph
-// atlas (coverage, rasterized by GDI); item icons from the block atlas,
-// dyed here as content.cpp's dye_pixel dyes blocks. Colours are what the
+// atlas (coverage, rasterized by GDI); block icons from the block atlas.
+// Colours are what the
 // screen shows (sRGB numbers, as the UI chose them): no conversion.
 
 Texture2D<float> glyphs : register(t0);
@@ -19,22 +19,18 @@ cbuffer Screen : register(b0) {
 #define GLYPH 2
 #define ICON 3
 
-static const float DYE_SHOW = 0.2; // as content.h's
-
 struct VSIn {
 	float2 pos : POSITION;    // pixels
 	float2 uv : TEXCOORD0;
 	float4 color : COLOR0;    // straight alpha
-	float4 dye : COLOR1;      // ICON: the dye (a = 0: none)
 	float4 rect : TEXCOORD1;  // FILL, STROKE: the rectangle (x0, y0, x1, y1)
-	float4 params : TEXCOORD2; // rounding, thickness, mode, ICON: the tile's average brightness
+	float4 params : TEXCOORD2; // rounding, thickness, mode
 };
 
 struct PSIn {
 	float4 pos : SV_Position;
 	float2 uv : TEXCOORD0;
 	float4 color : COLOR0;
-	nointerpolation float4 dye : COLOR1;
 	nointerpolation float4 rect : TEXCOORD1;
 	nointerpolation float4 params : TEXCOORD2;
 };
@@ -44,7 +40,6 @@ PSIn vs_main(VSIn i) {
 	o.pos = float4(i.pos.x * to_clip.x - 1, 1 - i.pos.y * to_clip.y, 0, 1);
 	o.uv = i.uv;
 	o.color = i.color;
-	o.dye = i.dye;
 	o.rect = i.rect;
 	o.params = i.params;
 	return o;
@@ -72,12 +67,7 @@ float4 ps_main(PSIn i) : SV_Target {
 		c.a *= glyphs.Sample(nearest, i.uv);
 	} else {
 		const float4 t = icons.Sample(nearest, i.uv);
-		float3 rgb = t.rgb;
-		if (i.dye.a > 0) {
-			const float k = clamp(dot(rgb, float3(0.299, 0.587, 0.114)) / max(i.params.w, 0.04), 0, 1.6);
-			rgb = i.dye.rgb * k * (1 - DYE_SHOW) + rgb * DYE_SHOW;
-		}
-		c = float4(rgb, t.a * c.a);
+		c = float4(t.rgb, t.a * c.a);
 	}
 	return float4(c.rgb * c.a, c.a); // (premultiplied)
 }

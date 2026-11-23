@@ -1,8 +1,8 @@
-// Chat commands ("/give Ann core:torch 5"). Whoever plays the world runs
+// Chat commands ("/give Ann core:planks 5"). Whoever plays the world runs
 // them (the host runs a client's as that player). Each command says who may
 // run it (ops change the world; everyone can /help, /msg, /list, /seed),
 // reads its arguments (numbers, coordinates with ~ for "from where I am",
-// block and item ids, player names) and answers in the chat. What they act on
+// block ids, player names) and answers in the chat. What they act on
 // goes through a CommandWorld (the session fills it in from the game; the
 // tests with fakes).
 module gocube::game::commands;
@@ -21,10 +21,9 @@ interface CommandWorld
 {
 	fn void players(Vec{CommandPlayer}* out); // everyone playing (the local one first)
 	fn bool is_block(String id);
-	fn bool is_item(String id);
-	fn bool is_creature(String id);
+	fn bool is_item(String id);                    // a block one can hold
 	fn bool teleport(int peer, float[3] feet);
-	fn int give(int peer, String item, int count); // how many went in
+	fn int give(int peer, String block, int count); // how many went in
 	fn bool kill(int peer);
 	fn void set_world_spawn(float[3] feet);
 	fn double time();                              // 0..1 (0.5 noon)
@@ -32,7 +31,6 @@ interface CommandWorld
 	fn bool creative();                            // the world's game mode
 	fn void set_creative(bool creative);           // (for everyone playing)
 	fn bool set_block(BlockPos p, String id);
-	fn bool summon(String kind, float[3] at);
 	fn bool kick(int peer, String why);
 	fn void set_op(String name, bool op);
 	fn void tell(int peer, String line);           // a line to one player
@@ -54,7 +52,7 @@ const Builtin[*] BUILTINS @private = {
 	{ "deop", "<player>", "takes that away", true },
 	{ "fill", "<x1 y1 z1> <x2 y2 z2> <block>", "fills a box with a block (32768 at most)", true },
 	{ "gamemode", "[survival|creative]", "the world's game mode, or changes it for everyone", true },
-	{ "give", "<player> <item> [count]", "puts items in a player's inventory", true },
+	{ "give", "<player> <block> [count]", "puts blocks in a player's inventory", true },
 	{ "help", "[command]", "lists the commands, or tells what one does", false },
 	{ "kick", "<player> [reason]", "sends a player away", true },
 	{ "kill", "[player]", "ends a player's life (survival)", true },
@@ -65,7 +63,6 @@ const Builtin[*] BUILTINS @private = {
 	{ "seed", "", "the world's seed", false },
 	{ "setblock", "<x y z> <block>", "puts a block there (air removes one)", true },
 	{ "spawnpoint", "", "makes where you stand the world's spawn", true },
-	{ "summon", "<creature> [x y z]", "a creature, in front of you or there", true },
 	{ "time", "[set <day|noon|night|midnight|0..1>]", "the time of day, or sets it", true },
 	{ "tp", "<x y z> | <player> | <player> <x y z> | <player> <player>", "moves you (or a player) to a place or to another player", true },
 };
@@ -184,20 +181,8 @@ struct Commands
 	CommandWorld w;
 }
 
-// An id with "core:" if it has no ":"; a dye's digits in lower case (temp).
-fn String full_id(String given) @private
-{
-	String id = given.contains_char(':') ? given.tcopy() : string::tformat("core:%s", given);
-	if (try hash = id.index_of_char('#'))
-	{
-		char[] bytes = (char[])id;
-		for (sz i = hash; i < bytes.len; i++)
-		{
-			if (bytes[i] >= 'A' && bytes[i] <= 'Z') bytes[i] += 'a' - 'A';
-		}
-	}
-	return id;
-}
+// An id with "core:" if it has no ":" (temp).
+fn String full_id(String given) @private => given.contains_char(':') ? given.tcopy() : string::tformat("core:%s", given);
 
 fn bool Commands.find_player(&self, CommandPlayer* who, String name, CommandPlayer* out)
 {
@@ -384,9 +369,9 @@ fn void Commands.builtin(&self, CommandPlayer* who, Builtin b, String[] args, Li
 				return;
 			}
 			String item = full_id(args[1]);
-			if (!self.w.is_item(item) && !self.w.is_block(item))
+			if (!self.w.is_item(item))
 			{
-				out.add("No item %s.", item);
+				out.add("No block %s.", item);
 				return;
 			}
 			int count = 1;
@@ -534,30 +519,6 @@ fn void Commands.builtin(&self, CommandPlayer* who, Builtin b, String[] args, Li
 				}
 			}
 			out.add("Filled %d blocks with %s.", changed, block);
-		case "summon":
-			if (args.len == 0 || (args.len != 1 && args.len != 4))
-			{
-				usage(b, out);
-				return;
-			}
-			String kind = full_id(args[0]);
-			if (!self.w.is_creature(kind))
-			{
-				out.add("No creature %s.", kind);
-				return;
-			}
-			float[3] at = { who.feet[0], who.feet[1], who.feet[2] - 2.0f };
-			if (args.len == 4 && !parse_xyz(args, 1, who.feet, &at))
-			{
-				usage(b, out);
-				return;
-			}
-			if (!self.w.summon(kind, at))
-			{
-				out.add("Couldn't summon it there.");
-				return;
-			}
-			out.add("Summoned %s.", kind);
 		case "kick":
 			if (args.len == 0)
 			{

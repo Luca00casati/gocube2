@@ -41,7 +41,6 @@ struct Surface
 	// rgba: r = sky light, g = block light (0..1), b = corner occlusion (1 = none),
 	// a = 1 - 0.5 (green varies: grass, leaves) - 0.25 (in a block's shadow).
 	Vec{float} colors;
-	Vec{Dye} dyes;        // per vertex: its block's dye (NO_DYE: its own colours)
 	Vec{int} indices;
 }
 
@@ -54,7 +53,6 @@ fn void Surface.clear(&self)
 	self.normals.clear();
 	self.uvs.clear();
 	self.colors.clear();
-	self.dyes.clear();
 	self.indices.clear();
 }
 
@@ -64,7 +62,6 @@ fn void Surface.free(&self)
 	self.normals.free();
 	self.uvs.free();
 	self.colors.free();
-	self.dyes.free();
 	self.indices.free();
 }
 
@@ -385,13 +382,6 @@ fn bool sun_reaches(LightRegion* light, MeshOptions* o, int max_top, int cx, int
 	return true;
 }
 
-// The vertices added since the last call get dye `d`.
-fn void dye_to(Surface* s, Dye d) @private
-{
-	sz n = s.vertex_count();
-	while (s.dyes.len() < n) s.dyes.push(d);
-}
-
 // Sets the alpha of the vertices from `first` on (see Surface.colors).
 fn void set_alpha(Surface* s, sz first, float alpha) @private
 {
@@ -422,7 +412,7 @@ fn bool MeshInput.fence_connects(&self, int nx, int ny, int nz)
 // Everything that isn't a full cube: boxes, crossed plants, fences. Light is
 // flat per face: the cell in front for faces on the block's edge, else the
 // block's own cell (shaped blocks let light in).
-fn void emit_shape(Surface* s, MeshInput* in, BlockInfo* info, BlockId id, Dye dye, int x, int y, int z,
+fn void emit_shape(Surface* s, MeshInput* in, BlockInfo* info, BlockId id, int x, int y, int z,
 	AtlasLayout* atlas, LightRegion* light) @private
 {
 	BlockInfo[] blocks = in.blocks;
@@ -499,7 +489,6 @@ fn void emit_shape(Surface* s, MeshInput* in, BlockInfo* info, BlockId id, Dye d
 			float[3] normal = { (float)d.dx, (float)d.dy, (float)d.dz };
 			emit_quad(s, &pos, &st, normal, atlas, info.tiles[f], sky, blk, d.order);
 		}
-		dye_to(s, bx.undyed ? NO_DYE : dye);
 	}
 }
 
@@ -586,17 +575,14 @@ fn void mesh_chunk(ChunkData* chunk, ChunkData*[FACE_COUNT] neighbours, ChunkDat
 				if (id == AIR || id >= count) continue;
 				BlockInfo* info = &blocks[id];
 				Surface* opaque = info.cutout ? cutout_out : opaque_out;
-				Dye dye = chunk.dyes.is_empty() || info.fluid ? NO_DYE : chunk.dye(x, y, z);
-				if (dye != NO_DYE) dye_to(opaque, NO_DYE); // (the blocks before)
 				if (info.shape != CUBE)
 				{
 					sz first = opaque.vertex_count();
-					emit_shape(opaque, &in, info, id, dye, x, y, z, atlas, light);
+					emit_shape(opaque, &in, info, id, x, y, z, atlas, light);
 					if (shadows && !sun_reaches(light, options, max_top, x, y, z))
 					{
 						set_alpha(opaque, first, 0.75f); // shaped blocks: one shadow for the whole block
 					}
-					if (dye != NO_DYE) dye_to(opaque, dye); // (crossed plants)
 					continue;
 				}
 				float[4] tops;
@@ -678,11 +664,7 @@ fn void mesh_chunk(ChunkData* chunk, ChunkData*[FACE_COUNT] neighbours, ChunkDat
 						}
 					}
 				}
-				if (dye != NO_DYE) dye_to(opaque, dye);
 			}
 		}
 	}
-	dye_to(opaque_out, NO_DYE);
-	dye_to(cutout_out, NO_DYE);
-	dye_to(fluid, NO_DYE);
 }

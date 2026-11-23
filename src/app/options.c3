@@ -10,8 +10,7 @@
 //   --view=N         view distance in blocks (default: the settings')
 //   --pos=X,Y,Z      start flying at this position (feet)
 //   --look=YAW,PITCH start view direction in degrees (0, 0: towards -z)
-//   --spawn=KIND[=BLOCK],...  creatures in front of the player
-//   --drop=ITEM,...  items dropped in front of the player
+//   --drop=BLOCK,... blocks dropped in front of the player
 //   --time=T         the time of day to start at (0..1)
 //   --mannequin      your own figure, in your skin, in front of you
 //   --details        start with the details screen (F3) open
@@ -54,8 +53,7 @@ struct Options
 	bool has_look;
 	float[2] look;
 	String mode;          // for a new world
-	Vec{String} drop;     // items dropped in front of the player at the start
-	Vec{String} spawn;    // creatures ("kind" or "kind=variant") put in front of the player
+	Vec{String} drop;     // blocks dropped in front of the player at the start
 	String screen;        // a screen open at the start
 	bool mannequin;
 	bool details;
@@ -113,7 +111,6 @@ fn Options parse(String[] args) => @pool()
 			case a.starts_with("--world="): o.world_name = a[8..];
 			case a.starts_with("--world-dir="): o.world_dir = a[12..];
 			case a.starts_with("--seed="): o.seed = (uint)(a[7..].to_long() ?? 777);
-			case a.starts_with("--spawn="): split_list(a[8..], &o.spawn);
 			case a.starts_with("--drop="): split_list(a[7..], &o.drop);
 			case a == "--details": o.details = true;
 			case a == "--profile": o.profile = true;

@@ -134,7 +134,7 @@ float shown_health_value @private = game::MAX_HEALTH;
 
 // Health as the HUD shows it: down at once when hurt, up no faster than the
 // game heals (a point every 2.5 s), so the red fades evenly rather than in
-// steps; a jump of more than a point (respawning, food) comes at once.
+// steps; a jump of more than a point (respawning) comes at once.
 fn float shown_health(int health, float dt) @private
 {
 	float target = (float)health;
@@ -203,7 +203,7 @@ fn void draw_hud(Game* game, BlockTable* table, bool captured) => @pool()
 		Stack s = game.inventory.slots[i];
 		if (!s.is_empty())
 		{
-			dl.image({ r.x0 + 8, r.y0 + 8, r.x1 - 8, r.y1 - 8 }, table.icon(content::undyed(s.id)), content::dye_of(s.id));
+			dl.image({ r.x0 + 8, r.y0 + 8, r.x1 - 8, r.y1 - 8 }, table.icon(s.id));
 			if (!game.creative && s.count > 1)
 			{
 				String n = string::tformat("%d", s.count);

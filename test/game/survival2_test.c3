@@ -1,8 +1,8 @@
-// Survival, continued: the day, beds, plants, trees, fluids, sounds,
-// creatures and Block Eaters, the void, game modes.
+// Survival, continued: the day, beds, plants, trees, fluids, sounds, the
+// void, game modes.
 module gocube::test::survival2_test;
 import gocube::test::play, gocube::content, gocube::data, gocube::game, gocube::game::inventory, gocube::game::player;
-import gocube::game::creatures, gocube::game::day_cycle, gocube::world, gocube::util::vec, gocube::clock;
+import gocube::game::day_cycle, gocube::world, gocube::util::vec, gocube::clock;
 import std::io, std::math;
 
 fn bool near(float a, float b, float eps = 1e-3) => math::abs(a - b) <= eps;
@@ -65,15 +65,15 @@ fn void sand_falls_unsupported_pop_off() @test
 	defer p.free();
 	p.pool("core:air");
 	p.set(1, 45, 1, "core:sand"); // 5 above the floor (y 40)
-	p.set(0, 41, 1, "core:torch_wall_w"); // against the west wall (x -1)
+	p.set(0, 41, 1, "core:ladder_w"); // against the west wall (x -1)
 	run_ticks(p, 1.0f);
 	assert(p.block(1, 45, 1) == "core:air");
 	assert(p.block(1, 40, 1) == "core:sand");
-	assert(p.block(0, 41, 1) == "core:torch_wall_w"); // still held by the wall
+	assert(p.block(0, 41, 1) == "core:ladder_w"); // still held by the wall
 	p.set(-1, 41, 1, "core:air"); // the wall behind it goes
 	run_ticks(p, 0.5f);
 	assert(p.block(0, 41, 1) == "core:air");
-	assert(drops_of_item(p, "core:torch") == 1);
+	assert(drops_of_item(p, "core:ladder") == 1);
 }
 
 fn void leaves_decay_without_log() @test
@@ -111,13 +111,11 @@ fn void tree_grows_where_room() @test
 	assert(!p.game.grow_tree({ 1, 41, 1 }, "core:nonexistent"));
 }
 
-fn void no_farming_food_small_plants() @test
+fn void no_farming_small_plants() @test
 {
 	Play* p = play::new();
 	defer p.free();
-	foreach (gone : (String[*]){ "core:seeds", "core:wheat", "core:bread" }) assert(!p.content.items.has(gone));
 	foreach (gone : (String[*]){ "core:farmland", "core:tall_grass", "core:oak_sapling", "core:stone_slab" }) assert(!p.content.blocks.has(gone));
-	foreach (&e : p.content.items.entries) assert(!e.def.has("food"));
 	assert(p.content.trees.has("core:oak"));
 	foreach (&e : p.content.blocks.entries) assert(!e.def.has("grows_tree"));
 	assert(p.content.blocks.get("core:grass").has("sprouts_trees"));
@@ -244,35 +242,6 @@ fn void sounds_of_blocks_steps_pickups_hurts() @test
 	sounds.free();
 }
 
-fn void creatures_fall_walk_notice_walls_picked() @test
-{
-	Play* p = play::new();
-	defer p.free();
-	p.pool("core:air");
-	Creatures* cs = &p.game.creatures;
-	assert(cs.spawn(&p.content, "core:nothing", { 1.5f, 44.0f, 1.5f }) == 0); // unknown kind
-	int id = cs.spawn(&p.content, "core:block_eater", { 1.5f, 44.0f, 1.5f });
-	assert(id > 0);
-	for (int i = 0; i < 120; i++) cs.step(1.0f / 60.0f, &p.world);
-	Creature* c = cs.find(id);
-	assert(c && c.on_floor);
-	assert(near(c.pos[1], 40.0f, 0.05f)); // on the stone floor (y 39; the collision margin)
-	// Heading -x at walking speed: it reaches the wall at x = -1 (its box is 0.9 wide).
-	c.heading = 3.14159265f / 2;
-	c.speed = 1.2f;
-	for (int i = 0; i < 180; i++) cs.step(1.0f / 60.0f, &p.world);
-	c = cs.find(id);
-	assert(near(c.pos[0], 0.45f, 0.01f), "%f", c.pos[0]);
-	assert(c.hit_wall);
-	assert(near(c.yaw, 3.14159265f / 2, 0.02f)); // turned to its heading
-	// Picked by a ray through its box.
-	float d;
-	assert(cs.pick({ 0.45f, 40.5f, 3.0f }, { 0, 0, -1 }, 4.0f, &d) == id);
-	assert(near(d, 3.0f - (1.5f + 0.45f), 0.02f));
-	assert(cs.remove(id));
-	assert(cs.pick({ 0.45f, 40.5f, 3.0f }, { 0, 0, -1 }, 4.0f, &d) == 0);
-}
-
 // Grass all around the origin at y 70, open to the sky; the player on it.
 fn void open_field(Play* p)
 {
@@ -298,40 +267,6 @@ fn void live_for(Play* p, float seconds)
 	}
 }
 
-fn void block_eaters_by_day_flee_when_hit() @test
-{
-	Play* p = play::new();
-	defer p.free();
-	open_field(p);
-	p.game.day = 0.0f; // night: no Block Eaters
-	live_for(p, 20);
-	foreach (&c : p.game.creatures.all()) assert(c.kind != "core:block_eater");
-	p.game.day = 1.0f;
-	live_for(p, 100); // (one comes every 45 s, two at most)
-	Creature[] all = p.game.creatures.all();
-	assert(all.len > 0 && all.len <= 2, "%d", all.len);
-	foreach (&c : all)
-	{
-		assert(c.kind == "core:block_eater");
-		assert(c.variant.len == 0);
-		assert(near(c.pos[1], 71.0f, 0.02f)); // on the grass
-		assert(math::hypot(c.pos[0] - 0.5f, c.pos[2] - 0.5f) < 80.0f);
-	}
-	// One made of stone, hit four times (2 each: bare hands, 8 health): it runs
-	// off, then is gone and drops a stone.
-	int id = p.game.creatures.spawn(&p.content, "core:block_eater", { 5.5f, 71.0f, 0.5f }, "core:stone");
-	live_for(p, 0.1f);
-	p.game.creature_hit(id, 2, { 0.5f, 71.0f, 0.5f }, 0);
-	live_for(p, 1.0f);
-	Creature* c = p.game.creatures.find(id);
-	assert(c);
-	assert(c.pos[0] > 6.0f, "%f", c.pos[0]); // ran off, away from the player
-	assert(near(c.speed, 3.4f));
-	for (int i = 0; i < 3; i++) p.game.creature_hit(id, 2, { 0.5f, 71.0f, 0.5f }, 0);
-	assert(p.game.creatures.find(id) == null);
-	assert(drops_of_item(p, "core:stone") == 1);
-}
-
 fn int count_field(Play* p, int y, String id)
 {
 	int n = 0;
@@ -342,18 +277,13 @@ fn int count_field(Play* p, int y, String id)
 	return n;
 }
 
-fn void block_eaters_eat_trees_sprout() @test
+fn void trees_sprout_on_grass() @test
 {
 	Play* p = play::new();
 	defer p.free();
 	open_field(p);
-	p.game.day = 1.0f;
-	int id = p.game.creatures.spawn(&p.content, "core:block_eater", { 6.5f, 71.0f, 6.5f });
-	assert(id > 0);
-	assert(count_field(p, 70, "core:air") == 0);
 	assert(count_field(p, 71, "core:log") == 0);
-	live_for(p, 240); // (it grazes every few seconds and eats 3 times in 10; a tree tries every 20 s)
-	assert(count_field(p, 70, "core:air") > 0);
+	live_for(p, 240); // (a tree tries every 20 s)
 	assert(count_field(p, 71, "core:log") > 0);
 	// Not close to the player (at the origin).
 	for (int x = -24; x <= 24; x++)
@@ -383,30 +313,25 @@ fn void the_void_hurts_not_in_creative() @test
 	assert(creative.game.health == game::MAX_HEALTH);
 }
 
-fn void no_enemies_at_night() @test
+fn void nothing_hurts_at_night() @test
 {
 	Play* p = play::new();
 	defer p.free();
 	open_field(p);
 	p.game.day = 0.0f;
 	live_for(p, 30.0f);
-	assert(p.game.creatures.all().len == 0);
-	assert(p.game.health == game::MAX_HEALTH);
-	p.game.day = 1.0f; // by day the Block Eaters (harmless) still come
-	live_for(p, 30.0f);
-	assert(p.game.creatures.all().len > 0);
 	assert(p.game.health == game::MAX_HEALTH);
 }
 
 fn void game_modes_one_inventory() @test
 {
-	Play* p = play::new(); // (survival: the starting items)
+	Play* p = play::new(); // (survival)
 	defer p.free();
-	p.game.inventory.slots[0] = inventory::stack("core:torch", 7);
+	p.game.inventory.slots[0] = inventory::stack("core:planks", 7);
 	p.game.set_creative(true);
-	assert(p.game.creative && p.game.inventory.count_of("core:torch") == 7); // (as it was)
+	assert(p.game.creative && p.game.inventory.count_of("core:planks") == 7); // (as it was)
 	p.game.set_creative(false);
-	assert(p.game.inventory.count_of("core:torch") == 7 && p.game.health == game::MAX_HEALTH);
+	assert(p.game.inventory.count_of("core:planks") == 7 && p.game.health == game::MAX_HEALTH);
 	// A new creative player: nothing in hand; the palette gives one of anything.
 	Play* c = play::new(play::setup(true));
 	defer c.free();
@@ -420,14 +345,14 @@ fn void game_modes_one_inventory() @test
 	// It picks up what lies around.
 	c.player.position[1] = 80.0f;
 	c.player.flying = true;
-	c.game.drop_item("core:coal", 3, { c.player.position[0], c.player.position[1] + 0.5f, c.player.position[2] });
+	c.game.drop_item("core:cobblestone", 3, { c.player.position[0], c.player.position[1] + 0.5f, c.player.position[2] });
 	for (int i = 0; i < 120; i++) c.game.physics_step(1.0f / 60.0f);
-	assert(c.game.inventory.count_of("core:coal") == 3);
+	assert(c.game.inventory.count_of("core:cobblestone") == 3);
 	// Saved and loaded as it is.
 	Play* again = play::new(play::setup(true));
 	defer again.free();
 	Data saved = c.game.save_player();
 	defer saved.free();
 	again.game.load_player(&saved);
-	assert(again.game.inventory.count_of("core:coal") == 3 && again.game.inventory.count_of("core:planks") == 1);
+	assert(again.game.inventory.count_of("core:cobblestone") == 3 && again.game.inventory.count_of("core:planks") == 1);
 }

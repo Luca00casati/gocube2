@@ -9,6 +9,10 @@
   // same, bit for bit, on every machine and as they did before the port.
   "fp-math": "strict",
   "x86cpu": "sse4",
+  // Optimised but still checked (bounds, nulls, contracts: a panic says
+  // where): 4 to 8 times as fast as unoptimised; -O2 is barely faster and
+  // drops the checks. (`c3c benchmark` measures it.)
+  "opt": "O1",
   "targets": {
     "gocube": {
       "type": "executable"

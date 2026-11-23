@@ -4,7 +4,7 @@
 module gocube::app;
 import gocube::renderer, gocube::chunk_renderer, gocube::window, gocube::gui, gocube::screens, gocube::settings_screen, gocube::audio;
 import gocube::game, gocube::game::player, gocube::game::blocks, gocube::game::hand, gocube::game::day_cycle, gocube::game::creature_models;
-import gocube::game::figure, gocube::game::creatures, gocube::game::inventory, gocube::game::drops, gocube::game::block_entities;
+import gocube::game::figure, gocube::game::inventory, gocube::game::drops, gocube::game::block_entities;
 import gocube::content, gocube::content::item_models, gocube::content::skin, gocube::content::image, gocube::data, gocube::voxel;
 import gocube::world, gocube::world::save, gocube::net::session, gocube::profiler, gocube::mat, gocube::maths, gocube::log, gocube::win;
 import gocube::clock, gocube::d3d11, gocube::util::vec, gocube::util::rand, gocube::util::intern;
@@ -85,7 +85,7 @@ struct Puff
 	float size, age;
 }
 
-const float NIGHT_CREATURE_LIGHT @private = 0.07f;
+const float NIGHT_FIGURE_LIGHT @private = 0.07f;
 const int OWN_SKIN @private = chunk_renderer::SKIN_SLOTS - 1;
 
 // Our skin (RGBA, SKIN_BYTES): %APPDATA%\GoCube\skin.png if it's one (not
@@ -133,10 +133,11 @@ fn void apply_day(DayCycle* day, float view, SkyParams* sky) @private
 	sky.fog_start = day.fog_begin(view);
 	sky.fog_end = day.fog_end(view);
 	sky.daylight = day.daylight();
-	sky.sun_amount = day.sun_amount();
+	sky.sun_amount = day.light_amount(); // (the moon's at night)
 	Rgb tint = day.sky_tint();
 	sky.sky_tint = { tint[0], tint[1], tint[2] }; // (raw: see chunk.hlsl)
 	sky.sun_dir = day.sun_dir();
+	sky.light_dir = day.light_dir();
 	sky.fog_color = linear(day.haze());
 	sky.sky_top = linear(day.sky_top());
 	sky.sky_horizon = linear(day.sky_horizon());
@@ -198,7 +199,6 @@ struct Playing
 	ItemModels item_models;
 	Audio audio;
 	Hand hand;
-	HandLights hand_lights;
 	DayCycle day;
 	SkyParams sky;
 	Camera camera;
@@ -247,7 +247,6 @@ fn void Playing.free(&self)
 	}
 	self.session.free();
 	self.content.free();
-	self.hand_lights.free();
 	self.chat.free();
 	self.puffs.free();
 	self.say.free();
@@ -456,25 +455,6 @@ fn End Playing.run(&self)
 		float side = ((float)i - (float)(options.drop.len() - 1) * 0.5f) * 0.6f;
 		game.drop_item(item, 1, { player.position[0] + look[0] * 4.0f - look[2] * side, player.position[1] + 1.0f, player.position[2] + look[2] * 4.0f + look[0] * side });
 	}
-	foreach (i, spec : options.spawn) @pool() // (for trying things out)
-	{
-		// "block_eater" or "block_eater=core:stone": a core kind, and what it's made of.
-		String kind = spec;
-		String variant = "";
-		if (try eq = kind.index_of_char('='))
-		{
-			variant = kind[eq + 1..];
-			kind = kind[:eq];
-		}
-		if (!kind.contains_char(':')) kind = string::tformat("core:%s", kind);
-		float[3] look = player.look();
-		float flat = math::max(0.2f, math::hypot(look[0], look[2]));
-		float side = ((float)i - (float)(options.spawn.len() - 1) * 0.5f) * 1.5f;
-		float fx = look[0] / flat;
-		float fz = look[2] / flat;
-		float[3] at = { player.position[0] + fx * 5.0f - fz * side, player.position[1], player.position[2] + fz * 5.0f + fx * side };
-		if (game.creatures.spawn(&self.content, kind, at, variant) == 0) log::log("--spawn: no creature '%s'", kind);
-	};
 	self.camera.far_z = (float)view_distance(options) * 2.0f;
 	if (self.screen == NONE && options.screen == "settings") // (screenshots)
 	{
@@ -543,8 +523,8 @@ fn End Playing.run(&self)
 	}
 	if (self.session.mode == OFFLINE) self.session.attach(attach); // (alone: chat and commands still go through it)
 	self.online = self.session.mode != OFFLINE;
-	// Block shadows, from where the sun is.
-	self.world.set_sun_angle(self.day.angle());
+	// Block shadows, from where the sun (or the moon) is.
+	self.world.set_sun_angle(self.day.light_angle());
 	self.world.set_block_shadows(true);
 	self.start = self.last = self.last_save = clock::now();
 	self.end = QUIT;
@@ -619,7 +599,7 @@ fn float[3] light_at(void* p, float[3] at) @private
 	Playing* self = p;
 	Rgb tint = self.day.sky_tint();
 	float daylight = self.day.daylight();
-	return hand::light_for(&self.world, &self.hand_lights, { tint[0] * daylight, tint[1] * daylight, tint[2] * daylight }, at, NIGHT_CREATURE_LIGHT);
+	return hand::light_for(&self.world, { tint[0] * daylight, tint[1] * daylight, tint[2] * daylight }, at, self.camera.position, NIGHT_FIGURE_LIGHT);
 }
 
 fn void sky_between(void* p) @private
@@ -740,9 +720,7 @@ fn bool Playing.step(&self)
 		player.velocity = {};
 		self.previous_position = player.position;
 	}
-	float[3] push;
-	if (session.take_push(&push)) for (int k = 0; k < 3; k++) player.velocity[k] += push[k]; // a creature's knock back
-	profiler::@profile("physics (player, drops, creatures)")
+	profiler::@profile("physics (player, drops)")
 	{
 		self.accumulator += paused ? 0.0f : dt;
 		while (self.accumulator >= player::STEP)
@@ -829,27 +807,13 @@ fn bool Playing.step(&self)
 	}
 	bool walking = player.on_floor && math::hypot(player.velocity[0], player.velocity[2]) > 0.5f;
 	self.hand.update(paused ? 0.0f : dt, game.mining_progress > 0.0f, walking);
-	// A light-giving block in hand (a torch) lights the world around.
-	Vec{float[4]} held_lights;
-	defer held_lights.free();
-	if (!game.dead)
-	{
-		if (Data* def = self.content.blocks.get(content::undyed(game.selected_item())))
-		{
-			float level = (float)def.num("light", 0);
-			if (level > 0) held_lights.push({ cam[0], cam[1], cam[2], level });
-		}
-	}
-	// How others see us, and theirs: their held lights light the world too.
+	// How others see us.
 	LocalPose pose = { .eye = player.eye(), .yaw = player.yaw, .pitch = player.pitch, .item = game.selected_item(), .selected = game.selected,
 		.flags = (window.key_down(win::VK_SHIFT) && !player.flying ? session::FLAG_SNEAK : 0) | (self.sleeping >= 0 ? session::FLAG_SLEEP : 0) |
 			(player.flying ? session::FLAG_FLY : 0),
-		.swings = game.swings + (game.mining_progress > 0 ? (int)(self.frame_time_total * 3.0) : 0),
-		.light = held_lights.is_empty() ? 0 : (int)held_lights[0][3] };
+		.swings = game.swings + (game.mining_progress > 0 ? (int)(self.frame_time_total * 3.0) : 0) };
 	self.frame_time_total += dt;
 	profiler::@profile("network") { session.update(dt, pose); };
-	session.held_lights(&held_lights);
-	bool hand_light_changed = self.hand_lights.update(&self.world, held_lights.array_view(), cam);
 	// Sounds: heard from the camera; muffled with the head in a fluid, which
 	// also tints the view (blue in water, orange in lava).
 	Data* eye_block = self.rules.def_of(self.world.block_at((int)math::floor(cam[0]), (int)math::floor(cam[1]), (int)math::floor(cam[2])));
@@ -873,7 +837,7 @@ fn bool Playing.step(&self)
 	self.world.set_block_shadows(settings.shadow_mode == "blocks");
 	self.renderer.set_render_scale(render_scale(options));
 	self.renderer.options.vsync = !options.no_vsync && settings.vsync;
-	self.world.set_sun_angle(self.day.angle()); // (shadows follow it in steps)
+	self.world.set_sun_angle(self.day.light_angle()); // (shadows follow the sun or moon in steps)
 	profiler::@profile("world (loading, meshes in)")
 	{
 		self.world.update(player.position[0], player.position[1], player.position[2]);
@@ -907,7 +871,7 @@ fn bool Playing.step(&self)
 		self.last_save = now;
 	}
 	if (!self.draw_screens(captured, key_esc, net_status, in_fluid, in_lava)) return false;
-	self.draw_world(dt, alpha, paused, hand_light_changed);
+	self.draw_world(dt, alpha, paused);
 	// With a screenshot, count frames once the world around has loaded.
 	WorldStats ws = self.world.stats();
 	if (!self.say.is_empty() && (ws.settled || self.sky.time > 60.0f))
@@ -1036,7 +1000,7 @@ fn bool Playing.draw_screens(&self, bool captured, bool key_esc, String net_stat
 }
 
 // The world, the things in it and the hand.
-fn void Playing.draw_world(&self, float dt, float alpha, bool paused, bool hand_light_changed)
+fn void Playing.draw_world(&self, float dt, float alpha, bool paused)
 {
 	Options* options = self.options;
 	Renderer* r = self.renderer;
@@ -1050,30 +1014,25 @@ fn void Playing.draw_world(&self, float dt, float alpha, bool paused, bool hand_
 		self.day.cloud_offset = { 0.35f * 3.0f, 0.12f * 3.0f };
 	}
 	apply_day(&self.day, (float)view_distance(options), &self.sky);
+	self.sky.player_light = hand::PLAYER_LIGHT;
 	r.begin_frame({ self.sky.fog_color[0], self.sky.fog_color[1], self.sky.fog_color[2], 1.0f }, false); // (the sky covers what the world doesn't)
 	float aspect = self.aspect();
-	self.chunks.set_hand_light(self.hand_lights.volume.array_view(), self.hand_lights.origin, self.hand_lights.count, hand_light_changed);
 	profiler::@profile("draw: terrain, sky")
 	{
 		r.gpu_mark("terrain");
 		self.chunks.draw(&self.camera, aspect, &self.sky, &sky_between, self);
 	};
-	r.gpu_mark("items, creatures, hand");
+	r.gpu_mark("items, players, hand");
 	Matrix vp = self.camera.view() * self.camera.projection(aspect);
-	profiler::@profile("draw: items, creatures, hand")
+	profiler::@profile("draw: items, players, hand")
 	{
 		// Dropped items: lit like the terrain around them (never quite black).
 		Vec{WorldVertex} drop_mesh;
 		defer drop_mesh.free();
 		game.drops.build_mesh(&self.item_models, &light_at, self, &drop_mesh);
 		self.chunks.draw_items(drop_mesh.array_view(), vp, self.camera.position, &self.sky, true);
-		// Creatures, lit by where they are.
 		CreatureVertices creature_mesh;
 		defer creature_mesh.free();
-		foreach (&c : game.creatures.list)
-		{
-			creature_models::build_creature(c, &self.content, &self.table, alpha, light_at(self, { c.pos[0], c.pos[1] + c.light_height, c.pos[2] }), &creature_mesh);
-		}
 		// Other players: their figures in their skins (a slot each, the last
 		// one ours), what they hold, their names.
 		if (self.skins_seen != session.skins_changed)
@@ -1111,9 +1070,9 @@ fn void Playing.draw_world(&self, float dt, float alpha, bool paused, bool hand_
 			float[3] lit = light_at(self, { a.shown[0], a.shown[1] - 0.6f, a.shown[2] });
 			Matrix hand_m = creature_models::build_player(&a.figure, a.id, a.shown, a.shown_yaw, lit, &creature_mesh, i < OWN_SKIN ? (int)i : -1);
 			if (!a.item.len) continue;
-			// A block: a small cube in the fist; a flat item held by its lower
-			// corner, tip forward and up.
-			Data* def = self.rules.def(content::undyed(a.item));
+			// A block: a small cube in the fist; a flat one (a ladder) held by its
+			// lower corner, tip forward and up.
+			Data* def = self.rules.def(a.item);
 			bool block = self.rules.is_placeable(a.item) && !(def && def.str("shape") == "cross");
 			Matrix local = block ? mat::scaling(0.9f, 0.9f, 0.9f) * mat::rotation_y(0.6f) * mat::translation(0, -0.08f, -0.06f)
 				: mat::scaling(0.85f, 0.85f, 0.85f) * mat::rotation_y(1.5708f) * mat::translation(0, 0.1f, -0.12f);
@@ -1121,7 +1080,6 @@ fn void Playing.draw_world(&self, float dt, float alpha, bool paused, bool hand_
 			foreach (mv : self.item_models.model(a.item))
 			{
 				WorldVertex w = { .pos = m.point(mv.pos), .normal = mv.normal, .uv = mv.uv, .color = { lit[0], lit[1], lit[2], 1 } };
-				w.set_dye(content::dye_of(a.item));
 				held_by_others.push(w);
 			}
 		}
@@ -1163,7 +1121,7 @@ fn void Playing.draw_world(&self, float dt, float alpha, bool paused, bool hand_
 		}
 		self.chunks.draw_creatures(puff_mesh.array_view(), vp, self.camera.position, &self.sky);
 		RayHit hit = self.player.target(&self.world);
-		if (hit.hit && game.aimed_creature() == 0)
+		if (hit.hit)
 		{
 			BoxList boxes;
 			defer boxes.free();

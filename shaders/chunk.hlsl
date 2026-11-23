@@ -6,20 +6,16 @@
 // leaves), less 0.25 on faces in a block's shadow.
 //
 // Everything that doesn't come from the sun (block light, the sky's light in
-// shade) is the "shade" light; faces turned towards the sun add the sun's
-// share on top, unless they're in a block's shadow (block shadows: the mesher
-// works out which faces the sun reaches) or under a cloud's. Cloud shadows
-// and the grass's green drifting across the land come from smooth noise
-// read from `noise_tex` (made once by the renderer: worked out per pixel it
-// was most of the GPU's frame).
+// shade) is the "shade" light; faces turned towards the sun (by night the
+// moon) get the full light instead, unless they're in a block's shadow (block
+// shadows: the mesher works out which faces the sun reaches).
 //
-// Fog: depth fog in the haze's colour:
-// pow(smoothstep(fog_start, fog_end, distance), 1.6), by 3D distance.
-//
-// Colours (color.hlsli): everything but the sun is worked out from the raw
-// texture (`atlas` is the atlas' plain view) and taken into linear light
-// (to_linear), the sun's share is added after, and the result is written
-// back (to_srgb).
+// A matte, old-school look: the texture's colour (sRGB numbers, as stored:
+// `atlas` is the atlas' plain view) times the face's shade, the corner
+// occlusion and the light, and nothing added: a face in full light is its
+// texture, never brighter or washed out. Fog: in the haze's colour (the
+// sky's horizon), pow(smoothstep(fog_start, fog_end, distance), 1.6), by 3D
+// distance.
 
 #include "color.hlsli"
 
@@ -36,10 +32,8 @@ cbuffer Frame : register(b0) {
 	float3 block_light_color;
 	float fog_end;
 	float time;            // seconds, for ripples
-	float2 cloud_offset;   // the sky's clouds' drift, in cloud cells
-	float frame_pad1;
-	float3 hand_light_origin; // the held-light cube's corner (world blocks)
-	float hand_light_count;   // torches held (0: hand_light isn't read)
+	float player_light;    // the player's own light: this level at the eyes, one less per block (hand.c3: PLAYER_LIGHT)
+	float2 frame_pad;
 };
 
 cbuffer Draw : register(b1) {
@@ -48,27 +42,16 @@ cbuffer Draw : register(b1) {
 };
 
 Texture2D albedo : register(t0);
-// Torches held in hand: a light level per block (r * 255 = 0..15), spread like
-// placed light (HandLights), in the cube of HAND_LIGHT_SIZE blocks from
-// hand_light_origin (texture x, y, z = world x, z, y). Each face takes the
-// level of the block in front of it, so held light falls in whole blocks too.
-Texture3D<float> hand_light : register(t1);
 SamplerState nearest_mip : register(s0);
-Texture2D<float> noise_tex : register(t2); // smooth noise, NOISE_CELLS lattice cells across, tiling
-SamplerState linear_wrap : register(s1);
-static const float NOISE_CELLS = 32.0;
-static const float CLOUD_SHADE = 0.85;
-static const float HAND_LIGHT_SIZE = 48.0; // HandLights::SIZE
 
-static const float4 FACE_LIGHT = float4(1.0, 0.78, 0.6, 0.45); // top, north/south, east/west, bottom
-static const float SHADE = 0.55; // in shade, sky light keeps 1 - SHADE * sun_amount
+static const float4 FACE_LIGHT = float4(1.0, 0.8, 0.6, 0.5); // top, north/south, east/west, bottom
+static const float SHADE = 0.3; // in shade, sky light keeps 1 - SHADE * sun_amount
 
 struct VSIn {
 	float3 pos : POSITION;
 	float3 normal : NORMAL;
 	float2 uv : TEXCOORD0;
 	float4 color : COLOR0;
-	float4 dye : COLOR1;   // a dyed block's colour (a = 1), else 0
 };
 
 struct PSIn {
@@ -77,7 +60,6 @@ struct PSIn {
 	float3 normal : TEXCOORD1;
 	float2 uv : TEXCOORD2;
 	float4 color : COLOR0;
-	nointerpolation float4 dye : COLOR1;
 };
 
 PSIn vs_main(VSIn i) {
@@ -87,7 +69,6 @@ PSIn vs_main(VSIn i) {
 	o.normal = i.normal;
 	o.uv = i.uv;
 	o.color = i.color;
-	o.dye = i.dye;
 	return o;
 }
 
@@ -96,44 +77,19 @@ float light_curve(float level01) {
 	return level01 <= 0.0 ? 0.0 : pow(0.8, 15.0 - level01 * 15.0);
 }
 
-// Smooth noise, 0..1, a lattice cell per unit of `p` (from the texture).
-float vnoise(float2 p) {
-	return noise_tex.SampleLevel(linear_wrap, p / NOISE_CELLS, 0);
-}
-
-// Cloud shadows: soft patches drifting with the sky's clouds.
-static const float CLOUD_CELL = 9.0; // metres per cloud cell on the ground
-
-// 0 clear .. 1 under a cloud, soft-edged.
-float cloud_cover(float2 xz) {
-	float2 c = xz / CLOUD_CELL + cloud_offset;
-	float n = vnoise(c * 0.085) * 0.7 + vnoise(c * 0.23 + 17.0) * 0.3;
-	return smoothstep(0.56, 0.64, n);
-}
-
-// The green of grass and leaves drifts slowly across the land.
-float3 green_variation(float2 xz) {
-	float v = vnoise(xz / 41.0) * 0.65 + vnoise(xz / 13.0 + 5.0) * 0.35;
-	return lerp(float3(0.8, 0.94, 0.78), float3(1.14, 1.08, 0.8), v);
-}
-
+// (`color` in sRGB numbers; the haze comes in linear, as the sky has it.)
 float3 apply_fog(float3 color, float3 world) {
 	float d = length(world - camera_pos);
-	return lerp(color, fog_color, pow(smoothstep(fog_start, fog_end, d), 1.6));
+	return lerp(color, to_srgb(fog_color), pow(smoothstep(fog_start, fog_end, d), 1.6));
 }
 
 // Sky and block light at a fragment: the light in shade and in full sun.
 void lights(PSIn i, out float3 shade, out float3 full) {
 	float3 sky = light_curve(i.color.r) * daylight * sky_tint;
-	float3 blk = block_light_color * light_curve(i.color.g);
-	if (hand_light_count > 0.5) {
-		float3 cell = floor(i.world + i.normal * 0.5) - hand_light_origin; // the block in front of the face
-		if (all(cell >= 0.0) && all(cell < HAND_LIGHT_SIZE)) {
-			float level = round(hand_light.Load(int4(int3(cell.xzy), 0)) * 255.0) / 15.0;
-			blk = max(blk, block_light_color * light_curve(level));
-		}
-	}
-	blk = max(blk, min_light);
+	// The player's light, at the block in front of the face (whole blocks, as placed light).
+	float3 away = abs(floor(i.world + i.normal * 0.5) - floor(camera_pos));
+	float own = max(player_light - (away.x + away.y + away.z), 0.0) / 15.0;
+	float3 blk = max(block_light_color * light_curve(max(i.color.g, own)), min_light);
 	full = max(sky, blk);
 	shade = max(sky * (1.0 - SHADE * sun_amount), blk);
 }
@@ -141,20 +97,15 @@ void lights(PSIn i, out float3 shade, out float3 full) {
 float4 shade_terrain(PSIn i, float4 tex) {
 	float3 n = i.normal;
 	float face = n.y > 0.5 ? FACE_LIGHT.x : (n.y < -0.5 ? FACE_LIGHT.w : (abs(n.z) > 0.5 ? FACE_LIGHT.y : FACE_LIGHT.z));
-	float3 base = apply_dye(tex.rgb, albedo.SampleLevel(nearest_mip, i.uv, TILE_AVERAGE_MIP).rgb, i.dye);
+	float3 base = tex.rgb;
 	float marks = round(i.color.a * 4.0); // 4, 3 (shadow), 2 (tinted), 1 (tinted, shadow)
 	float sunlit = 1.0 - fmod(marks, 2.0);
-	if (marks < 2.5 && i.dye.a < 0.5) { // grass, leaves: vary only the green pixels (not a grass side's dirt)
-		float green = smoothstep(0.02, 0.08, tex.g - max(tex.r, tex.b));
-		base *= lerp(float3(1.0, 1.0, 1.0), green_variation(i.world.xz), green);
-	}
 	base *= face * i.color.b;
 	float3 shade, full;
 	lights(i, shade, full);
 	float facing = smoothstep(0.0, 0.25, dot(n, sun_dir));
-	float3 sun = base * (full - shade) * sunlit * facing * (1.0 - CLOUD_SHADE * cloud_cover(i.world.xz));
-	float3 color = to_linear(base * shade) + sun;
-	return float4(to_srgb(apply_fog(color, i.world)), 1.0);
+	float3 light = lerp(shade, full, sunlit * facing);
+	return float4(apply_fog(base * light, i.world), 1.0);
 }
 
 float4 ps_opaque(PSIn i) : SV_Target {
@@ -163,7 +114,7 @@ float4 ps_opaque(PSIn i) : SV_Target {
 
 float4 ps_cutout(PSIn i) : SV_Target {
 	float4 tex = albedo.Sample(nearest_mip, i.uv);
-	clip(tex.a - 0.5); // see-through pixels: glass, torches, ladders, plants
+	clip(tex.a - 0.5); // see-through pixels: glass, ladders, plants
 	return shade_terrain(i, tex);
 }
 
@@ -193,7 +144,6 @@ float4 ps_fluid(PSIn i, bool front : SV_IsFrontFace) : SV_Target {
 	float sunlit = i.color.a > 0.875 ? 1.0 : 0.0; // 0.75: in a block's shadow
 	// (Unlike the terrain, every side of the surface takes the sun: the fluids'
 	// version's fluid light() has no facing term.)
-	float3 sun = color * (full - shade) * sunlit * (1.0 - CLOUD_SHADE * cloud_cover(i.world.xz));
-	color = to_linear(color * shade) + sun;
-	return float4(to_srgb(apply_fog(color, i.world)), alpha); // (blended over what's there, in sRGB numbers)
+	color *= lerp(shade, full, sunlit);
+	return float4(apply_fog(color, i.world), alpha); // (blended over what's there, in sRGB numbers)
 }

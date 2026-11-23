@@ -143,16 +143,17 @@ fn bool title_menu(Options* options, Window* window, Renderer* renderer, TitleMe
 {
 	long frame = 0;
 	bool chosen = false;
+	// (In C3 `break` and `continue` in a macro's body, @pool's here, act on
+	// this loop: `continue` ends the frame, `break` leaves the menu.)
 	while (window.pump())
 	{
-		bool done = false;
 		@pool()
 		{
 			if (window.take_resized()) renderer.resize(window.width, window.height);
 			if (window.minimized())
 			{
 				clock::sleep_ms(16);
-				break;
+				continue;
 			}
 			if (menu.refresh)
 			{
@@ -178,7 +179,7 @@ fn bool title_menu(Options* options, Window* window, Renderer* renderer, TitleMe
 				renderer.options.vsync = !options.no_vsync && settings.vsync;
 				renderer.set_render_scale(render_scale(options));
 				present_menu(renderer);
-				break;
+				continue;
 			}
 			Gui* gu = g();
 			Color warn = gui::rgba(255, 153, 102);
@@ -304,16 +305,10 @@ fn bool title_menu(Options* options, Window* window, Renderer* renderer, TitleMe
 				if (choice.join.len) settings.set_last_address(menu.join_address.str_view());
 				if (!options.hidden) settings.save(settings_file());
 				if (!choice.join.len && menu.open_to_others) choice.host_port = session::DEFAULT_PORT;
-				done = true;
 				break;
 			}
-			if (last_frame)
-			{
-				done = true;
-				break;
-			}
+			if (last_frame) break;
 		};
-		if (done) return chosen;
 	}
-	return false;
+	return chosen; // (false: the window closed, or the test's last frame)
 }

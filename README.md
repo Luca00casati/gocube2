@@ -2,19 +2,20 @@
 
 Voxel sandbox for Windows, in [C3](https://c3-lang.org) with Direct3D 11.
 
-Survival: mining by hand, drops, chests, health, the day and night, trees
-coming up on grass by themselves, flowing water and lava; creatures (rare,
-harmless Block Eaters by day that eat the ground; no enemies); sound;
+Everything in it is a block: there are no other items, no creatures and no
+enemies. Survival: mining by hand, drops, chests, health, the day and night,
+trees coming up on grass by themselves, flowing water and lava; sound;
 creative; multiplayer (one player hosts, others join); a title menu and pause
-menu. A sky with a sun, moon, stars and drifting clouds (and their shadows),
-fog, block shadows, light from torches (placed and held), dropped items and a
+menu. A sky with a sun, moon, stars and drifting clouds; moonlit nights (the
+moon lights the land and casts the block shadows); fog, block shadows,
+light from lamps and a little of the player's own, dropped blocks and a
 first-person arm in your skin.
 The terrain comes from 3D noise: hills, cliffs, overhangs, seas with sand and
-gravel beaches, caves, lava deep down, ore veins. Players wear skins in the
+gravel beaches, caves and lava deep down. Players wear skins in the
 usual box-figure layout (`%APPDATA%\GoCube\skin.png`, 64x64 or 64x32, a
 PNG with see-through parts), and everyone sees each player's. The game's
-content is data (`content/content.json`: blocks, items, ores, trees, the
-biome, sounds; with its textures and sounds); its rules are game code. Every
+content is data (`content/content.json`: blocks, trees,
+sounds; with its textures and sounds); its rules are game code. Every
 data file (`content.json`, a world's `world.json`, the settings) is JSON, read
 and written by our own code.
 
@@ -40,6 +41,7 @@ The project is `project.json`; in this folder:
 
     c3c build                    # build build\gocube.exe
     c3c test                     # build, then run the tests
+    c3c benchmark                # noise, terrain, light and shadow timings (src/bench)
     c3c run -- --world=Test      # build, then play (arguments after --)
 
 The shaders (`shaders\`, HLSL) are embedded in the game and compiled when it
@@ -75,27 +77,27 @@ survival or creative). Or straight into a world:
 | Ctrl | Sprint |
 | F | Fly |
 | Left button | Break the block aimed at (hold it in survival; doors and beds go whole) |
-| Right button | Place the held block; open a chest, use a door or bed, eat (sneak to place against them) |
+| Right button | Place the held block; open a chest, use a door or bed (sneak to place against them) |
 | 1-9, wheel | Choose a hotbar slot |
-| Middle button | Creative: take the block aimed at (dyed too) |
-| E | Inventory (creative: every block and item to take from) |
+| Middle button | Creative: take the block aimed at |
+| E | Inventory (creative: every block to take from) |
 | Q | Throw what you hold (Ctrl+Q: the whole stack) |
 | T, / | Chat (/ starts a command); Enter sends, Esc closes, up and down for what you sent, Tab completes a command |
 | Esc | Pause menu (settings; save and quit) |
 
-Survival without tools, weapons, armour or smelting, and only two recipes
-(planks from a log, a dye vat from planks): everything is
-mined by hand (hardness x 0.375 s) and drops itself
-(or what it gives: stone gives cobblestone, coal ore coal, gem ores their gems), chests, health
+Survival without tools, weapons, armour or smelting, and only one recipe
+(planks from a log): everything is mined by hand (hardness x 0.375 s) and
+drops itself (or what it gives: stone gives cobblestone), chests, health
 (falls, lava, drowning, falling out of the world; no bar: the screen reddens the lower it is,
 and healing with time fades it), death and respawn at your bed or the world spawn, a day that
 lasts a real day by default and a bed to sleep through the night, falling sand,
 trees sprouting on grass, decaying leaves. One kind of grass and of wood (oak), no
-saplings, no small plants (flowers, tall grass), no farming and no food. The world is saved every minute and
+saplings, no small plants (flowers, tall grass), no farming and no food: health
+comes back by itself. The world is saved every minute and
 when you quit.
 
 Creative uses the same inventory as survival (a new creative player starts
-with it empty): take blocks and items from the inventory screen's palette,
+with it empty): take blocks from the inventory screen's palette,
 pick up what lies around; placing never uses anything up, and nothing hurts.
 
 Settings (the title menu's Settings button, or the pause menu's): view distance,
@@ -108,7 +110,7 @@ play a world (others join it on port 24680: TCP, and UDP too if it gets through,
 for smoother movement), or type the host's address and
 "Join their world". The host's world is the world: it checks and does what
 joined players do, keeps their inventories and health (saved in its world, by
-name), and runs the creatures, items, chests and time; the night is
+name), and runs the dropped blocks, chests and time; the night is
 skipped once everyone is in bed. Everyone plays the same game, so any copy
 of the same version can join any host.
 
@@ -121,8 +123,7 @@ of the same version can join any host.
 | `--view=N` | View distance in blocks (default: the settings', 128) |
 | `--pos=X,Y,Z`, `--look=YAW,PITCH` | Start flying at this position (feet), and view direction in degrees |
 | `--time=0..1` | Start at this time of day (0.5: noon) |
-| `--drop=ID,...` | Drop these items in front of the player (trying things out) |
-| `--spawn=KIND[=BLOCK],...` | Put creatures in front of the player (`block_eater=core:stone`) |
+| `--drop=ID,...` | Drop these blocks in front of the player (trying things out) |
 | `--mannequin` | Your own figure, in your skin, in front of you (what others see) |
 | `--details` | Start with the details screen (F3) open: frame times by part (the profiler) |
 | `--profile` | When the world ends, log the frame times by part, the GPU's and the world threads' (with `--frames`, `--no-vsync`: measure what's slow) |
@@ -141,19 +142,6 @@ of the same version can join any host.
 | `--no-vsync` | Present as fast as possible |
 | `--debug`, `--no-debug` | The Direct3D 11 debug layer on or off (default: off; needs Windows' Graphics Tools) |
 
-## Dyeing
-Any block can be any colour. Five gem ores (red, green and blue the commonest,
-white deeper, black deepest and rarest) drop gems; throw gems (Q) into a dye
-vat to make its dye, then throw blocks in: they come back that colour, one
-charge each (a gem gives 8; a vat holds 16 gems). Red, green and blue choose
-the hue, mixed like light (red and green make yellow, 2 red and 1 green
-orange); white and black make it lighter or darker by their share (red and
-white make pink, blue and black navy; white and black alone, greys). A right
-click on the vat with an empty hand tips the dye out. A dyed block keeps its
-texture in the dye's colour, and stays dyed when it's broken and placed again.
-As an item its id has the colour after it: `core:stone#ff8800` (also in
-commands: `/give @s stone#ff8800 64`, `/setblock ~ ~ ~ planks#3366cc`).
-
 ## Chat and commands
 T opens the chat; a line starting with `/` is a command. Whoever plays the
 world runs them (the host runs a joined player's as that player). Operators
@@ -168,13 +156,12 @@ gives others the right with `/op NAME` (kept with the world). Everyone can use
 | `/list`, `/seed` | Who is playing; the world's seed |
 | `/say <text>` | A message to everyone |
 | `/tp <x y z>`, `/tp <player> [<x y z> or <player>]` | Move (`~` is where you are: `/tp ~ ~10 ~`) |
-| `/give <player> <item> [count]` | Items into a player's inventory (`torch` means `core:torch`; `@s` is you; `stone#ff8800` a dyed block) |
+| `/give <player> <block> [count]` | Blocks into a player's inventory (`planks` means `core:planks`; `@s` is you) |
 | `/time [set day\|noon\|night\|midnight\|0..1]` | The time of day |
 | `/gamemode [survival\|creative]` | The world's game mode, for everyone (inventories stay as they are) |
 | `/kill [player]` | Ends a survival player's life |
 | `/spawnpoint` | The world's spawn where you stand |
 | `/setblock <x y z> <block>`, `/fill <x1 y1 z1> <x2 y2 z2> <block>` | Change blocks (a fill: 32768 at most) |
-| `/summon <creature> [x y z]` | A creature |
 | `/kick <player> [reason]`, `/op <player>`, `/deop <player>` | Players |
 
 ## Layout
@@ -183,23 +170,22 @@ same way):
 - `voxel/`: chunks, noise, world generation, light, meshing, chunk files.
 - `content/`: `content.json`, block ids and variants, the texture atlas (most
   block faces are painted from a colour and noise; the few drawn images are
-  PNG files, read by our own decoder), item models, skins and the generator's
-  tables.
+  PNG files, read by our own decoder), blocks' models as held and dropped,
+  skins and the generator's tables.
 - `world/`: chunk streaming on worker threads, editing, the raycast,
   collision; the world folder (`world.json`, `chunks\`).
 - `game/`: the player (movement, breaking, placing), the block rules (shaped
   blocks' variants, doors, beds, support), survival (inventory, health,
-  drops), chests and dye vats, creatures and their models, the day, commands,
-  the first-person hand, and the base game's rules (`rules.c3`: mining time,
-  drops, fall damage, food, the two recipes; `core.c3`: plants, fluids, Block
-  Eaters).
+  drops), chests, players' figures, the day, commands, the first-person
+  hand, and the base game's rules (`rules.c3`: mining time, drops, fall
+  damage, the recipe; `core.c3`: plants, fluids).
 - `data/`: the game's data value and JSON (our own).
 - `net/`: multiplayer: the session (the host's checks, what travels between
   host and clients), the message format, and the transport (TCP, and UDP for
   positions, on the same port; Winsock only).
 - `render/`, with `shaders\` (HLSL): Direct3D 11, called through vtables
-  generated from the Windows SDK's headers; the terrain, sky, item and
-  creature drawing.
+  generated from the Windows SDK's headers; the terrain, sky, dropped
+  blocks and players' figures.
 - `ui/`: the UI, our own: an immediate-mode core (`gui.c3`: windows, layout,
   buttons, text fields, sliders, drop-downs, scrolling; tested with a fake
   font) drawn with Direct3D 11 (`gui_d3d.c3`, `shaders\gui.hlsl`) in Segoe UI,

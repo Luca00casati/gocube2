@@ -63,7 +63,6 @@ fn void block_table_hash() @test
 				f.put(&x.ty, 4);
 				f.put(&x.tx, 4);
 				f.put(&x.tz, 4);
-				f.put_int(x.undyed ? 1 : 0);
 			}
 		}
 	}
@@ -80,7 +79,7 @@ fn void block_table_hash() @test
 	f.put_int(table.atlas.width);
 	f.put_int(table.atlas.height);
 	f.put(table.atlas.rgba.ptr, table.atlas.rgba.len);
-	assert(f.h == 0x4113b182d19ae952, "the block table's hash is %x", f.h);
+	assert(f.h == 0x4a35cd13bdd1929f, "the block table's hash is %x", f.h);
 }
 
 fn void png_read_with_alpha() @test
@@ -107,11 +106,10 @@ fn void png_read_with_alpha() @test
 	assert(back.rgba == im.rgba);
 }
 
-// --- Seed 777: the same terrain as ever (worlds made before crystal_ore and the
-// furnace were removed number their blocks with their own table; this is a
-// new world's numbering) ------------------------------------
+// --- Seed 777: the same terrain as ever, but stone where ore veins were
+// (worlds made before keep their own block table) ----------------------------
 
-const String WORLD_FINGERPRINT = "9634e6883fee0112";
+const String WORLD_FINGERPRINT = "ffbc1e4f68fc0d1d";
 const int CHUNK_Y_MIN = -3;
 const int CHUNK_Y_MAX = 3;
 

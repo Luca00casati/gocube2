@@ -3,21 +3,39 @@
 module gocube::voxel;
 import std::math;
 
-// Integer hash of a lattice point; well mixed, cheap.
-fn uint hash_point(int x, int y, int z, uint seed)
+// Integer hash of a lattice point; well mixed, cheap. In steps (x, then y,
+// then z and the mixing), so a cell's corners can share the first ones.
+fn uint hash_point(int x, int y, int z, uint seed) @inline => hash_z(hash_y(hash_x(x, seed), y), z);
+
+fn uint hash_x(int x, uint seed) @inline
 {
-	uint h = seed * 0x9E3779B1;
-	h ^= (uint)x * 0x85EBCA77;
-	h = (h << 13) | (h >> 19);
-	h ^= (uint)y * 0xC2B2AE3D;
-	h = (h << 17) | (h >> 15);
-	h ^= (uint)z * 0x27D4EB2F;
+	uint h = seed * 0x9E3779B1 ^ (uint)x * 0x85EBCA77;
+	return (h << 13) | (h >> 19);
+}
+
+fn uint hash_y(uint hx, int y) @inline
+{
+	uint h = hx ^ (uint)y * 0xC2B2AE3D;
+	return (h << 17) | (h >> 15);
+}
+
+fn uint hash_z(uint hxy, int z) @inline
+{
+	uint h = hxy ^ (uint)z * 0x27D4EB2F;
 	h ^= h >> 16;
 	h *= 0x7FEB352D;
 	h ^= h >> 15;
 	h *= 0x846CA68B;
 	h ^= h >> 16;
 	return h;
+}
+
+// math::floor for the noise's coordinates (well inside int's range): the same
+// result, without the call.
+fn float floorf(float v) @inline
+{
+	float t = (float)(int)v;
+	return t > v ? t - 1.0f : t;
 }
 
 fn float smooth5(float t) @inline => t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
@@ -64,16 +82,18 @@ fn float grad3(uint h, float x, float y, float z)
 // Roughly in [-1, 1].
 fn float noise2(float x, float y, uint seed)
 {
-	float fx = math::floor(x);
-	float fy = math::floor(y);
+	float fx = floorf(x);
+	float fy = floorf(y);
 	int ix = (int)fx;
 	int iy = (int)fy;
 	float dx = x - fx;
 	float dy = y - fy;
-	float n00 = grad2(hash_point(ix, iy, 0, seed), dx, dy);
-	float n10 = grad2(hash_point(ix + 1, iy, 0, seed), dx - 1.0f, dy);
-	float n01 = grad2(hash_point(ix, iy + 1, 0, seed), dx, dy - 1.0f);
-	float n11 = grad2(hash_point(ix + 1, iy + 1, 0, seed), dx - 1.0f, dy - 1.0f);
+	uint h0 = hash_x(ix, seed);
+	uint h1 = hash_x(ix + 1, seed);
+	float n00 = grad2(hash_z(hash_y(h0, iy), 0), dx, dy);
+	float n10 = grad2(hash_z(hash_y(h1, iy), 0), dx - 1.0f, dy);
+	float n01 = grad2(hash_z(hash_y(h0, iy + 1), 0), dx, dy - 1.0f);
+	float n11 = grad2(hash_z(hash_y(h1, iy + 1), 0), dx - 1.0f, dy - 1.0f);
 	float u = smooth5(dx);
 	float v = smooth5(dy);
 	return mixf(mixf(n00, n10, u), mixf(n01, n11, u), v) * 1.4f;
@@ -82,22 +102,25 @@ fn float noise2(float x, float y, uint seed)
 // Roughly in [-1, 1].
 fn float noise3(float x, float y, float z, uint seed)
 {
-	float fx = math::floor(x);
-	float fy = math::floor(y);
-	float fz = math::floor(z);
+	float fx = floorf(x);
+	float fy = floorf(y);
+	float fz = floorf(z);
 	int ix = (int)fx;
 	int iy = (int)fy;
 	int iz = (int)fz;
 	float dx = x - fx;
 	float dy = y - fy;
 	float dz = z - fz;
+	uint hx0 = hash_x(ix, seed);
+	uint hx1 = hash_x(ix + 1, seed);
+	uint[4] hxy = { hash_y(hx0, iy), hash_y(hx1, iy), hash_y(hx0, iy + 1), hash_y(hx1, iy + 1) };
 	float[8] c;
 	for (int i = 0; i < 8; i++)
 	{
 		int ox = i & 1;
 		int oy = (i >> 1) & 1;
 		int oz = (i >> 2) & 1;
-		c[i] = grad3(hash_point(ix + ox, iy + oy, iz + oz, seed), dx - (float)ox, dy - (float)oy, dz - (float)oz);
+		c[i] = grad3(hash_z(hxy[i & 3], iz + oz), dx - (float)ox, dy - (float)oy, dz - (float)oz);
 	}
 	float u = smooth5(dx);
 	float v = smooth5(dy);
@@ -129,9 +152,9 @@ const float[3][12] GRAD3 @private = {
 
 fn float noise3_cached(float x, float y, float z, uint seed, Noise3Cell* cell)
 {
-	float fx = math::floor(x);
-	float fy = math::floor(y);
-	float fz = math::floor(z);
+	float fx = floorf(x);
+	float fy = floorf(y);
+	float fz = floorf(z);
 	int ix = (int)fx;
 	int iy = (int)fy;
 	int iz = (int)fz;

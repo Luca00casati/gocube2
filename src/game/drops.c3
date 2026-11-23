@@ -180,7 +180,6 @@ fn void ItemDrops.build_mesh(&self, ItemModels* models, LightFn light, void* lig
 		float c = math::cos(spin);
 		float s = math::sin(spin);
 		float[3] origin = { d.pos[0], d.pos[1] + BOX + 0.06f + 0.06f * math::sin(d.age * 2.5f), d.pos[2] };
-		Dye dye = content::dye_of(d.item);
 		foreach (&mv : models.model(d.item))
 		{
 			WorldVertex w;
@@ -188,7 +187,6 @@ fn void ItemDrops.build_mesh(&self, ItemModels* models, LightFn light, void* lig
 			w.normal = mv.normal; // (shaded by the model's own normal)
 			w.uv = mv.uv;
 			w.color = { lit[0], lit[1], lit[2], 1 };
-			w.set_dye(dye);
 			out.push(w);
 		}
 	}

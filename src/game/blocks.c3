@@ -1,5 +1,5 @@
 // Block rules for playing: which blocks can be placed, which variant a
-// placement makes (slabs, stairs, torches, ladders, doors, beds), the other
+// placement makes (slabs, stairs, ladders, doors, beds), the other
 // half of a door or bed, opening doors, and what needs support.
 module gocube::game::blocks;
 import gocube::content, gocube::data, gocube::world, gocube::util::vec, std::math;
@@ -68,10 +68,10 @@ fn String BlockRules.id_of(&self, int block)
 
 fn int BlockRules.index_of(&self, String id) => self.content.block_index(id);
 
-// A block's definition (a dyed block's: its block's); an empty one if unknown.
+// A block's definition; an empty one if unknown.
 fn Data* BlockRules.def(&self, String id)
 {
-	Data* d = self.content.blocks.get(content::undyed(id));
+	Data* d = self.content.blocks.get(id);
 	return d ? d : &EMPTY_DEF;
 }
 
@@ -80,9 +80,8 @@ fn Data* BlockRules.def_of(&self, int block) => self.def(self.id_of(block));
 // Blocks a player can place (not air, fluids, variants or hidden ones), by id.
 fn String[] BlockRules.placeable(&self) => self.placeable_.array_view();
 
-fn bool BlockRules.is_placeable(&self, String dyed_id)
+fn bool BlockRules.is_placeable(&self, String id)
 {
-	String id = content::undyed(dyed_id); // (dyed blocks too)
 	Data* d = self.content.blocks.get(id);
 	return d && !d.has("fluid") && id != "core:air" && !d.has("variant_of") && !d.flag("hidden");
 }
@@ -125,15 +124,6 @@ fn void BlockRules.placement(&self, String base, RayHit* hit, float[3] look, flo
 			out.push({ pos, top ? string::tformat("%s_top", base) : base });
 		case "stairs":
 			out.push({ pos, variant(base, look_facing(look)) });
-		case "torch":
-			if (n.y == 1)
-			{
-				out.push({ pos, base });
-			}
-			else if (n.y != -1)
-			{
-				out.push({ pos, string::tformat("%s_wall_%s", base, wall_facing(n)) });
-			}
 		case "ladder":
 			if (n.y == 0) out.push({ pos, variant(base, wall_facing(n)) });
 		case "door":
@@ -201,7 +191,7 @@ fn bool BlockRules.solid_support(&self, World* world, BlockPos pos)
 		(shape == "cube" || shape == "slab" || shape == "stairs");
 }
 
-// Whether `id` can stand at `pos`: plants on the right block, torches and
+// Whether `id` can stand at `pos`: plants on the right block,
 // ladders on something solid, doors on the floor.
 fn bool BlockRules.supported(&self, World* world, String id, BlockPos pos)
 {

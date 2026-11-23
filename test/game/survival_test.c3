@@ -19,9 +19,6 @@ fn void inventory_stacks() @test
 	assert(inv.add("core:dirt", 100) == 0); // 64 + 36
 	assert(same(inv.slots[0], "core:dirt", 64));
 	assert(same(inv.slots[1], "core:dirt", 36));
-	assert(inv.add("core:snowball", 20) == 0); // max_stack 16: two slots
-	assert(same(inv.slots[2], "core:snowball", 16));
-	assert(same(inv.slots[3], "core:snowball", 4));
 	assert(inv.count_of("core:dirt") == 100);
 	assert(!inv.remove("core:dirt", 101));
 	assert(inv.remove("core:dirt", 40)); // from the back first
@@ -44,10 +41,10 @@ fn void inventory_save_format() @test
 	assert(content.load(play::CONTENT_DIR, &why));
 	Data saved = data::array();
 	defer saved.free();
-	Data torch = data::array();
-	torch.push_string("core:torch");
-	torch.push_long(5);
-	saved.push(torch);
+	Data planks = data::array();
+	planks.push_string("core:planks");
+	planks.push_long(5);
+	saved.push(planks);
 	saved.push(data::boolean(false));
 	Data gone = data::array();
 	gone.push_string("gone:item"); // no longer in the game: dropped
@@ -56,14 +53,13 @@ fn void inventory_save_format() @test
 	for (int i = 3; i < 36; i++) saved.push(data::boolean(false));
 	Inventory inv = inventory::new(&content);
 	inv.deserialize(&saved);
-	assert(same(inv.slots[0], "core:torch", 5));
+	assert(same(inv.slots[0], "core:planks", 5));
 	assert(inv.slots[2].is_empty());
 	Data again = inv.serialize();
 	defer again.free();
-	assert(again.len() == 37);
-	assert(again.at(0).at(0).as_string() == "core:torch" && again.at(0).at(1).as_long() == 5);
+	assert(again.len() == 36);
+	assert(again.at(0).at(0).as_string() == "core:planks" && again.at(0).at(1).as_long() == 5);
 	assert(again.at(2).is_boolean() && !again.at(2).b);
-	assert(again.at(36).get("armor").len() == 4);
 }
 
 fn void rules_mining_and_drops() @test
@@ -72,17 +68,16 @@ fn void rules_mining_and_drops() @test
 	defer p.free();
 	assert(math::abs(p.game.mine_seconds_of("core:stone") - 1.5f * 0.375f) < 1e-5); // hardness x 0.375 s
 	assert(math::abs(p.game.mine_seconds_of("core:dirt") - 0.5f * 0.375f) < 1e-5);
-	assert(math::abs(p.game.mine_seconds_of("core:torch") - 0.1f) < 1e-5); // the least
-	Rng r = rand::seeded(1);
+	assert(math::abs(p.game.mine_seconds_of("core:snow") - 0.1f) < 1e-5); // the least
 	String[2][*] cases = {
-		{ "core:stone", "core:cobblestone" }, { "core:iron_ore", "core:iron_ore" }, { "core:coal_ore", "core:coal" },
+		{ "core:stone", "core:cobblestone" },
 		{ "core:sandstone", "core:sandstone" }, { "core:grass", "core:dirt" }, { "core:log", "core:log" },
 		{ "core:wood_door_n_upper", "core:wood_door" }, { "core:leaves", "core:leaves" }, { "core:glass", "" } };
 	foreach (c : cases)
 	{
 		Vec{String} out;
 		defer out.free();
-		rules::drops(p.content.blocks.get(c[0]), c[0], &r, &out);
+		rules::drops(p.content.blocks.get(c[0]), c[0], &out);
 		if (c[1].len)
 		{
 			assert(out.len() == 1 && out[0] == c[1], "%s drops %s", c[0], out.len() ? out[0] : "nothing");
@@ -98,7 +93,7 @@ fn void breaking_drops_items_picked_up() @test
 {
 	Play* p = play::new();
 	defer p.free();
-	assert(same(p.game.inventory.slots[0], "core:torch", 1));
+	assert(p.game.inventory.slots[0].is_empty()); // (a new player starts with nothing)
 	// A dirt block next to the player, broken by hand.
 	BlockPos at = { 2, 60, 0 };
 	p.set(2, 60, 0, "core:dirt");
@@ -148,27 +143,26 @@ fn void inventory_saved_in_world() @test
 {
 	Play* p = play::new();
 	defer p.free();
-	p.game.inventory.slots[4] = inventory::stack("core:coal", 7);
+	p.game.inventory.slots[4] = inventory::stack("core:cobblestone", 7);
 	p.game.update(0.016f, { .captured = true, .number_key = 5 });
 	Data saved = p.game.save_player();
 	defer saved.free();
 	assert(saved.get("selected").as_long() == 4);
-	assert(saved.get("inventory").at(4).at(0).as_string() == "core:coal");
+	assert(saved.get("inventory").at(4).at(0).as_string() == "core:cobblestone");
 	Play* q = play::new();
 	defer q.free();
 	q.game.load_player(&saved);
 	assert(q.game.selected == 4);
-	assert(same(q.game.inventory.slots[4], "core:coal", 7));
-	assert(same(q.game.inventory.slots[0], "core:torch", 1));
+	assert(same(q.game.inventory.slots[4], "core:cobblestone", 7));
+	assert(q.game.inventory.slots[0].is_empty());
 }
 
-fn void crafting_planks_and_dye_vat() @test
+fn void crafting_planks() @test
 {
 	Play* p = play::new();
 	defer p.free();
-	assert(p.game.hand_recipes().len == 2);
+	assert(p.game.hand_recipes().len == 1);
 	assert(p.game.hand_recipes()[0].output == "core:planks");
-	assert(p.game.hand_recipes()[1].output == "core:dye_vat");
 	Inventory* inv = &p.game.inventory;
 	Recipe* planks = &p.game.hand_recipes()[0];
 	assert(!p.game.craft(inv, planks)); // no logs yet
@@ -176,8 +170,6 @@ fn void crafting_planks_and_dye_vat() @test
 	assert(p.game.craft(inv, planks));
 	assert(p.game.craft(inv, planks));
 	assert(inv.count_of("core:planks") == 8);
-	assert(p.game.craft(inv, &p.game.hand_recipes()[1]));
-	assert(inv.count_of("core:dye_vat") == 1 && inv.count_of("core:planks") == 2);
 	// A plain block holds nothing; a chest holds things.
 	BlockPos at = { 3, 60, 3 };
 	p.set(3, 60, 3, "core:stone");
@@ -196,9 +188,9 @@ fn void chest_holds_saves_spills() @test
 	assert(be.at(at));
 	assert(be.at(at).type == "chest");
 	assert(be.at(at).slots.len() == 27);
-	assert(be.click(at, 0, inventory::stack("core:coal", 5)).is_empty()); // put in
-	assert(be.click(at, 0, inventory::stack("core:coal", 3)).is_empty()); // stacked
-	assert(same(be.at(at).slots[0], "core:coal", 8));
+	assert(be.click(at, 0, inventory::stack("core:cobblestone", 5)).is_empty()); // put in
+	assert(be.click(at, 0, inventory::stack("core:cobblestone", 3)).is_empty()); // stacked
+	assert(same(be.at(at).slots[0], "core:cobblestone", 8));
 	assert(be.click(at, 4, inventory::stack("core:dirt", 2)).is_empty());
 	Data saved = be.serialize();
 	defer saved.free();
@@ -211,16 +203,16 @@ fn void chest_holds_saves_spills() @test
 	assert(copy.at(at) && same(copy.at(at).slots[4], "core:dirt", 2));
 	p.game.break_block(at);
 	assert(!be.at(at));
-	int coal;
+	int cobble;
 	int dirt;
 	int chests;
 	foreach (d : p.game.drops.drops)
 	{
-		coal += d.item == "core:coal" ? d.count : 0;
+		cobble += d.item == "core:cobblestone" ? d.count : 0;
 		dirt += d.item == "core:dirt" ? d.count : 0;
 		chests += d.item == "core:chest" ? d.count : 0;
 	}
-	assert(coal == 8 && dirt == 2 && chests == 1, "%d %d %d", coal, dirt, chests);
+	assert(cobble == 8 && dirt == 2 && chests == 1, "%d %d %d", cobble, dirt, chests);
 }
 
 fn void container_opens_sneak_places() @test
@@ -286,7 +278,7 @@ fn void dying_and_respawning() @test
 	Play* p = play::new();
 	defer p.free();
 	p.pool("core:air");
-	p.game.inventory.slots[3] = inventory::stack("core:coal", 9);
+	p.game.inventory.slots[3] = inventory::stack("core:cobblestone", 9);
 	p.game.world_spawn = { 1.5f, 40.0f, 1.5f };
 	p.game.has_world_spawn = true;
 	// A bed on the pool's floor, set as the respawn point by right-clicking it.
@@ -303,7 +295,7 @@ fn void dying_and_respawning() @test
 	assert(!p.game.dead);
 	assert(p.game.health == game::MAX_HEALTH);
 	assert(math::abs(p.player.position[2] + 0.5f) < 1e-4); // on the bed's head
-	assert(same(p.game.inventory.slots[3], "core:coal", 9));
+	assert(same(p.game.inventory.slots[3], "core:cobblestone", 9));
 	// The bed gone: back to the world spawn.
 	p.set(1, 40, -1, "core:air");
 	p.game.damage(100);
@@ -325,6 +317,6 @@ fn void new_player_on_dry_ground() @test
 	int x = (int)math::floor(p.player.position[0]);
 	int y = (int)math::floor(p.player.position[1]);
 	int z = (int)math::floor(p.player.position[2]);
-	assert(p.block(x, y - 1, z) == "core:grass", "%s", p.block(x, y - 1, z)); // (the vanilla biome's surface)
+	assert(p.block(x, y - 1, z) == "core:grass", "%s", p.block(x, y - 1, z)); // (on grass)
 	assert(p.block(x, y, z) != "core:water");
 }

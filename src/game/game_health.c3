@@ -1,7 +1,7 @@
 // Game: health, damage, death and respawn, spawning on dry ground.
 module gocube::game;
 import gocube::game::blocks, gocube::game::player, gocube::game::inventory, gocube::game::drops, gocube::game::block_entities;
-import gocube::game::creatures, gocube::game::rules, gocube::game::vitals, gocube::game::dye;
+import gocube::game::rules, gocube::game::vitals;
 import gocube::content, gocube::data, gocube::world, gocube::voxel, gocube::maths;
 import gocube::util::vec, gocube::util::map, gocube::util::rand, gocube::util::intern;
 import std::math, std::sort;
@@ -12,11 +12,6 @@ const int TOP_Y @private = 127; // the highest block y
 fn void Game.damage(&self, int amount, String source = "")
 {
 	if (self.creative || self.dead || amount <= 0) return;
-	if (source == "mob") // armour takes off 4% a point, up to 60%
-	{
-		float kept = 1.0f - math::min(0.6f, (float)self.inventory.armor_points() * 0.04f);
-		amount = math::max(1, (int)math::round((float)amount * kept));
-	}
 	self.health = math::max(0, self.health - amount);
 	self.since_damage = 0;
 	self.regen_timer = 0;
@@ -182,7 +177,7 @@ fn void Game.respawn(&self)
 }
 
 // The nearest column (searching outward, every second one, up to
-// SPAWN_SEARCH blocks) whose top is a biome's surface (grass, sand, snow)
+// SPAWN_SEARCH blocks) whose top is grass
 // and not under water; else the nearest dry one. False while the ground
 // isn't loaded yet.
 fn bool Game.try_place_on_ground(&self)
@@ -190,9 +185,7 @@ fn bool Game.try_place_on_ground(&self)
 	int ox = maths::floor_i(self.player.position[0]);
 	int oz = maths::floor_i(self.player.position[2]);
 	if (!self.world.is_loaded(ox, 0, oz)) return false;
-	Vec{int} surfaces;
-	defer surfaces.free();
-	foreach (&b : self.content.biomes.entries) surfaces.push(self.content.block_index(b.def.str("surface")));
+	int grass = self.content.block_index("core:grass");
 	bool has_fallback = false;
 	float[3] fallback;
 	for (int radius = 0; radius <= SPAWN_SEARCH; radius += 2)
@@ -212,9 +205,7 @@ fn bool Game.try_place_on_ground(&self)
 				RayHit hit = self.world.raycast({ x + 0.5f, (float)TOP_Y, z + 0.5f }, { 0, -1, 0 }, 400);
 				if (!hit.hit || self.rules.is_fluid(self.world.block_at(hit.previous.x, hit.previous.y, hit.previous.z))) continue;
 				float[3] feet = { x + 0.5f, (float)(hit.position.y + 1), z + 0.5f };
-				bool surface = false;
-				foreach (s : surfaces) surface = surface || s == (int)hit.block;
-				if (surface)
+				if ((int)hit.block == grass)
 				{
 					self.player.position = feet;
 					return true;

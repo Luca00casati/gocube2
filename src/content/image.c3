@@ -830,6 +830,8 @@ fn void Painter.spots(&self, Data* t, uint salt)
 	}
 }
 
+const float GRIT @private = 1.5f;
+
 // A face painted from `spec`, `size` x `size` texels (a power of two, 8 or
 // more): a grid of "pixels" (default 16 across) of the colour "color", each one
 // lighter or darker ("noise": how much, in "shades" steps; "blotch": how much
@@ -839,7 +841,7 @@ fn void Painter.spots(&self, Data* t, uint salt)
 // "stripes" ("color", "every", "width", "offset", "across" for rows,
 // "wobble", "broken", "seams" colour between boards), "rings" (a log's end:
 // "color", "every", "border" colour, "border_width"), "band" (a grassy top:
-// "color", "depth", "ragged") and "spots" (ore: "color", "light", "dark",
+// "color", "depth", "ragged") and "spots" (specks: "color", "light", "dark",
 // "count", "size", "shape" = "dash" for short lines). The same spec always
 // paints the same pixels, and the face tiles without seams. Unreadable
 // values fall back to defaults; a bad colour is magenta.
@@ -855,7 +857,10 @@ fn Image paint_face(Data* spec, int size) => @pool()
 	int p2 = 1;
 	while (p2 * 2 <= n) p2 *= 2;
 	n = p2;
-	Painter p = { .n = n, .seed = seed, .noise = (float)number(obj, "noise", 0.1, 0, 1), .blotch = (float)number(obj, "blotch", 0.3, 0, 1),
+	// (GRIT: the old-school look, rougher than the spec says: more contrast
+	// pixel to pixel, less of it in soft patches.)
+	Painter p = { .n = n, .seed = seed, .noise = math::min((float)number(obj, "noise", 0.1, 0, 1) * GRIT, 0.6f),
+		.blotch = (float)number(obj, "blotch", 0.3, 0, 1) * 0.5f,
 		.shades = (int)number(obj, "shades", 4, 1, 16), .blotch_size = (int)number(obj, "blotch_size", 4, 1, n) };
 	Rgb base = color_of(obj ? obj.get("color") : null);
 	Vec{Rgb} ramp;

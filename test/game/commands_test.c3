@@ -36,8 +36,7 @@ fn void Fake.free(&self)
 
 fn void Fake.players(&self, Vec{CommandPlayer}* out) @dynamic => out.push_all(self.people.array_view());
 fn bool Fake.is_block(&self, String id) @dynamic => id == "core:stone" || id == "core:air";
-fn bool Fake.is_item(&self, String id) @dynamic => id == "core:torch";
-fn bool Fake.is_creature(&self, String id) @dynamic => id == "core:block_eater";
+fn bool Fake.is_item(&self, String id) @dynamic => id == "core:planks";
 fn bool Fake.teleport(&self, int peer, float[3] feet) @dynamic
 {
 	self.moved.push({ peer, feet });
@@ -59,7 +58,6 @@ fn bool Fake.set_block(&self, BlockPos p, String id) @dynamic
 	self.blocks[world::key(p.x, p.y, p.z)] = intern::intern(id);
 	return true;
 }
-fn bool Fake.summon(&self, String kind, float[3] at) @dynamic => true;
 fn bool Fake.kick(&self, int peer, String why) @dynamic => peer != 0;
 fn void Fake.set_op(&self, String name, bool on) @dynamic => self.ops_changed.push(intern::intern(string::tformat("%s%s", name, on ? "+" : "-")));
 fn void Fake.tell(&self, int peer, String line) @dynamic => self.told.push(intern::intern(string::tformat("%d: %s", peer, line)));
@@ -89,8 +87,8 @@ fn sz answers(Commands* c, CommandPlayer who, String line)
 
 fn void words_quotes() @test => @pool()
 {
-	String[] w = commands::split("give  Ann \"core:torch\" 5");
-	assert(w.len == 4 && w[0] == "give" && w[1] == "Ann" && w[2] == "core:torch" && w[3] == "5");
+	String[] w = commands::split("give  Ann \"core:planks\" 5");
+	assert(w.len == 4 && w[0] == "give" && w[1] == "Ann" && w[2] == "core:planks" && w[3] == "5");
 	w = commands::split("msg Ann \"hello there\"");
 	assert(w.len == 3 && w[2] == "hello there");
 	assert(commands::split("   ").len == 0);
@@ -105,14 +103,14 @@ fn void operators_change_others_talk() @test
 	f.people.push(me);
 	f.people.push(ann);
 	Commands c = { &f };
-	assert(says(&c, ann, "/give Ann core:torch 3", "Only operators"));
+	assert(says(&c, ann, "/give Ann core:planks 3", "Only operators"));
 	assert(f.given.is_empty());
-	assert(says(&c, me, "/give Ann torch 3", "Gave 3 core:torch to Ann")); // ("torch": core's)
-	assert(f.given[0] == "2 core:torch 3");
-	assert(says(&c, me, "give ann core:torch", "Gave 1")); // (no "/", names in any case, count 1)
-	assert(says(&c, me, "/give Ann core:nothing", "No item core:nothing"));
-	assert(says(&c, me, "/give Bob core:torch", "No player called Bob"));
-	assert(says(&c, me, "/give Ann core:torch many", "Usage"));
+	assert(says(&c, me, "/give Ann planks 3", "Gave 3 core:planks to Ann")); // ("planks": core's)
+	assert(f.given[0] == "2 core:planks 3");
+	assert(says(&c, me, "give ann core:planks", "Gave 1")); // (no "/", names in any case, count 1)
+	assert(says(&c, me, "/give Ann core:nothing", "No block core:nothing"));
+	assert(says(&c, me, "/give Bob core:planks", "No player called Bob"));
+	assert(says(&c, me, "/give Ann core:planks many", "Usage"));
 	// /help: what each may run.
 	assert(says(&c, me, "/help", "/give"));
 	assert(!says(&c, ann, "/help", "/give"));
@@ -179,7 +177,6 @@ fn void places_blocks_limits() @test
 	assert(says(&c, me, "/time", "0.500"));
 	assert(answers(&c, me, "/say hello") == 0);
 	assert(f.said.len() == 1 && f.said[0] == "[Host] hello");
-	assert(says(&c, me, "/summon dragon", "No creature core:dragon"));
 	assert(says(&c, ann, "/gamemode creative", "Only operators"));
 	assert(says(&c, me, "/gamemode", "in survival"));
 	answers(&c, me, "/gamemode c");

@@ -1,5 +1,5 @@
-// The game's content: blocks, items, recipes, ores, trees, biomes, sound sets
-// and creatures, read from the game's content.json (definitions as data); numeric
+// The game's content: blocks, trees and sound sets, read from
+// the game's content.json (definitions as data); numeric
 // block ids; the engine's block table and texture atlas; the world
 // generator's tables.
 module gocube::content;
@@ -98,25 +98,20 @@ fn void Table.free(&self)
 
 struct Content
 {
-	Table blocks, items, recipes, ores, trees, biomes, sound_sets, creatures;
+	Table blocks, trees, sound_sets;
 	String dir; // the folder content.json is in: images and sounds are relative to it
 	Vec{String} block_ids_;
 	Map{String, int} block_index_;
 }
 
-// The table for a section name ("blocks", "items", ...), or null.
+// The table for a section name ("blocks", "trees", ...), or null.
 fn Table* Content.table(&self, String section)
 {
 	switch (section)
 	{
 		case "blocks": return &self.blocks;
-		case "items": return &self.items;
-		case "recipes": return &self.recipes;
-		case "ores": return &self.ores;
 		case "trees": return &self.trees;
-		case "biomes": return &self.biomes;
 		case "sound_sets": return &self.sound_sets;
-		case "creatures": return &self.creatures;
 		default: return null;
 	}
 }
@@ -144,7 +139,7 @@ fn bool Content.load(&self, String dir, DString* error) => @pool()
 	if (!json::read_file(string::tformat("%s/content.json", dir), &d, error)) return false;
 	if (!d.is_object())
 	{
-		error.append("content.json must be a table of sections (blocks = {...}, items = {...})");
+		error.append("content.json must be a table of sections (blocks = {...}, trees = {...})");
 		return false;
 	}
 	foreach (&section : d.fields())
@@ -152,7 +147,7 @@ fn bool Content.load(&self, String dir, DString* error) => @pool()
 		Table* table = self.table(section.key);
 		if (!table || !section.value.is_object())
 		{
-			error.appendf("content.json has an unknown section \"%s\" (blocks, items, recipes, ores, trees, biomes, sound_sets, creatures)", section.key);
+			error.appendf("content.json has an unknown section \"%s\" (blocks, trees, sound_sets)", section.key);
 			return false;
 		}
 		foreach (&e : section.value.fields())
@@ -170,7 +165,7 @@ fn bool Content.load(&self, String dir, DString* error) => @pool()
 
 fn void Content.free(&self)
 {
-	foreach (t : (Table*[*]){ &self.blocks, &self.items, &self.recipes, &self.ores, &self.trees, &self.biomes, &self.sound_sets, &self.creatures })
+	foreach (t : (Table*[*]){ &self.blocks, &self.trees, &self.sound_sets })
 	{
 		t.free();
 	}
@@ -251,7 +246,7 @@ fn int facing_index(String f)
 }
 
 // Shapes you walk through.
-fn bool is_not_solid_shape(String shape) => shape == "torch" || shape == "ladder" || shape == "cross";
+fn bool is_not_solid_shape(String shape) => shape == "ladder" || shape == "cross";
 
 struct Variant @private
 {
@@ -281,11 +276,6 @@ fn void variants(Data* def, Vec{Variant}* out) @private
 	else if (shape == "stairs" || shape == "ladder")
 	{
 		for (int i = 0; i < 4; i++) out.push({ i == 0 ? "" : string::tformat("_%s", FACINGS[i]), state_of("facing", FACINGS[i]) });
-	}
-	else if (shape == "torch")
-	{
-		out.push({ "", state_of("facing", "floor") });
-		foreach (f : FACINGS) out.push({ string::tformat("_wall_%s", f), state_of("facing", f) });
 	}
 	else if (shape == "door")
 	{
@@ -404,15 +394,6 @@ fn void model_boxes(String shape, Data* state, Vec{Box16}* boxes) @private
 		boxes.push({ 0, 0, 0, 16, 8, 16, 0, 0, 0 });
 		boxes.push({ 0, 8, 0, 16, 16, 8, 0, 0, 0 }); // the high side towards the facing
 	}
-	else if (shape == "torch")
-	{
-		if (state.str("facing") == "floor")
-		{
-			boxes.push({ 7, 0, 7, 9, 10, 9, 0, 0, 0 });
-			return;
-		}
-		boxes.push({ 7, 4, 0.5, 9, 14, 2.5, 4, 0, -6.5 }); // on a wall, raised against it (textured as the standing one)
-	}
 	else if (shape == "ladder")
 	{
 		boxes.push({ 0, 0, 0, 16, 16, 1, 0, 0, 0 });
@@ -437,94 +418,14 @@ fn Box to_box(Box16 b) @private
 		.ty = (float)(b[6] / 16.0), .tx = (float)(b[7] / 16.0), .tz = (float)(b[8] / 16.0) };
 }
 
-// --- Dyes, names ---------------------------------------------------------------------
+// --- Names ---------------------------------------------------------------------
 
-// Dyed blocks as items: the block's id and its dye, "core:stone#ff8800"
-// (inventories, drops, the network and saves carry them as any other id).
-// The block's own id, without the dye (a view of `id`):
-fn String undyed(String id)
+// What players see a block called: its "name", else its id without
+// "core:", words capitalised ("core:wood_door" -> "Wood Door").
+fn String Content.display_name(&self, Allocator allocator, String id)
 {
-	if (try hash = id.index_of_char('#')) return id[:hash];
-	return id;
-}
-
-// "#ff8800" or "ff8800".
-fn bool parse_dye(String hex, Dye* out)
-{
-	sz start = hex.len > 0 && hex[0] == '#' ? 1 : 0;
-	if (hex.len != start + 6) return false;
-	uint v = 0;
-	for (sz i = start; i < hex.len; i++)
-	{
-		char c = hex[i];
-		int d = c >= '0' && c <= '9' ? c - '0' : (c >= 'a' && c <= 'f' ? c - 'a' + 10 : (c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1));
-		if (d < 0) return false;
-		v = v << 4 | (uint)d;
-	}
-	*out = 0xFF000000 | v;
-	return true;
-}
-
-// voxel::NO_DYE: not dyed.
-fn Dye dye_of(String id)
-{
-	Dye d = voxel::NO_DYE;
-	if (try hash = id.index_of_char('#'))
-	{
-		if (parse_dye(id[hash..], &d)) return d;
-	}
-	return voxel::NO_DYE;
-}
-
-// "#ff8800" (in `allocator`).
-fn String dye_hex(Allocator allocator, Dye dye) => string::format(allocator, "#%06x", dye & 0xFFFFFF);
-
-// The id with this dye (voxel::NO_DYE: the id alone).
-fn String dyed(Allocator allocator, String id, Dye dye)
-{
-	String base = undyed(id);
-	return dye == voxel::NO_DYE ? base.copy(allocator) : string::format(allocator, "%s#%06x", base, dye & 0xFFFFFF);
-}
-
-// A texture pixel (sRGB numbers) of a dyed block, stained: the dye where the
-// texture is as bright as `average_lum` (its tile's average, 0..1), lighter
-// and darker as it is, with DYE_SHOW of its own colour showing through (as
-// shaders/color.hlsli's apply_dye).
-const float DYE_SHOW = 0.2f;
-
-fn float pixel_lum(char* rgb) => (0.299f * rgb[0] + 0.587f * rgb[1] + 0.114f * rgb[2]) / 255.0f;
-
-fn void dye_pixel(char* rgb, float average_lum, Dye dye)
-{
-	if (dye == voxel::NO_DYE) return;
-	float k = math::clamp(pixel_lum(rgb) / math::max(average_lum, 0.04f), 0.0f, 1.6f);
-	int[3] d = { (int)(dye >> 16 & 255), (int)(dye >> 8 & 255), (int)(dye & 255) };
-	for (int c = 0; c < 3; c++)
-	{
-		float stained = (float)d[c] * k * (1.0f - DYE_SHOW) + (float)rgb[c] * DYE_SHOW;
-		rgb[c] = (char)math::clamp((int)(stained + 0.5f), 0, 255);
-	}
-}
-
-// What players see an item or block called: its "name", else its id without
-// "core:", words capitalised ("core:wood_pickaxe" -> "Wood Pickaxe"); a dyed
-// block's has its colour after it.
-fn String Content.display_name(&self, Allocator allocator, String dyed_id)
-{
-	Dye d = dye_of(dyed_id);
-	if (d != voxel::NO_DYE)
-	{
-		@pool()
-		{
-			return string::format(allocator, "%s (#%06x)", self.display_name(tmem, undyed(dyed_id)), d & 0xFFFFFF);
-		};
-	}
-	String id = undyed(dyed_id);
-	foreach (t : (Table*[2]){ &self.items, &self.blocks })
-	{
-		Data* def = t.get(id);
-		if (def && def.get("name") && def.get("name").is_string()) return def.str("name").copy(allocator);
-	}
+	Data* def = self.blocks.get(id);
+	if (def && def.get("name") && def.get("name").is_string()) return def.str("name").copy(allocator);
 	if (try colon = id.index_of_char(':')) id = id[colon + 1..];
 	DString out;
 	out.init(allocator);
@@ -545,48 +446,7 @@ fn String Content.display_name(&self, Allocator allocator, String dyed_id)
 	return out.str_view();
 }
 
-// A string's djb2 hash (the ore salts come from it).
-fn uint string_hash(String s)
-{
-	uint h = 5381;
-	foreach (c : s) h = (h << 5) + h + c; // (ids are ASCII: bytes are code points)
-	return h;
-}
-
 // --- Generator tables ----------------------------------------------------------------
-
-struct IdValue @private
-{
-	String id;
-	double value;
-}
-
-// A biome's "trees": a list of {id, value} pairs, in their order (it reaches
-// the generator); a table keyed by id has no order of its own, so that form is
-// taken in id order. (Views into `j`.)
-fn void id_values(Data* j, Vec{IdValue}* out) @private
-{
-	if (!j) return;
-	if (j.is_array())
-	{
-		foreach (&e : j.items())
-		{
-			if (e.is_array() && e.len() == 2 && e.at(0).is_string() && e.at(1).is_number()) out.push({ e.at(0).s, e.at(1).as_double() });
-		}
-	}
-	else if (j.is_object())
-	{
-		foreach (&m : j.fields())
-		{
-			if (m.value.is_number()) out.push({ m.key, m.value.as_double() });
-		}
-		sort::quicksort(out.array_view(), fn int(IdValue a, IdValue b)
-		{
-			int c = compare_ids(a.id, b.id);
-			return c != 0 ? c : (a.value < b.value ? -1 : (a.value > b.value ? 1 : 0));
-		});
-	}
-}
 
 fn BlockId Content.block(&self, String id)
 {
@@ -628,32 +488,9 @@ fn void Content.configure_generator(&self, Generator* generator, uint seed)
 	GeneratorIds ids = {
 		.stone = self.block("core:stone"), .dirt = self.block("core:dirt"), .grass = self.block("core:grass"),
 		.sand = self.block("core:sand"), .water = self.block("core:water"), .lava = self.block("core:lava"),
-		.ice = self.block("core:ice"), .gravel = self.block("core:gravel") };
+		.gravel = self.block("core:gravel"), .snow = self.block("core:snow") };
 
-	// Ores, sorted by id; each one's veins are keyed to its id (the salt), so
-	// adding content doesn't move existing veins.
-	Vec{OreKind} ores;
-	defer ores.free();
-	foreach (&e : self.ores.entries)
-	{
-		Data* def = &e.def;
-		OreKind k;
-		k.id = self.block(def.str("block"));
-		k.replaces = self.block(def.str("replaces", "core:stone"));
-		if (k.id == 0 || k.replaces == 0) continue; // unknown block: not generated
-		k.min_y = inum(def, "min_y", -96);
-		k.max_y = inum(def, "max_y", 0);
-		k.veins_per_chunk = math::clamp(inum(def, "veins_per_chunk", 4), 0, 256);
-		Data* size = def.get("size");
-		if (!size) size = &&(Data){}; // (null: the defaults)
-		k.min_size = math::max(1, size.is_null() ? 3 : first_of(size, 3));
-		k.max_size = math::max(k.min_size, size.is_null() ? 6 : last_of(size, 6));
-		k.salt = string_hash(e.id) & 0x7fffffff;
-		ores.push(k);
-	}
-
-	// Trees with a known log and leaves (or a cactus), sorted by id: biomes
-	// refer to them by index in this order.
+	// Trees with a known log and leaves (or a cactus), sorted by id.
 	Vec{String} order;
 	defer order.free();
 	self.tree_order(&order);
@@ -670,58 +507,11 @@ fn void Content.configure_generator(&self, Generator* generator, uint seed)
 		t.max_trunk = math::clamp(trunk ? last_of(trunk, 6) : 6, t.min_trunk, 20);
 		String style = def.str("style", "oak");
 		t.style = style == "big_oak" ? BIG_OAK : style == "cactus" ? CACTUS : ROUND_OAK;
+		t.percent = math::clamp(inum(def, "percent", 0), 0, 100);
 		trees.push(t);
 	}
 
-	Vec{BiomeKind} biomes;
-	defer
-	{
-		foreach (&b : biomes) b.trees.free();
-		biomes.free();
-	}
-	foreach (&e : self.biomes.entries)
-	{
-		Data* def = &e.def;
-		BiomeKind b = voxel::biome_kind();
-		b.temperature = (float)def.num("temperature", 0.0);
-		b.humidity = (float)def.num("humidity", 0.0);
-		b.height = (float)def.num("height", 20.0);
-		b.base = (float)def.num("base", 0.0);
-		b.surface = self.block(def.str("surface"));
-		b.filler = self.block(def.str("filler"));
-		b.frozen = def.flag("frozen");
-		b.mountains = math::clamp((float)def.num("mountains", 0.0), 0.0f, 60.0f);
-		b.rock = self.block(def.str("rock"));
-		b.rock_above = inum(def, "rock_above", 1 << 20);
-		b.cap = self.block(def.str("cap"));
-		b.cap_above = inum(def, "cap_above", 1 << 20);
-		b.cover = self.block(def.str("cover"));
-		b.cover_above = inum(def, "cover_above", 1 << 20);
-		Vec{IdValue} tv;
-		defer tv.free();
-		id_values(def.get("trees"), &tv);
-		foreach (t : tv)
-		{
-			foreach (i, o : order)
-			{
-				if (o == t.id)
-				{
-					b.trees.push({ (int)i, (int)t.value });
-					break;
-				}
-			}
-		}
-		if (b.surface && b.filler)
-		{
-			biomes.push(b);
-		}
-		else
-		{
-			b.trees.free();
-		}
-	}
-	generator.set_biomes(biomes.array_view());
-	generator.configure(seed, ids, ores.array_view(), trees.array_view());
+	generator.configure(seed, ids, trees.array_view());
 }
 
 // --- Block table and atlas -------------------------------------------------------------
@@ -765,8 +555,8 @@ struct BlockTable
 {
 	Vec{BlockInfo} blocks; // index = block id
 	Atlas atlas;
-	// Atlas tile of every item's and placeable block's icon (its "icon" or
-	// "texture" image, a block's side face, else its colour). Keys: owned.
+	// Atlas tile of every block's icon (its "icon" image, else its side face,
+	// else its colour). Keys: owned.
 	Map{String, int} icons;
 }
 
@@ -958,7 +748,6 @@ fn int engine_shape(String shape) @private
 		case "boxes":
 		case "slab":
 		case "stairs":
-		case "torch":
 		case "ladder":
 		case "door":
 		case "bed":
@@ -1030,15 +819,6 @@ fn BlockTable Content.build_block_table(&self)
 			}
 			b.shape = BOXES;
 			foreach (bx : boxes) b.model.push(to_box(bx));
-			// Boxes (1-based) that keep their own colours when the block is dyed.
-			Data* undyed_boxes = def.get("undyed_boxes");
-			if (undyed_boxes)
-			{
-				foreach (&k : undyed_boxes.items())
-				{
-					if (k.is_number() && k.as_double() >= 1 && (sz)k.as_double() <= b.model.len()) b.model[(sz)k.as_double() - 1].undyed = true;
-				}
-			}
 			if (!is_not_solid_shape(shape)) b.collision.push_all(b.model.array_view());
 			has_collision = true;
 		}
@@ -1058,20 +838,6 @@ fn BlockTable Content.build_block_table(&self)
 		if (icon < 0) icon = b.tiles[0] ? b.tiles[0] : atlas.color_tile(def, "#ff00ff");
 		table.icons[id.copy(mem)] = icon;
 		table.blocks.push(b);
-	}
-	foreach (&e : self.items.entries)
-	{
-		int t = -1;
-		if (e.def.get("texture") && e.def.get("texture").is_string()) t = atlas.image_tile(&e.def, e.def.str("texture"));
-		int* old = table.icons.get_ref(e.id);
-		if (old)
-		{
-			*old = t >= 0 ? t : atlas.color_tile(&e.def, "#b0a080");
-		}
-		else
-		{
-			table.icons[e.id.copy(mem)] = t >= 0 ? t : atlas.color_tile(&e.def, "#b0a080");
-		}
 	}
 	atlas.build();
 	return table;

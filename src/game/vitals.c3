@@ -1,8 +1,7 @@
 // The host: a joined survival player's health, worked out from where its
 // client says it is, by the same rules as the local player's (Game): falls,
-// fluids that hurt (lava), falling out of the world, drowning, creatures
-// (less its armour), healing after a while without damage, and food. The
-// client only shows it.
+// fluids that hurt (lava), falling out of the world, drowning, healing after
+// a while without damage. The client only shows it.
 module gocube::game::vitals;
 import gocube::game::blocks, gocube::game::player, gocube::game::rules, gocube::world, gocube::data;
 import std::math;
@@ -37,13 +36,6 @@ fn void Vitals.hurt(&self, int amount)
 	self.since_damage = 0;
 	self.regen_timer = 0;
 	self.dead = self.health == 0;
-	self.changed = true;
-}
-
-fn void Vitals.heal(&self, int amount)
-{
-	if (self.dead || amount <= 0 || self.health >= MAX_HEALTH) return;
-	self.health = math::min(MAX_HEALTH, self.health + amount);
 	self.changed = true;
 }
 

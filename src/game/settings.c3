@@ -61,7 +61,7 @@ struct Settings
 // The defaults.
 fn Settings new()
 {
-	Settings s = { .view_distance = 128, .mouse_sensitivity = 0.003f, .vsync = true, .smooth_lighting = true,
+	Settings s = { .view_distance = 128, .mouse_sensitivity = 0.003f, .vsync = true, .smooth_lighting = false,
 		.shadow_mode = "blocks", .render_scale = 1.0f, .master_volume = 1.0f, .effects_volume = 1.0f, .ambience_volume = 0.7f };
 	s.reset_keys();
 	s.set_player_name("Player");

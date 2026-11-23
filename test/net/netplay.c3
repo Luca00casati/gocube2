@@ -143,7 +143,6 @@ fn void NetPlay.frame(&self)
 	p.game.day = self.day.day_amount();
 	LocalPose pose = { .eye = p.player.eye(), .yaw = p.player.yaw, .pitch = p.player.pitch, .item = p.game.selected_item(),
 		.selected = p.game.selected, .swings = p.game.swings };
-	if (Data* def = p.content.blocks.get(pose.item)) pose.light = (int)def.num("light", 0);
 	self.session.update(dt, pose);
 }
 

@@ -32,8 +32,7 @@ fn void joining_and_block_changes_creative() @test
 	defer host.free();
 	BlockPos before = { 5, 100, 5 };
 	BlockPos after = { 6, 100, 5 };
-	host.world().set_block(before, host.play.id("core:lamp"), voxel::make_dye(0x20, 0x40, 0x80)); // (dyed)
-	host.game().inventory.slots[0] = inventory::stack("core:torch", 1); // (others see its light)
+	host.world().set_block(before, host.play.id("core:lamp"));
 	NetPlay* client = netplay::join(test_port(0), "Client", &host_frame, host);
 	assert(client);
 	Sides s = { host, client, before, "core:lamp", 0 };
@@ -41,30 +40,24 @@ fn void joining_and_block_changes_creative() @test
 	assert(client.game().creative);
 	assert(netplay::run_until(&sides, fn bool(void* x) => ((Sides*)x).c.world().is_loaded(5, 100, 5), &s, 20));
 	assert(client.play.block_at(before) == "core:lamp"); // an edit made before we joined
-	assert(client.world().dye_at(before.x, before.y, before.z) == voxel::make_dye(0x20, 0x40, 0x80)); // its dye too
-	host.world().set_block(after, host.play.id("core:gold_ore"));
+	host.world().set_block(after, host.play.id("core:sandstone"));
 	s.p = after;
-	s.id = "core:gold_ore";
+	s.id = "core:sandstone";
 	assert(netplay::run_until(&sides, &both_cond, &s, 5)); // and after
-	host.world().set_block(after, host.play.id("core:gold_ore"), voxel::make_dye(255, 0, 0)); // (only its dye changes)
-	assert(netplay::run_until(&sides, fn bool(void* x) => ((Sides*)x).c.world().dye_at(6, 100, 5) == voxel::make_dye(255, 0, 0), &s, 5));
-	// Each sees the other, with its name; the host's torch lights our world.
+	// Each sees the other, with its name.
 	assert(netplay::run_until(&sides, fn bool(void* x)
 	{
 		Sides* s = x;
-		Vec{float[4]} lights;
-		defer lights.free();
-		s.c.session.held_lights(&lights);
-		return s.c.session.avatars.len() == 1 && s.h.session.avatars.len() == 1 && !lights.is_empty();
+		return s.c.session.avatars.len() == 1 && s.h.session.avatars.len() == 1;
 	}, &s, 5));
 	assert(client.session.avatars[0].name == "Host");
 	assert(host.session.avatars[0].name == "Client");
 	assert(client.session.player_count() == 2);
 	// Positions go by UDP (checked both ways first).
 	assert(netplay::run_until(&sides, fn bool(void* x) => ((Sides*)x).c.session.udp_ready() && ((Sides*)x).h.session.udp_ready(), &s, 5));
-	// We place a block (a dyed one): the host does it, both worlds have it, dyed.
+	// We place a block: the host does it, both worlds have it.
 	BlockPos cell = { 4, 100, 1 };
-	client.take_from_palette("core:planks#3366cc", 0);
+	client.take_from_palette("core:planks", 0);
 	client.input.number_key = 1;
 	client.frame();
 	client.aim_at_floor(cell.x, cell.z);
@@ -72,8 +65,6 @@ fn void joining_and_block_changes_creative() @test
 	s.p = cell;
 	s.id = "core:planks";
 	assert(netplay::run_until(&sides, &both_cond, &s, 5));
-	assert(host.world().dye_at(cell.x, cell.y, cell.z) == voxel::make_dye(0x33, 0x66, 0xcc));
-	assert(netplay::run_until(&sides, fn bool(void* x) => ((Sides*)x).c.world().dye_at(4, 100, 1) == voxel::make_dye(0x33, 0x66, 0xcc), &s, 5));
 	// And break it.
 	client.aim(cell.x + 0.5f, cell.y + 0.5f, cell.z + 0.5f);
 	client.input.break_pressed = true;
@@ -197,7 +188,7 @@ fn void chests_through_host() @test
 	Sides s = { host, client, chest, "core:chest", 0 };
 	NetPlay*[2] sides = both_sides(&s);
 	host.world().set_block(chest, host.play.id("core:chest"));
-	host.game().entities.click(chest, 0, inventory::stack("core:coal", 4));
+	host.game().entities.click(chest, 0, inventory::stack("core:cobblestone", 4));
 	assert(netplay::run_until(&sides, fn bool(void* x) => ((Sides*)x).c.play.block_at(((Sides*)x).p) == "core:chest", &s, 20));
 	// We open it (a right click), the host sends what's in it.
 	client.aim(chest.x + 0.5f, chest.y + 0.5f, chest.z + 0.5f);
@@ -209,16 +200,16 @@ fn void chests_through_host() @test
 	assert(netplay::run_until(&sides, fn bool(void* x)
 	{
 		BlockEntity* e = ((Sides*)x).c.game().entities.at(((Sides*)x).p);
-		return e && e.slots[0].id == "core:coal" && e.slots[0].count == 4;
+		return e && e.slots[0].id == "core:cobblestone" && e.slots[0].count == 4;
 	}, &s, 5));
-	// Take the coal, put it in slot 1: the host does the same.
+	// Take the cobblestone, put it in slot 1: the host does the same.
 	client.game().inventory_action(game::action("container", { chest.x, chest.y, chest.z, 0 }));
-	assert(client.game().inventory.cursor.id == "core:coal" && client.game().inventory.cursor.count == 4);
+	assert(client.game().inventory.cursor.id == "core:cobblestone" && client.game().inventory.cursor.count == 4);
 	client.game().inventory_action(game::action("container", { chest.x, chest.y, chest.z, 1 }));
 	assert(netplay::run_until(&sides, fn bool(void* x)
 	{
 		BlockEntity* e = ((Sides*)x).h.game().entities.at(((Sides*)x).p);
-		return e && e.slots[1].id == "core:coal" && e.slots[1].count == 4 && e.slots[0].is_empty();
+		return e && e.slots[1].id == "core:cobblestone" && e.slots[1].count == 4 && e.slots[0].is_empty();
 	}, &s, 5));
 	assert(client.game().inventory.cursor.is_empty());
 }

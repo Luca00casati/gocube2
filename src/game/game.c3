@@ -1,10 +1,9 @@
 // Playing: the player's inventory and hotbar, mining, breaking (with drops)
-// and placing, in survival or creative; health; dropped items, containers,
-// dye vats; and the base game's behaviour (game::rules, and core_*.c3:
-// plants, fluids, creatures).
+// and placing, in survival or creative; health; dropped blocks, chests; and
+// the base game's behaviour (game::rules, and core.c3: plants, fluids).
 module gocube::game;
 import gocube::game::blocks, gocube::game::player, gocube::game::inventory, gocube::game::drops, gocube::game::block_entities;
-import gocube::game::creatures, gocube::game::rules, gocube::game::vitals, gocube::game::dye;
+import gocube::game::rules, gocube::game::vitals;
 import gocube::content, gocube::data, gocube::world, gocube::voxel, gocube::maths;
 import gocube::util::vec, gocube::util::map, gocube::util::rand, gocube::util::intern;
 import std::math, std::sort;
@@ -36,8 +35,7 @@ struct Actor
 	String item;          // what it holds
 }
 
-// The host: another player in the game (for creatures, dropped items and
-// placing). `inventory`: the host's copy of a survival player's, else null.
+// The host: another player in the game (for dropped blocks and placing). `inventory`: the host's copy of a survival player's, else null.
 struct OtherPlayer
 {
 	int peer;
@@ -52,19 +50,17 @@ interface Remote
 {
 	fn void start_mining(BlockPos p);
 	fn void request_break(BlockPos p, int slot);
-	// A right click that isn't opening a container, a bed or eating: placing, a door.
+	// A right click that isn't opening a container or a bed: placing, a door.
 	fn void request_use(float[3] eye, float[3] dir, int slot, String item, bool sneak);
-	fn void request_eat(int slot);
 	// Q: throwing what is in hand (one, or the whole stack).
 	fn void request_throw(float[3] eye, float[3] dir, int slot, String item, bool whole);
-	fn void hit_creature(int id);
 	// Survival: a click in a screen (Game.inventory_action), done here too (taken over).
 	fn void inventory_action(Data action);
 	fn void set_bed(BlockPos head);
 	fn void respawned();
 }
 
-// The host: what happens to other players here (a creature hits one, it
+// The host: what happens to other players here (something hurts one, it
 // picks something up), and the sounds and sights the game makes (for
 // everyone to hear and see).
 interface GameEvents
@@ -95,16 +91,9 @@ struct BlockChanged
 	BlockId id;
 }
 
-const float ATTACK_REACH = 4.0f;
-const float ATTACK_COOLDOWN = 0.4f;
 const int MAX_HEALTH = vitals::MAX_HEALTH;
 const float MAX_BREATH = vitals::MAX_BREATH; // seconds underwater before drowning starts
 const float THROW_SPEED = 7.0f;
-// The dye vat: each gem thrown in dyes DYE_PER_GEM blocks; it holds
-// VAT_MAX_GEMS gems at most (more bounce off). Blocks thrown in come out dyed
-// (one charge each), as many as it has charge for.
-const int DYE_PER_GEM = 8;
-const int VAT_MAX_GEMS = 16;
 
 struct Game
 {
@@ -147,9 +136,7 @@ struct Game
 	int swings;            // goes up with every swing of the arm
 	Vec{SoundEvent} sounds;
 	Vec{Effect} effects_;
-	Creatures creatures;
 	float day;
-	float attack_cooldown;
 	float step_distance;   // walked since the last footstep
 	float[3] last_feet;
 	bool feet_known;
@@ -188,7 +175,6 @@ fn void Game.free(&self)
 	self.notice_text.free();
 	self.sounds.free();
 	self.effects_.free();
-	self.creatures.free();
 	self.core.free();
 	*self = {};
 }
@@ -319,18 +305,12 @@ fn void Game.set_creative(&self, bool on)
 	}
 }
 
-// A brand-new player: survival gets the starting items, creative starts
+// A brand-new player: survival gets the starting block, creative starts
 // empty (the inventory screen's palette has everything).
 fn void Game.start_new_player(&self)
 {
 	self.inventory = inventory::new(self.content);
 	self.selected = 0;
-	if (!self.creative) self.give_starting_items(&self.inventory);
-}
-
-fn void Game.give_starting_items(&self, Inventory* inv)
-{
-	inv.slots[0] = inventory::stack(rules::STARTING_ITEM, rules::STARTING_COUNT);
 }
 
 // world.json's player.
@@ -443,7 +423,7 @@ fn bool Game.craft(&self, Inventory* inv, Recipe* r)
 }
 
 // A click in a screen (what the screens do, so a client's host can do it
-// too): ["click", slot], ["armor", k], ["craft", recipe id], ["pick", item]
+// too): ["click", slot], ["craft", recipe id], ["pick", block]
 // (creative: take one from the palette), ["container", x, y, z, slot],
 // ["close"] (what the mouse holds goes back, the rest is dropped). Taken over.
 fn void Game.inventory_action(&self, Data action)
@@ -485,10 +465,6 @@ fn bool Game.apply_inventory_action(&self, Inventory* inv, Data* a, float[3] fee
 				inv.click((int)slot);
 			}
 			return true;
-		case "armor":
-			if (!action_int(a, 1, 0, 3, &slot)) return false;
-			inv.cursor = inv.put_armor((int)slot, inv.cursor);
-			return true;
 		case "craft":
 			if (a.len() != 2 || !a.at(1).is_string()) return false;
 			foreach (&r : self.hand_recipes())
@@ -499,7 +475,7 @@ fn bool Game.apply_inventory_action(&self, Inventory* inv, Data* a, float[3] fee
 		case "pick":
 			if (!self.creative || a.len() != 2 || !a.at(1).is_string()) return false;
 			String item = a.at(1).s;
-			if (!self.content.items.has(item) && !self.rules.is_placeable(item)) return false;
+			if (!self.rules.is_placeable(item)) return false;
 			inv.cursor = inventory::stack(item, 1);
 			return true;
 		case "container":
@@ -581,20 +557,14 @@ fn bool occupied_cell(void* context, BlockPos cell) @private
 	return false;
 }
 
-// A right click doing something to the world (a dye vat, a door, placing)
-// by `who`; false if nothing happened. Survival takes what was used from its
+// A right click doing something to the world (a door, placing) by `who`;
+// false if nothing happened. Survival takes what was used from its
 // inventory.
 fn bool Game.use(&self, Actor* who, bool sneak)
 {
 	RayHit hit = who.body.target(self.world);
 	if (!hit.hit) return false;
-	// A dye vat, with an empty hand: its dye is tipped out.
-	if (who.item.len == 0 && !sneak && self.rules.def_of(hit.block).flag("dye_vat"))
-	{
-		self.empty_vat(hit.position);
-		return true;
-	}
-	// Placing (or using a door); survival uses the item up. Nobody may be
+	// Placing (or using a door); survival uses the block up. Nobody may be
 	// built into a block.
 	Occupancy occupancy = { self, who.peer };
 	BlockChanges changes;
@@ -614,7 +584,7 @@ fn bool Game.use(&self, Actor* who, bool sneak)
 }
 
 // Seconds to break `block` (whatever is held).
-fn float Game.mine_seconds_of(&self, String block) => math::max(0.05f, rules::mine_seconds(self.content.blocks.get(content::undyed(block))));
+fn float Game.mine_seconds_of(&self, String block) => math::max(0.05f, rules::mine_seconds(self.content.blocks.get(block)));
 
 // Breaks the block at `p` as the player (drops, sounds). For tests too.
 fn void Game.break_block(&self, BlockPos p)
@@ -622,7 +592,6 @@ fn void Game.break_block(&self, BlockPos p)
 	int broken_index = self.world.block_at(p.x, p.y, p.z);
 	String broken = intern::intern(self.rules.id_of(broken_index));
 	if (broken.len == 0 || broken == "core:air" || self.rules.is_fluid(broken_index)) return;
-	Dye dye = self.world.dye_at(p.x, p.y, p.z);
 	self.world.set_block(p, 0);
 	BlockPos other;
 	if (self.rules.other_part(broken, p, &other)) // a door or bed goes as a whole
@@ -633,41 +602,42 @@ fn void Game.break_block(&self, BlockPos p)
 	if (!self.creative)
 	{
 		float[3] at = { p.x + 0.5f, p.y + 0.3f, p.z + 0.5f };
-		bool keeps_dye = dye != voxel::NO_DYE && !self.rules.def(broken).flag("dye_vat"); // (a vat's is its dye's)
-		Vec{String} items;
-		defer items.free();
-		rules::drops(self.content.blocks.get(broken), broken, &self.random, &items);
-		@pool()
-		{
-			foreach (item : items)
-			{
-				self.drops.spawn(keeps_dye && self.rules.is_placeable(item) ? content::dyed(tmem, item, dye) : item, 1, at); // (dyed stays dyed)
-			}
-		};
+		Vec{String} dropped;
+		defer dropped.free();
+		rules::drops(self.content.blocks.get(broken), broken, &dropped);
+		foreach (block : dropped) self.drops.spawn(block, 1, at);
 	}
 	self.play_block_sound(broken, "break", { p.x + 0.5f, p.y + 0.5f, p.z + 0.5f });
 	self.swings++;
 }
 
-// The creature aimed at, within attacking reach and nearer than the block
-// aimed at (0: none).
-fn int Game.aimed_creature(&self)
+// Throws what `who` holds (one, or the whole stack) from `eye` towards `dir`,
+// out of its inventory (in creative too). False if it holds nothing.
+fn bool Game.throw_item(&self, Actor* who, float[3] eye, float[3] dir, bool whole)
 {
-	float[3] eye = self.player.eye();
-	float[3] dir = self.player.look();
-	float distance;
-	int id = self.creatures.pick(eye, dir, ATTACK_REACH, &distance);
-	if (id == 0) return 0;
-	// A block nearer than the creature is what's aimed at.
-	RayHit hit = self.player.target(self.world);
-	if (hit.hit)
+	String item;
+	int count = 1;
+	if (who.inventory) // out of its inventory (creative too: throwing gives it away)
 	{
-		float dx = hit.position.x + 0.5f - eye[0];
-		float dy = hit.position.y + 0.5f - eye[1];
-		float dz = hit.position.z + 0.5f - eye[2];
-		if (math::sqrt(dx * dx + dy * dy + dz * dz) < distance - 0.5f) return 0;
+		if (who.selected < 0 || who.selected >= inventory::HOTBAR) return false;
+		Stack* s = &who.inventory.slots[who.selected];
+		if (s.is_empty()) return false;
+		item = s.id;
+		count = whole ? s.count : 1;
+		s.count -= count;
+		if (s.count <= 0) *s = {};
 	}
-	return id;
+	else // (no inventory: what it says it holds)
+	{
+		item = who.item;
+		if (item.len == 0 || !self.rules.is_placeable(item)) return false;
+	}
+	float len = math::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+	if (len < 1e-4f) return false;
+	float[3] d = { dir[0] / len, dir[1] / len, dir[2] / len };
+	self.drops.throw_item(item, count, { eye[0] + d[0] * 0.4f, eye[1] - 0.35f + d[1] * 0.4f, eye[2] + d[2] * 0.4f },
+		{ d[0] * THROW_SPEED, d[1] * THROW_SPEED + 2.0f, d[2] * THROW_SPEED });
+	return true;
 }
 
 fn void Game.break_or_ask(&self, BlockPos p)
@@ -697,31 +667,8 @@ fn void Game.update(&self, float dt, GameInput in) => @pool()
 	if (in.wheel != 0) self.selected = ((self.selected + in.wheel) % inventory::HOTBAR + inventory::HOTBAR) % inventory::HOTBAR;
 
 	RayHit hit = self.player.target(self.world);
-	RayHit mine = hit; // (a creature in the way: nothing to mine)
-	String tool = self.selected_item();
-	// A creature in front: a left click hits it (now and then), and it's in
-	// the way of mining.
-	self.attack_cooldown = math::max(0.0f, self.attack_cooldown - dt);
-	if (int creature = self.aimed_creature())
-	{
-		if (in.break_pressed && self.attack_cooldown <= 0 && !self.dead)
-		{
-			self.attack_cooldown = ATTACK_COOLDOWN;
-			if (self.remote)
-			{
-				self.remote.hit_creature(creature);
-			}
-			else
-			{
-				Data* item = self.content.items.get(tool);
-				int damage = item ? (int)item.num("damage", 2.0) : 2; // bare hand: 2
-				self.creature_hit(creature, damage, self.player.position, 0);
-			}
-			self.swings++;
-		}
-		mine.hit = false;
-	}
-	else if (in.break_pressed && !hit.hit)
+	RayHit mine = hit;
+	if (in.break_pressed && !hit.hit)
 	{
 		self.swings++; // at nothing
 	}
@@ -754,10 +701,9 @@ fn void Game.update(&self, float dt, GameInput in) => @pool()
 	}
 
 	// Right click: a container opens, a bed becomes the respawn point (sneak
-	// to place against them instead), food is eaten; else placing.
+	// to place against them instead); else placing.
 	Data empty;
 	Data* target_def = hit.hit ? self.rules.def_of(hit.block) : &empty;
-	int food = in.use_pressed && self.selected_item().len ? rules::food(self.content, self.selected_item()) : 0;
 	if (in.use_pressed && hit.hit && !in.sneak && self.remote && !self.entities.at(hit.position) && target_def.has("block_entity"))
 	{
 		// A client: a container that came with the host's chunks. An empty copy
@@ -766,7 +712,7 @@ fn void Game.update(&self, float dt, GameInput in) => @pool()
 		defer none.free();
 		self.entities.block_changed(hit.position, self.rules.id_of(hit.block), &none);
 	}
-	if (in.use_pressed && hit.hit && !in.sneak && self.entities.at(hit.position) && !target_def.flag("dye_vat"))
+	if (in.use_pressed && hit.hit && !in.sneak && self.entities.at(hit.position))
 	{
 		self.opened = hit.position;
 		self.has_opened = true;
@@ -790,23 +736,6 @@ fn void Game.update(&self, float dt, GameInput in) => @pool()
 		if (self.remote) self.remote.set_bed(head);
 		self.bed_used = true;
 	}
-	else if (in.use_pressed && food > 0)
-	{
-		if (!self.creative && self.health < MAX_HEALTH && !self.dead)
-		{
-			if (self.remote)
-			{
-				self.remote.request_eat(self.selected); // (the host heals us, and takes it from its copy)
-			}
-			else
-			{
-				self.health = math::min(MAX_HEALTH, self.health + food);
-			}
-			self.inventory.take_one(self.selected);
-			self.swings++;
-			self.play_sound("core:effects", "pickup", self.player.eye(), -4.0f); // (eating)
-		}
-	}
 	else if (in.use_pressed && self.remote)
 	{
 		if (hit.hit && !self.dead) // the host does it as us
@@ -821,15 +750,11 @@ fn void Game.update(&self, float dt, GameInput in) => @pool()
 		if (self.use(&me, in.sneak)) self.swings++;
 	}
 
-	// Creative: middle click puts the block aimed at in the hand (dyed too).
+	// Creative: middle click puts the block aimed at in the hand.
 	if (in.pick_pressed && self.creative && hit.hit)
 	{
 		String base = self.rules.base_of(self.rules.id_of(hit.block));
-		if (self.rules.is_placeable(base))
-		{
-			Dye dye = target_def.flag("dye_vat") ? voxel::NO_DYE : self.world.dye_at(hit.position.x, hit.position.y, hit.position.z);
-			self.inventory.slots[self.selected] = inventory::stack(content::dyed(tmem, base, dye), 1);
-		}
+		if (self.rules.is_placeable(base)) self.inventory.slots[self.selected] = inventory::stack(base, 1);
 	}
 
 	// Q: throwing what is in hand (Ctrl: the whole stack).
@@ -856,7 +781,6 @@ fn void Game.update(&self, float dt, GameInput in) => @pool()
 // Once a frame: containers, notices, the base game hearing about block changes.
 fn void Game.tick(&self, double dt)
 {
-	self.creatures.animate((float)dt);
 	if (!self.remote)
 	{
 		// The base game hears about block changes a tick later (its own changes
@@ -885,10 +809,9 @@ fn void Game.tick(&self, double dt)
 	}
 }
 
-// Once a physics step: creatures' bodies, dropped items.
+// Once a physics step: dropped blocks.
 fn void Game.physics_step(&self, float dt)
 {
-	self.creatures.step(dt, self.world);
 	if (self.remote) return; // (a client: the host's drops, shown as it sends them)
 	Vec{Taker} takers;
 	defer takers.free();
@@ -897,7 +820,6 @@ fn void Game.physics_step(&self, float dt)
 	Vec{Picked} got;
 	defer got.free();
 	self.drops.step(dt, self.world, takers.array_view(), &got);
-	self.dye_in_vats();
 	bool picked = false;
 	foreach (p : got)
 	{

@@ -27,8 +27,9 @@ fn Matrix Camera.projection(&self, float aspect) => mat::perspective_fov_rh(self
 struct SkyParams
 {
 	float daylight;
-	float sun_amount;
-	float[3] sun_dir;   // towards the sun
+	float sun_amount;   // how much the sun (at night the moon) shines on the land
+	float[3] sun_dir;   // towards the sun (the sky draws the moon opposite)
+	float[3] light_dir; // towards what lights the land: the sun, or the moon at night
 	float[3] sky_tint;
 	float[3] fog_color; // linear
 	float fog_start, fog_end; // depth fog (see chunk.hlsl), by 3D distance
@@ -37,9 +38,10 @@ struct SkyParams
 	float[3] sky_top, sky_horizon, sky_ground;
 	float day, dusk, sky_angle;
 	float[2] cloud_offset;
+	int player_light; // the light the player gives (level at the eyes, one less per block; 0: none)
 }
 
-fn SkyParams sky_params() => { .daylight = 1, .sun_amount = 1, .sun_dir = { 0.36f, 0.86f, 0.36f }, .sky_tint = { 1, 1, 1 },
+fn SkyParams sky_params() => { .daylight = 1, .sun_amount = 1, .sun_dir = { 0.36f, 0.86f, 0.36f }, .light_dir = { 0.36f, 0.86f, 0.36f }, .sky_tint = { 1, 1, 1 },
 	.fog_color = { 0.62f, 0.78f, 0.95f }, .fog_start = 58, .fog_end = 122, .sky_top = { 0.08f, 0.24f, 0.71f },
 	.sky_horizon = { 0.42f, 0.59f, 0.83f }, .sky_ground = { 0.42f, 0.59f, 0.83f }, .day = 1, .sky_angle = 1.57f };
 
@@ -65,10 +67,8 @@ struct FrameConstants @private
 	float[3] block_light_color;
 	float fog_end;
 	float time;
-	float[2] cloud_offset;
-	float pad1;
-	float[3] hand_light_origin;
-	float hand_light_count;
+	float player_light;
+	float[2] pad;
 }
 
 // Matches cbuffer Sky in sky.hlsl.
@@ -130,9 +130,6 @@ fn void GpuChunk.release(&self)
 
 const int MAX_OUTLINE_BOXES = 16;
 const int SKIN_SLOTS = 9; // (every other player, and us)
-const int HAND_LIGHT_SIZE = 48;
-const int NOISE_CELLS @private = 32; // (shaders/chunk.hlsl: NOISE_CELLS)
-const int NOISE_TEXELS @private = 8;
 
 struct ChunkRenderer
 {
@@ -173,14 +170,8 @@ struct ChunkRenderer
 	InputLayout* creatures_layout;
 	Buffer* creature_vertices;
 	uint creature_capacity;
-	Texture3D* hand_light_tex;
-	ShaderResourceView* hand_light_srv;
-	ShaderResourceView* noise_srv; // smooth noise (cloud shadows, the grass's green)
-	SamplerState* noise_sampler;
 	Texture2D* skins_tex;
 	ShaderResourceView* skins_srv;
-	float[3] hand_light_origin;
-	int hand_light_count;
 	ChunkRenderStats stats;
 	Vec{GpuChunk*} visible;
 }
@@ -201,12 +192,11 @@ fn bool ChunkRenderer.init(&self, Device* device, DeviceContext* context, Atlas*
 		!ok(device.create_pixel_shader(shaders::code(CHUNK_PS_OPAQUE), &self.ps_opaque), "ps_opaque") ||
 		!ok(device.create_pixel_shader(shaders::code(CHUNK_PS_CUTOUT), &self.ps_cutout), "ps_cutout") ||
 		!ok(device.create_pixel_shader(shaders::code(CHUNK_PS_FLUID), &self.ps_fluid), "ps_fluid")) return false;
-	InputElementDesc[5] layout = {
+	InputElementDesc[4] layout = {
 		{ "POSITION", 0, d3d11::FORMAT_R32G32B32_FLOAT, 0, (uint)WorldVertex::members[0].offset, 0, 0 },
 		{ "NORMAL", 0, d3d11::FORMAT_R32G32B32_FLOAT, 0, (uint)WorldVertex::members[1].offset, 0, 0 },
 		{ "TEXCOORD", 0, d3d11::FORMAT_R32G32_FLOAT, 0, (uint)WorldVertex::members[2].offset, 0, 0 },
 		{ "COLOR", 0, d3d11::FORMAT_R32G32B32A32_FLOAT, 0, (uint)WorldVertex::members[3].offset, 0, 0 },
-		{ "COLOR", 1, d3d11::FORMAT_R32G32B32A32_FLOAT, 0, (uint)WorldVertex::members[4].offset, 0, 0 },
 	};
 	if (!ok(device.create_input_layout(&layout, shaders::code(CHUNK_VS), &self.layout), "CreateInputLayout")) return false;
 	BufferDesc cb = { .usage = d3d11::USAGE_DYNAMIC, .bind_flags = d3d11::BIND_CONSTANT_BUFFER, .cpu_access_flags = d3d11::CPU_ACCESS_WRITE,
@@ -227,11 +217,13 @@ fn bool ChunkRenderer.init(&self, Device* device, DeviceContext* context, Atlas*
 	if (!ok(device.create_shader_resource_view(tex, &self.atlas), "CreateShaderResourceView(atlas)")) return false;
 	context.update_subresource(tex, 0, null, atlas.rgba.ptr, (uint)atlas.width * 4, 0);
 	context.generate_mips(self.atlas);
-	SamplerDesc sd = { .filter = d3d11::FILTER_MIN_MAG_POINT_MIP_LINEAR, // crisp pixels, smooth with distance
+	// Crisp pixels at every distance (the old-school look: far blocks keep
+	// their grit, and shimmer a little, rather than blurring into flat colour):
+	// nearest texel of the full-size atlas, its mips unused.
+	SamplerDesc sd = { .filter = d3d11::FILTER_MIN_MAG_MIP_POINT,
 		.address_u = d3d11::TEXTURE_ADDRESS_CLAMP, .address_v = d3d11::TEXTURE_ADDRESS_CLAMP, .address_w = d3d11::TEXTURE_ADDRESS_CLAMP,
-		.max_lod = d3d11::FLOAT32_MAX, .comparison_func = d3d11::COMPARISON_NEVER };
+		.max_lod = 0.0f, .comparison_func = d3d11::COMPARISON_NEVER };
 	if (!ok(device.create_sampler_state(&sd, &self.sampler), "CreateSamplerState")) return false;
-	if (!self.make_noise()) return false;
 
 	RasterizerDesc rd = { .fill_mode = d3d11::FILL_SOLID, .cull_mode = d3d11::CULL_BACK, .depth_clip_enable = 1 };
 	device.create_rasterizer_state(&rd, &self.cull_back);
@@ -265,15 +257,6 @@ fn bool ChunkRenderer.init(&self, Device* device, DeviceContext* context, Atlas*
 	if (!ok(device.create_vertex_shader(shaders::code(SKY_VS), &self.sky_vs), "sky_vs") || !ok(device.create_pixel_shader(shaders::code(SKY_PS), &self.sky_ps), "sky_ps") ||
 		!ok(device.create_buffer(&cb, null, &self.sky_cb), "sky constants")) return false;
 
-	// Held torches' light (HandLights): one level per block, written whenever it changes.
-	Texture3DDesc hd = { .width = HAND_LIGHT_SIZE, .height = HAND_LIGHT_SIZE, .depth = HAND_LIGHT_SIZE, .mip_levels = 1, .format = d3d11::FORMAT_R8_UNORM,
-		.usage = d3d11::USAGE_DEFAULT, .bind_flags = d3d11::BIND_SHADER_RESOURCE };
-	char[] dark = mem::new_array(char, (sz)HAND_LIGHT_SIZE * HAND_LIGHT_SIZE * HAND_LIGHT_SIZE);
-	defer free(dark.ptr);
-	SubresourceData hdata = { dark.ptr, HAND_LIGHT_SIZE, HAND_LIGHT_SIZE * HAND_LIGHT_SIZE };
-	if (!ok(device.create_texture3d(&hd, &hdata, &self.hand_light_tex), "CreateTexture3D(hand light)") ||
-		!ok(device.create_shader_resource_view(self.hand_light_tex, &self.hand_light_srv), "hand light view")) return false;
-
 	// Players' skins: a slice each (set_skin), see-through until set. Plain
 	// RGBA, as the atlas is read (no sRGB conversion).
 	Texture2DDesc skd = { .width = skin::SKIN_SIZE, .height = skin::SKIN_SIZE, .mip_levels = 1, .array_size = SKIN_SLOTS, .format = d3d11::FORMAT_R8G8B8A8_UNORM,
@@ -304,53 +287,6 @@ fn bool ChunkRenderer.init(&self, Device* device, DeviceContext* context, Atlas*
 		ok(device.create_input_layout(&creature_layout, shaders::code(CREATURES_VS), &self.creatures_layout), "creature layout");
 }
 
-// Smooth noise for the terrain shader (cloud shadows, the grass's green
-// drifting across the land), made once: random values on a lattice of
-// NOISE_CELLS x NOISE_CELLS (wrapping round), smoothly in between,
-// NOISE_TEXELS texels a cell; read filtered, tiling.
-fn bool ChunkRenderer.make_noise(&self)
-{
-	const int SIZE = NOISE_CELLS * NOISE_TEXELS;
-	float[NOISE_CELLS * NOISE_CELLS] lattice;
-	uint state = 0x9e3779b9u;
-	foreach (&v : lattice)
-	{
-		state ^= state << 13;
-		state ^= state >> 17;
-		state ^= state << 5;
-		*v = (float)(state >> 8) / (float)(1u << 24);
-	}
-	char[] texels = mem::new_array(char, (sz)SIZE * SIZE);
-	defer free(texels.ptr);
-	for (int y = 0; y < SIZE; y++)
-	{
-		for (int x = 0; x < SIZE; x++)
-		{
-			int cx = x / NOISE_TEXELS;
-			int cy = y / NOISE_TEXELS;
-			float fx = smooth((float)(x % NOISE_TEXELS) / NOISE_TEXELS);
-			float fy = smooth((float)(y % NOISE_TEXELS) / NOISE_TEXELS);
-			float top = lattice_at(&lattice, cx, cy) + (lattice_at(&lattice, cx + 1, cy) - lattice_at(&lattice, cx, cy)) * fx;
-			float bottom = lattice_at(&lattice, cx, cy + 1) + (lattice_at(&lattice, cx + 1, cy + 1) - lattice_at(&lattice, cx, cy + 1)) * fx;
-			texels[(sz)y * SIZE + x] = (char)math::round((top + (bottom - top) * fy) * 255.0f);
-		}
-	}
-	Texture2DDesc nd = { .width = SIZE, .height = SIZE, .mip_levels = 1, .array_size = 1, .format = d3d11::FORMAT_R8_UNORM, .sample_count = 1,
-		.usage = d3d11::USAGE_IMMUTABLE, .bind_flags = d3d11::BIND_SHADER_RESOURCE };
-	SubresourceData ndata = { texels.ptr, SIZE, 0 };
-	SamplerDesc ns = { .filter = d3d11::FILTER_MIN_MAG_MIP_LINEAR, .address_u = d3d11::TEXTURE_ADDRESS_WRAP, .address_v = d3d11::TEXTURE_ADDRESS_WRAP,
-		.address_w = d3d11::TEXTURE_ADDRESS_WRAP, .max_lod = d3d11::FLOAT32_MAX, .comparison_func = d3d11::COMPARISON_NEVER };
-	Texture2D* noise;
-	if (!ok(self.device.create_texture2d(&nd, &ndata, &noise), "CreateTexture2D(noise)")) return false;
-	defer d3d11::release(noise);
-	return ok(self.device.create_shader_resource_view(noise, &self.noise_srv), "noise view") &&
-		ok(self.device.create_sampler_state(&ns, &self.noise_sampler), "noise sampler");
-}
-
-fn float smooth(float t) @private => t * t * (3.0f - 2.0f * t);
-fn float lattice_at(float[NOISE_CELLS * NOISE_CELLS]* l, int x, int y) @private
-	=> (*l)[((y + NOISE_CELLS) % NOISE_CELLS) * NOISE_CELLS + (x + NOISE_CELLS) % NOISE_CELLS];
-
 fn void ChunkRenderer.free(&self)
 {
 	self.chunks.@each(; long k, GpuChunk* c)
@@ -364,7 +300,7 @@ fn void ChunkRenderer.free(&self)
 		self.dynamic_vertices, self.sampler, self.cull_back, self.cull_none, self.depth_write, self.depth_test_only, self.depth_less_equal,
 		self.depth_off, self.alpha_blend, self.line_vs, self.line_ps, self.line_layout, self.line_vertices, self.line_cb, self.sky_vs,
 		self.sky_ps, self.sky_cb, self.items_vs, self.items_ps, self.items_cb, self.creatures_vs, self.creatures_ps, self.creatures_layout,
-		self.creature_vertices, self.hand_light_tex, self.hand_light_srv, self.noise_srv, self.noise_sampler, self.skins_tex, self.skins_srv };
+		self.creature_vertices, self.skins_tex, self.skins_srv };
 	foreach (o : objects) d3d11::release(o);
 	*self = {};
 }
@@ -428,19 +364,6 @@ fn void ChunkRenderer.draw_items(&self, WorldVertex[] vertices, Matrix view_proj
 	ctx.draw((uint)vertices.len, 0);
 	ctx.rs_set_state(null);
 	ctx.om_set_depth_stencil_state(null);
-}
-
-// Torches held in hand (HandLights): their light levels, a cube of
-// HAND_LIGHT_SIZE blocks from `origin`, uploaded when `changed`; none while
-// `volume` is empty.
-fn void ChunkRenderer.set_hand_light(&self, char[] volume, BlockPos origin, int count, bool changed)
-{
-	self.hand_light_origin = { (float)origin.x, (float)origin.y, (float)origin.z };
-	self.hand_light_count = volume.len ? count : 0;
-	if (changed && volume.len == (sz)HAND_LIGHT_SIZE * HAND_LIGHT_SIZE * HAND_LIGHT_SIZE)
-	{
-		self.context.update_subresource(self.hand_light_tex, 0, null, volume.ptr, HAND_LIGHT_SIZE, HAND_LIGHT_SIZE * HAND_LIGHT_SIZE);
-	}
 }
 
 // Creatures' boxes (game/creature_models; shaders/creatures.hlsl), in world space.
@@ -555,7 +478,6 @@ fn bool ChunkRenderer.make_surface(&self, Surface* s, GpuSurface* out)
 		v.normal = { s.normals[i * 3], s.normals[i * 3 + 1], s.normals[i * 3 + 2] };
 		v.uv = { s.uvs[i * 2], s.uvs[i * 2 + 1] };
 		v.color = { s.colors[i * 4], s.colors[i * 4 + 1], s.colors[i * 4 + 2], s.colors[i * 4 + 3] };
-		v.set_dye(i < s.dyes.len() ? s.dyes[i] : voxel::NO_DYE);
 	}
 	BufferDesc bd = { .usage = d3d11::USAGE_IMMUTABLE, .bind_flags = d3d11::BIND_VERTEX_BUFFER, .byte_width = (uint)(n * WorldVertex::size) };
 	SubresourceData data = { vertices.ptr, 0, 0 };
@@ -632,8 +554,8 @@ fn void ChunkRenderer.bind(&self)
 	ctx.ia_set_input_layout(self.layout);
 	ctx.ia_set_primitive_topology(d3d11::TOPOLOGY_TRIANGLELIST);
 	ctx.vs_set_shader(self.vs);
-	ctx.ps_set_shader_resources(0, { self.atlas, self.hand_light_srv, self.noise_srv });
-	ctx.ps_set_samplers(0, { self.sampler, self.noise_sampler });
+	ctx.ps_set_shader_resources(0, { self.atlas });
+	ctx.ps_set_samplers(0, { self.sampler });
 }
 
 fn void ChunkRenderer.draw_surface(&self, GpuChunk* c, int surface)
@@ -655,10 +577,9 @@ fn void ChunkRenderer.draw_surface(&self, GpuChunk* c, int surface)
 fn void ChunkRenderer.draw(&self, Camera* camera, float aspect, SkyParams* sky, BeforeFluids before_fluids = null, void* before_context = null)
 {
 	Matrix vp = camera.view() * camera.projection(aspect);
-	FrameConstants f = { .view_proj = vp.m, .camera_pos = camera.position, .daylight = sky.daylight, .sun_dir = mat::normalize(sky.sun_dir),
+	FrameConstants f = { .view_proj = vp.m, .camera_pos = camera.position, .daylight = sky.daylight, .sun_dir = mat::normalize(sky.light_dir),
 		.sun_amount = sky.sun_amount, .sky_tint = sky.sky_tint, .min_light = 0.02f, .fog_color = sky.fog_color, .fog_start = sky.fog_start,
-		.fog_end = sky.fog_end, .cloud_offset = sky.cloud_offset, .block_light_color = { 1.0f, 0.85f, 0.62f }, .time = sky.time,
-		.hand_light_origin = self.hand_light_origin, .hand_light_count = (float)self.hand_light_count };
+		.fog_end = sky.fog_end, .block_light_color = { 1.0f, 0.85f, 0.62f }, .time = sky.time, .player_light = (float)sky.player_light };
 	self.write(self.frame_cb, &f, FrameConstants::size);
 	// The frustum's planes, from the view-projection matrix's columns (row
 	// vectors: clip = v * M).

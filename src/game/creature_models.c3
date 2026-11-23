@@ -1,9 +1,8 @@
-// How creatures look, built from boxes: each part a flat colour, or a block's
-// face texture tiled once a metre (a Block Eater that ate a block looks made
-// of it). Vertices in world space for shaders/creatures.hlsl, which shades
-// each face by its own normal and the light where the creature is.
+// How players look, built from boxes: each part a flat colour or a part of
+// their skin. Vertices in world space for shaders/creatures.hlsl, which shades
+// each face by its own normal and the light where the player is.
 module gocube::game::creature_models;
-import gocube::game::creatures, gocube::game::figure, gocube::content, gocube::content::skin, gocube::mat, gocube::maths;
+import gocube::game::figure, gocube::content, gocube::content::skin, gocube::mat, gocube::maths;
 import gocube::util::vec;
 import std::math;
 
@@ -34,17 +33,6 @@ struct Look
 fn Look colour(float r, float g, float b) => { .rgb = { r, g, b }, .skin_slot = -1, .to = -1 };
 
 fn Look skin_look(SkinPart part, int slot, int from = 0, int to = -1) => { .rgb = { 1, 1, 1 }, .has_skin = true, .skin = part, .skin_slot = slot, .from = from, .to = to };
-
-// A block's face (engine order: 0 a side, 2 the top, 3 the bottom).
-fn Look block_face(Content* content, BlockTable* table, String block, int face)
-{
-	int index = content.block_index(block);
-	if (index <= 0) return colour(0.53f, 0.53f, 0.53f);
-	Look l = colour(1, 1, 1);
-	table.atlas.tile_uv(table.blocks[index].tiles[face], &l.tile);
-	l.glow = (float)content.blocks.get(block).num("light", 0) / 15.0f;
-	return l;
-}
 
 struct Builder
 {
@@ -114,64 +102,6 @@ fn void Builder.box(&self, Matrix m, float[3] size, float[3] at, Look look, floa
 	}
 }
 
-// The Block Eater: a squat grazer, a cushion of moss on its back, or made of
-// the block it ate.
-fn void block_eater(Creature* c, Content* content, BlockTable* table, Matrix root, Builder* b)
-{
-	Look dark = colour(0.10f, 0.08f, 0.07f);
-	Look horn = colour(0.82f, 0.78f, 0.66f);
-	Look hide;
-	Look belly;
-	Look moss;
-	Look moss_light;
-	float w = 0.86f; // body width
-	if (!c.variant.len || content.block_index(c.variant) <= 0)
-	{
-		hide = colour(0.45f, 0.36f, 0.28f);
-		belly = colour(0.58f, 0.49f, 0.38f);
-		moss = colour(0.30f, 0.48f, 0.22f);
-		moss_light = colour(0.42f, 0.60f, 0.28f);
-		w = 0.68f; // the regular one is slim
-	}
-	else
-	{
-		hide = block_face(content, table, c.variant, 0); // sides
-		moss = block_face(content, table, c.variant, 2); // the back is the block's top
-		moss_light = moss;
-		belly = block_face(content, table, c.variant, 3); // the bottom
-	}
-	// Walking: legs swing, a little bob; a squash when hurt.
-	float swing = c.walking ? math::sin(c.walk_phase) * 0.6f : 0.0f;
-	float bob = c.walking ? math::abs(math::sin(c.walk_phase)) * 0.04f : 0.0f;
-	float squash = c.hurt_time > 0 ? 1.0f - 0.15f * math::sin(c.hurt_time / 0.3f * maths::PI) : 1.0f;
-	Matrix body = mat::node({ 0, bob, 0 }, { 0, 0, 0 }, { 1 / squash, squash, 1 / squash }) * root;
-	// A rounded back built from stacked, narrowing slabs.
-	b.box(body, { w, 0.42f, 1.18f }, { 0, 0.55f, 0 }, hide);
-	b.box(body, { w - 0.08f, 0.1f, 1.0f }, { 0, 0.32f, 0 }, belly);
-	b.box(body, { w + 0.04f, 0.14f, 1.12f }, { 0, 0.82f, 0 }, moss);
-	b.box(body, { w - 0.2f, 0.1f, 0.86f }, { 0, 0.93f, 0.02f }, moss_light);
-	b.box(body, { 0.34f, 0.07f, 0.4f }, { 0.08f, 1.0f, -0.06f }, moss);
-	// Head at the front (-Z is forward), low and blunt.
-	Matrix head = mat::node({ 0, 0.56f, -0.68f }) * body;
-	b.box(head, { 0.48f, 0.4f, 0.36f }, { 0, 0, 0 }, hide);
-	b.box(head, { 0.32f, 0.2f, 0.16f }, { 0, -0.08f, -0.24f }, belly);       // snout
-	b.box(head, { 0.06f, 0.06f, 0.02f }, { -0.07f, -0.06f, -0.325f }, dark); // nostrils
-	b.box(head, { 0.06f, 0.06f, 0.02f }, { 0.07f, -0.06f, -0.325f }, dark);
-	b.box(head, { 0.07f, 0.08f, 0.02f }, { -0.15f, 0.06f, -0.185f }, dark);  // eyes
-	b.box(head, { 0.07f, 0.08f, 0.02f }, { 0.15f, 0.06f, -0.185f }, dark);
-	b.box(head, { 0.08f, 0.12f, 0.08f }, { -0.17f, 0.24f, 0.02f }, horn);    // horn nubs
-	b.box(head, { 0.08f, 0.12f, 0.08f }, { 0.17f, 0.24f, 0.02f }, horn);
-	b.box(head, { 0.36f, 0.06f, 0.2f }, { 0, 0.23f, 0.06f }, moss);          // tuft
-	// Four stubby legs, pivoting at the hip.
-	float lx = w / 2 - 0.14f;
-	float[2][4] corners = { { -lx, -0.38f }, { lx, -0.38f }, { -lx, 0.38f }, { lx, 0.38f } };
-	for (int i = 0; i < 4; i++)
-	{
-		Matrix hip = mat::node({ corners[i][0], 0.36f, corners[i][1] }, { swing * (i % 3 == 0 ? 1.0f : -1.0f), 0, 0 }) * body;
-		b.box(hip, { 0.2f, 0.36f, 0.2f }, { 0, -0.18f, 0 }, hide);
-	}
-}
-
 // A jointed figure of boxes (game/figure) in these colours.
 struct FigureLooks
 {
@@ -207,17 +137,6 @@ fn void build_figure(Figure* f, FigureLooks* l, Matrix root, Builder* b, Matrix*
 	}
 	*head_out = head;
 	*torso_out = torso;
-}
-
-// A person (model "figure"): the jointed figure in plain clothes.
-fn void person(Creature* c, Matrix root, Builder* b)
-{
-	Look cloth = colour(0.25f, 0.27f, 0.32f);
-	Look skin = colour(0.80f, 0.62f, 0.48f);
-	FigureLooks looks = { skin, cloth, cloth, skin, colour(0.18f, 0.19f, 0.23f), colour(0.12f, 0.1f, 0.09f) };
-	Matrix head;
-	Matrix torso;
-	build_figure(&c.figure, &looks, root, b, &head, &torso, null);
 }
 
 fn Look hsv(float h, float s, float v)
@@ -340,21 +259,4 @@ fn void build_cube(float[3] at, float size, float[3] rgb, CreatureVertices* out)
 	sz first = out.len();
 	b.box(mat::translation(at[0], at[1], at[2]), { size, size, size }, { 0, 0, 0 }, colour(rgb[0], rgb[1], rgb[2]));
 	for (sz i = first; i < out.len(); i++) out.items[i].normal = { 0, 1, 0 }; // unshaded: every face as bright as the top
-}
-
-// Appends the creature's boxes, posed for this moment (`alpha`: between its
-// last two physics steps), lit by `light` (raw).
-fn void build_creature(Creature* c, Content* content, BlockTable* table, float alpha, float[3] light, CreatureVertices* out)
-{
-	Builder b = { out, light, c.flash };
-	float[3] at = { c.prev[0] + (c.pos[0] - c.prev[0]) * alpha, c.prev[1] + (c.pos[1] - c.prev[1]) * alpha, c.prev[2] + (c.pos[2] - c.prev[2]) * alpha };
-	Matrix root = mat::node(at, { 0, maths::lerp_angle(c.prev_yaw, c.yaw, alpha), 0 });
-	if (c.model == "block_eater")
-	{
-		block_eater(c, content, table, root, &b);
-	}
-	else if (c.model == "figure")
-	{
-		person(c, root, &b);
-	}
 }

@@ -1,8 +1,8 @@
-// The 3D model of an item: a small cube for solid blocks (each face its own
-// texture, shrunk to a slab's or a door's single box), a whole bed for beds,
-// else the item's icon given depth (each opaque pixel a little block, walls
-// where it borders a clear one). Used for dropped items and the item in the
-// first-person hand.
+// The 3D model of a block as an item: a small cube for solid blocks (each
+// face its own texture, shrunk to a slab's single box), a whole bed for beds,
+// else the block's icon given depth (doors, ladders: each opaque
+// pixel a little block, walls where it borders a clear one). Used for dropped
+// blocks and the block in the first-person hand.
 //
 // Models are centred on the origin (a cube stands on the bottom of its 0.25
 // cell: a slab's top is at 0), in metres, with atlas uvs; built once per item.
@@ -75,10 +75,9 @@ fn void model_bounds(Data* def, float[3]* mn, float[3]* mx) @private
 	}
 }
 
-// Whether the model is a block's boxes (held differently from a flat item).
-fn bool ItemModels.is_block(&self, String dyed_item)
+// Whether the model is a block's boxes (held differently from a flat icon).
+fn bool ItemModels.is_block(&self, String item)
 {
-	String item = content::undyed(dyed_item);
 	int index = self.content.block_index(item);
 	if (index <= 0) return false;
 	Data* def = self.content.blocks.get(item);
@@ -86,9 +85,8 @@ fn bool ItemModels.is_block(&self, String dyed_item)
 }
 
 // Triangles (three vertices each), front faces counter-clockwise.
-fn ModelVertex[] ItemModels.model(&self, String dyed_item) => @pool()
+fn ModelVertex[] ItemModels.model(&self, String item) => @pool()
 {
-	String item = content::undyed(dyed_item); // (the dye is the vertices')
 	if (try m = self.models.get(item)) return m.array_view();
 	Model* out = mem::new(Model);
 	int index = self.content.block_index(item);

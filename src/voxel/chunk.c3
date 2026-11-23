@@ -10,15 +10,6 @@ const CHUNK_VOLUME = CHUNK * CHUNK * CHUNK;
 alias BlockId = ushort;
 const BlockId AIR = 0;
 
-// A block's dye (from the dye vat): 0xFFRRGGBB, or NO_DYE (its own colours).
-alias Dye = uint;
-const Dye NO_DYE = 0;
-
-fn Dye make_dye(int r, int g, int b)
-{
-	return 0xFF000000 | ((uint)r & 255) << 16 | ((uint)g & 255) << 8 | ((uint)b & 255);
-}
-
 // Face order used everywhere: +X, -X, +Y, -Y, +Z, -Z.
 enum Face : char
 {
@@ -30,7 +21,7 @@ const FACE_COUNT = 6;
 enum Shape : char
 {
 	CUBE,  // a full cube (the fast path)
-	BOXES, // a list of boxes inside the cell (slabs, stairs, torches, doors...)
+	BOXES, // a list of boxes inside the cell (slabs, stairs, ladders, doors...)
 	CROSS, // two crossed quads (plants)
 	FENCE, // a post with rails towards fences and solid blocks next to it
 }
@@ -42,8 +33,7 @@ struct Box
 	float[3] mn;
 	float[3] mx;
 	float ty;      // texture offset up: side faces are textured as if the box sat ty lower
-	float tx, tz;  // and across: as if it sat tx, tz further along x, z (a wall torch: as if in the middle)
-	bool undyed;   // keeps its own colours when the block is dyed (the dye vat's tub)
+	float tx, tz;  // and across: as if it sat tx, tz further along x, z
 }
 
 alias BoxList = Vec{Box};
@@ -111,14 +101,12 @@ fn void fence_boxes(bool north, bool east, bool south, bool west, bool for_colli
 }
 
 // 32^3 block ids. Uniform chunks (all air, all stone...) store a single
-// value (the zero value: uniform, all air). Dyed blocks' colours, by index
-// (few: most chunks have none).
+// value (the zero value: uniform, all air).
 struct ChunkData
 {
 	bool mixed;            // false: every block is uniform_value
 	BlockId uniform_value;
 	BlockId[] blocks;      // CHUNK_VOLUME, when mixed
-	Map{ushort, Dye} dyes;
 }
 
 fn int chunk_index(int x, int y, int z) @inline => (y * CHUNK + z) * CHUNK + x;
@@ -127,7 +115,6 @@ fn void ChunkData.free(&self)
 {
 	if (self.blocks.ptr) free(self.blocks.ptr);
 	self.blocks = {};
-	self.dyes.free();
 	self.mixed = false;
 	self.uniform_value = AIR;
 }
@@ -140,30 +127,8 @@ fn BlockId ChunkData.get(&self, int x, int y, int z) @inline
 	return self.mixed ? self.blocks[chunk_index(x, y, z)] : self.uniform_value;
 }
 
-fn Dye ChunkData.dye(&self, int x, int y, int z)
-{
-	if (self.dyes.is_empty()) return NO_DYE;
-	return self.dyes.get((ushort)chunk_index(x, y, z)) ?? NO_DYE;
-}
-
-// (A dye on air is dropped.)
-fn void ChunkData.set_dye(&self, int x, int y, int z, Dye d)
-{
-	ushort i = (ushort)chunk_index(x, y, z);
-	if (d == NO_DYE || self.get(x, y, z) == AIR)
-	{
-		if (!self.dyes.is_empty()) self.dyes.remove(i);
-	}
-	else
-	{
-		self.dyes[i] = d;
-	}
-}
-
-// A new block there loses the dye of the one before.
 fn void ChunkData.set(&self, int x, int y, int z, BlockId v)
 {
-	if (!self.dyes.is_empty()) self.dyes.remove((ushort)chunk_index(x, y, z));
 	if (!self.mixed)
 	{
 		if (v == self.uniform_value) return;

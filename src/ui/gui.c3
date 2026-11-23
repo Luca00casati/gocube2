@@ -58,7 +58,6 @@ struct DrawCmd
 	float wrap;          // TEXT: wrap width (0: one line)
 	String text;         // (heap)
 	int image;           // IMAGE: an item icon (an atlas tile)
-	uint dye;            // IMAGE: a dyed block's (0xFFRRGGBB, 0 none)
 }
 
 alias DrawCmds = Vec{DrawCmd};
@@ -95,8 +94,8 @@ fn void DrawList.text(&self, Pt at, Color c, String text, float size, float wrap
 		.wrap = wrap, .text = text.copy(mem), .thickness = 1, .image = -1 });
 }
 
-fn void DrawList.image(&self, Area r, int tile, uint dye = 0)
-	=> self.cmds.push({ .type = IMAGE, .rect = r, .color = with_alpha(rgba(255, 255, 255), self.alpha), .image = tile, .dye = dye, .thickness = 1 });
+fn void DrawList.image(&self, Area r, int tile)
+	=> self.cmds.push({ .type = IMAGE, .rect = r, .color = with_alpha(rgba(255, 255, 255), self.alpha), .image = tile, .thickness = 1 });
 fn void DrawList.clip(&self, Area r) => self.cmds.push({ .type = CLIP, .rect = r, .image = -1 });
 fn void DrawList.unclip(&self) => self.cmds.push({ .type = UNCLIP, .image = -1 });
 

@@ -11,69 +11,18 @@ import gocube::game::creature_models, gocube::content, gocube::content::item_mod
 import gocube::util::vec;
 import std::math;
 
-// Torches held in hand light the blocks around them like placed ones: spread
-// by World.held_light in a cube of SIZE blocks around the viewer, moved in
-// steps of STEP blocks (so walking doesn't spread it again every block);
-// spread again only when a light moves to another block, the cube moves or
-// the world changes. The terrain shaders read it as a 3D texture.
-const int LIGHTS_SIZE = 48;
-const int LIGHTS_STEP = 8;
+// The player gives a little light of their own, day and night: this level
+// where the eyes are, one less per block away (counted along x, y and z, as
+// placed light spreads), whatever is in hand. (Through walls too: cheap, and
+// only what you see is lit.) The terrain shader does the same (Frame.player_light).
+const int PLAYER_LIGHT = 9;
 
-struct HandLights
+// The player's light at `at` from `eye` (0..15).
+fn int player_light_at(float[3] eye, float[3] at)
 {
-	BlockPos origin;
-	Vec{char} volume; // empty: no light
-	Vec{long} key;
-	int count;
-}
-
-fn void HandLights.free(&self)
-{
-	self.volume.free();
-	self.key.free();
-}
-
-fn int step_of(float v) @private => (int)math::round(v / (float)LIGHTS_STEP) * LIGHTS_STEP;
-
-// lights: x, y, z, level. True if the volume changed (upload it again).
-fn bool HandLights.update(&self, World* world, float[4][] lights, float[3] viewer)
-{
-	int half = LIGHTS_SIZE / 2;
-	BlockPos origin = { step_of(viewer[0]) - half, step_of(viewer[1]) - half, step_of(viewer[2]) - half };
-	Vec{long} key;
-	key.push((long)world.revision());
-	key.push(origin.x);
-	key.push(origin.y);
-	key.push(origin.z);
-	foreach (l : lights)
-	{
-		key.push((long)math::floor(l[0]));
-		key.push((long)math::floor(l[1]));
-		key.push((long)math::floor(l[2]));
-		key.push((long)l[3]);
-	}
-	self.count = (int)lights.len;
-	if (key.array_view() == self.key.array_view())
-	{
-		key.free();
-		return false;
-	}
-	self.key.free();
-	self.key = key;
-	self.origin = origin;
-	self.volume.clear();
-	if (lights.len) world.held_light(origin, LIGHTS_SIZE, lights, &self.volume);
-	return true;
-}
-
-fn int HandLights.level_at(&self, float[3] at)
-{
-	if (self.volume.is_empty()) return 0;
-	int x = (int)math::floor(at[0]) - self.origin.x;
-	int y = (int)math::floor(at[1]) - self.origin.y;
-	int z = (int)math::floor(at[2]) - self.origin.z;
-	if (x < 0 || y < 0 || z < 0 || x >= LIGHTS_SIZE || y >= LIGHTS_SIZE || z >= LIGHTS_SIZE) return 0;
-	return self.volume[(sz)((y * LIGHTS_SIZE + z) * LIGHTS_SIZE + x)];
+	int d = 0;
+	for (int k = 0; k < 3; k++) d += math::abs((int)math::floor(at[k]) - (int)math::floor(eye[k]));
+	return math::max(PLAYER_LIGHT - d, 0);
 }
 
 // Each light level is 80% as bright as the one above; level 0 is dark.
@@ -83,15 +32,15 @@ const float[3] BLOCK_LIGHT_COLOR = { 1.0f, 0.85f, 0.62f };
 
 // Light for what isn't terrain (dropped and held items, the hand), worked out
 // like the terrain shader does: sky light times `sky_light` (the day's),
-// placed light and held torches in the block light's colour, the brighter of
-// the two, never below `least`. Linear rgb.
-fn float[3] light_for(World* world, HandLights* hand_lights, float[3] sky_light, float[3] at, float least)
+// placed light and the player's own (from `eye`) in the block light's colour,
+// the brighter of the two, never below `least`. Linear rgb.
+fn float[3] light_for(World* world, float[3] sky_light, float[3] at, float[3] eye, float least)
 {
 	int sky;
 	int block;
 	world.light_at((int)math::floor(at[0]), (int)math::floor(at[1]), (int)math::floor(at[2]), &sky, &block);
 	float s = light_curve((float)sky / 15.0f);
-	float b = light_curve((float)math::max(block, hand_lights.level_at(at)) / 15.0f);
+	float b = light_curve((float)math::max(block, player_light_at(eye, at)) / 15.0f);
 	float[3] out;
 	for (int k = 0; k < 3; k++) out[k] = math::max(math::max(sky_light[k] * s, BLOCK_LIGHT_COLOR[k] * b), least);
 	return out;
@@ -256,7 +205,6 @@ fn void Hand.build(&self, ItemModels* models, String item, float[3] light, Vec{W
 	foreach (mv : models.model(item))
 	{
 		WorldVertex v = { .pos = item_m.point(mv.pos), .normal = mv.normal, .uv = mv.uv, .color = { light[0], light[1], light[2], 1 } };
-		v.set_dye(content::dye_of(item));
 		held.push(v);
 	}
 }

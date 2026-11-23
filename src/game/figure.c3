@@ -1,4 +1,4 @@
-// A jointed figure made of boxes (players, creatures with the "figure" model),
+// A jointed figure made of boxes (players),
 // animated from how it moves. Feet at the origin, facing -z, 1.8 m tall.
 //
 // Joints: hips -> torso (bends at the waist) -> head, shoulders -> upper arm

@@ -205,11 +205,9 @@ fn bool overlaps_block(float[3] feet, BlockPos cell)
 // `block` against the face aimed at. False if nothing happened. What was
 // placed is added to `changes` if given. `occupied` (with its context):
 // whether someone else stands in a cell (no solid block goes there).
-fn bool Player.use_or_place(&self, World* world, BlockRules* rules, String dyed_block, bool sneak, BlockChanges* changes = null,
+fn bool Player.use_or_place(&self, World* world, BlockRules* rules, String block, bool sneak, BlockChanges* changes = null,
 	OccupiedFn occupied = null, void* occupied_context = null) => @pool()
 {
-	String block = content::undyed(dyed_block); // (placed with its dye)
-	Dye dye = content::dye_of(dyed_block);
 	RayHit hit = self.target(world);
 	if (!hit.hit) return false;
 	// Doors open and close (sneak to place against them instead).
@@ -220,10 +218,7 @@ fn bool Player.use_or_place(&self, World* world, BlockRules* rules, String dyed_
 		rules.toggle_door(rules.id_of(hit.block), hit.position, &toggle);
 		if (!toggle.is_empty())
 		{
-			foreach (t : toggle) // (a dyed door stays dyed)
-			{
-				world.set_block(t.pos, (BlockId)math::max(0, rules.index_of(t.id)), world.dye_at(t.pos.x, t.pos.y, t.pos.z));
-			}
+			foreach (t : toggle) world.set_block(t.pos, (BlockId)math::max(0, rules.index_of(t.id)));
 			return true;
 		}
 	}
@@ -248,7 +243,7 @@ fn bool Player.use_or_place(&self, World* world, BlockRules* rules, String dyed_
 		{
 			return false; // occupied (e.g. no room for a door's upper half), or not loaded
 		}
-		// A torch or ladder needs something to hang on; a door's upper half
+		// A ladder needs something to hang on; a door's upper half
 		// stands on its lower half, placed along with it.
 		bool on_lower = false;
 		foreach (p2 : places)
@@ -269,7 +264,7 @@ fn bool Player.use_or_place(&self, World* world, BlockRules* rules, String dyed_
 		int index = rules.index_of(pl.id);
 		if (index > 0)
 		{
-			world.set_block(pl.pos, (BlockId)index, dye);
+			world.set_block(pl.pos, (BlockId)index);
 			if (changes) changes.push({ pl.pos, intern::intern(pl.id), true });
 		}
 	}

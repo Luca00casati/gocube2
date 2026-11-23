@@ -1,10 +1,13 @@
 // Draws the UI's commands (ui/gui) with Direct3D 11 over the back buffer, one
 // shader for everything (shaders/gui.hlsl): rectangles (rounded, outlined,
 // gradients) worked out per pixel, text from a glyph atlas, item icons from
-// the block atlas (nearest-neighbour, as the world's pixels; dyed in the
-// shader). Text is in Segoe UI (Windows' UI font), its glyphs rasterized by
-// GDI (greyscale) and laid out here: word wrap, newlines, whole-pixel
-// advances; no kerning and no shaping (complex scripts), no fallback fonts.
+// the block atlas (nearest-neighbour, as the world's pixels). Text is in
+// Segoe UI (Windows' UI font): GDI draws each glyph at SUPERSAMPLE times the
+// size (greyscale), scaled down here, so it keeps its shape (GDI's hinting
+// at small sizes snaps stems and widths to whole pixels: uneven, blotchy
+// text); laid out here with fractional advances, each glyph on a whole pixel:
+// word wrap, newlines; no kerning and no shaping (complex scripts), no
+// fallback fonts.
 // It sets all the Direct3D state it draws with (the world's renderers set
 // theirs again each frame).
 module gocube::gui_d3d;
@@ -12,6 +15,7 @@ import gocube::gui, gocube::d3d11, gocube::shaders, gocube::win, gocube::log, go
 import std::math;
 
 const int GLYPH_ATLAS = 1024; // pixels square (R8: 1 MB)
+const int SUPERSAMPLE = 4;    // glyphs drawn this many times the size, then scaled down
 const sz BATCH = 6 * 4096;    // vertices per draw call at most
 // shaders/gui.hlsl's modes.
 const float MODE_FILL @private = 0;
@@ -22,9 +26,9 @@ const float MODE_ICON @private = 3;
 struct GuiVertex
 {
 	float x, y, u, v;
-	uint color, dye; // RGBA8
+	uint color; // RGBA8
 	float[4] rect;
-	float[4] params; // rounding, thickness, mode, average brightness
+	float[4] params; // rounding, thickness, mode, 0
 }
 
 struct Glyph
@@ -32,6 +36,7 @@ struct Glyph
 	float advance;
 	int w, h;   // the bitmap (0: nothing to draw)
 	int ox, oy; // its top left from the pen, on the line's top
+	int sx, sy; // where GDI's (big) bitmap starts in the first pixel, in big pixels
 	int ax, ay; // where it is in the glyph atlas (-1: not there)
 }
 
@@ -80,7 +85,6 @@ struct GuiD3D
 	int shelf_x, shelf_y, shelf_h; // packing the glyph atlas
 	Vec{GuiVertex} verts;
 	Vec{float[4]} tiles;  // each icon's uv rectangle
-	Vec{float} tile_lum;  // each tile's average brightness (-1: no pixels of its own)
 }
 
 fn uint rgba8(Color c) @private => (uint)c.r | (uint)c.g << 8 | (uint)c.b << 16 | (uint)c.a << 24;
@@ -105,13 +109,12 @@ fn bool GuiD3D.init(&self, Device* device, DeviceContext* context)
 {
 	self.device = device;
 	self.ctx = context;
-	InputElementDesc[6] elements = {
+	InputElementDesc[5] elements = {
 		{ "POSITION", 0, d3d11::FORMAT_R32G32_FLOAT, 0, 0, 0, 0 },
 		{ "TEXCOORD", 0, d3d11::FORMAT_R32G32_FLOAT, 0, 8, 0, 0 },
 		{ "COLOR", 0, d3d11::FORMAT_R8G8B8A8_UNORM, 0, 16, 0, 0 },
-		{ "COLOR", 1, d3d11::FORMAT_R8G8B8A8_UNORM, 0, 20, 0, 0 },
-		{ "TEXCOORD", 1, d3d11::FORMAT_R32G32B32A32_FLOAT, 0, 24, 0, 0 },
-		{ "TEXCOORD", 2, d3d11::FORMAT_R32G32B32A32_FLOAT, 0, 40, 0, 0 },
+		{ "TEXCOORD", 1, d3d11::FORMAT_R32G32B32A32_FLOAT, 0, 20, 0, 0 },
+		{ "TEXCOORD", 2, d3d11::FORMAT_R32G32B32A32_FLOAT, 0, 36, 0, 0 },
 	};
 	BufferDesc vbd = { .byte_width = (uint)(BATCH * GuiVertex::size), .usage = d3d11::USAGE_DYNAMIC, .bind_flags = d3d11::BIND_VERTEX_BUFFER,
 		.cpu_access_flags = d3d11::CPU_ACCESS_WRITE };
@@ -155,7 +158,6 @@ fn void GuiD3D.free(&self)
 	foreach (o : objects) d3d11::release(o);
 	self.verts.free();
 	self.tiles.free();
-	self.tile_lum.free();
 	*self = {};
 }
 
@@ -168,7 +170,7 @@ fn Font* GuiD3D.font(&self, float size)
 	self.fonts[px] = f;
 	f.px = px;
 	// (A negative height is the em size: what a font size means elsewhere.)
-	f.gdi = win::create_font(-px, 0, 0, 0, win::FW_NORMAL, 0, 0, 0, win::DEFAULT_CHARSET, win::OUT_TT_PRECIS, win::CLIP_DEFAULT_PRECIS,
+	f.gdi = win::create_font(-px * SUPERSAMPLE, 0, 0, 0, win::FW_NORMAL, 0, 0, 0, win::DEFAULT_CHARSET, win::OUT_TT_PRECIS, win::CLIP_DEFAULT_PRECIS,
 		win::ANTIALIASED_QUALITY, 0, @wstring("Segoe UI"));
 	TextMetric tm;
 	if (self.dc && f.gdi)
@@ -176,10 +178,12 @@ fn Font* GuiD3D.font(&self, float size)
 		win::select_object(self.dc, f.gdi);
 		win::get_text_metrics(self.dc, &tm);
 	}
-	f.ascent = tm.height > 0 ? (float)tm.ascent : math::round(px * 1.07f);
-	f.line = tm.height > 0 ? (float)(tm.height + tm.external_leading) : math::round(px * 1.33f);
+	f.ascent = math::round(tm.height > 0 ? (float)tm.ascent / SUPERSAMPLE : px * 1.07f);
+	f.line = math::round(tm.height > 0 ? (float)(tm.height + tm.external_leading) / SUPERSAMPLE : px * 1.33f);
 	return f;
 }
+
+fn int floor_div(int v, int d) @private => v >= 0 ? v / d : -((-v + d - 1) / d);
 
 fn uint gdi_char(uint cp) @private => cp > 0xffff || (cp >= 0xd800 && cp < 0xe000) ? 0xfffd : cp; // (GDI takes UTF-16 units)
 
@@ -205,13 +209,19 @@ fn Glyph* GuiD3D.glyph(&self, Font* f, uint cp)
 		}
 		else if (bytes != win::GDI_ERROR)
 		{
-			g.advance = (float)gm.cell_inc_x;
+			g.advance = (float)gm.cell_inc_x / SUPERSAMPLE;
 			if (bytes > 0) // (none for spaces)
 			{
-				g.w = (int)gm.black_box_x;
-				g.h = (int)gm.black_box_y;
-				g.ox = gm.glyph_origin.x;
-				g.oy = (int)f.ascent - gm.glyph_origin.y;
+				// The big bitmap's corner, from the pen on the line's top (the
+				// baseline on a whole pixel), split into pixels and the rest.
+				int left = gm.glyph_origin.x;
+				int top = (int)f.ascent * SUPERSAMPLE - gm.glyph_origin.y;
+				g.ox = floor_div(left, SUPERSAMPLE);
+				g.oy = floor_div(top, SUPERSAMPLE);
+				g.sx = left - g.ox * SUPERSAMPLE;
+				g.sy = top - g.oy * SUPERSAMPLE;
+				g.w = (g.sx + (int)gm.black_box_x + SUPERSAMPLE - 1) / SUPERSAMPLE;
+				g.h = (g.sy + (int)gm.black_box_y + SUPERSAMPLE - 1) / SUPERSAMPLE;
 			}
 		}
 	}
@@ -243,16 +253,30 @@ fn bool GuiD3D.to_atlas(&self, Font* f, uint cp, Glyph* g)
 	char[] raw = mem::new_array(char, bytes);
 	defer free(raw.ptr);
 	win::get_glyph_outline(self.dc, drawn, win::GGO_GRAY8_BITMAP, &gm, bytes, raw.ptr, &&win::MAT2_IDENTITY);
-	// Rows are DWORD-aligned, 65 levels (0..64).
-	int pitch = (g.w + 3) & ~3;
+	// Rows are DWORD-aligned, 65 levels (0..64); each pixel here is the
+	// average of SUPERSAMPLE x SUPERSAMPLE of them.
+	int bw = (int)gm.black_box_x;
+	int bh = (int)gm.black_box_y;
+	int pitch = (bw + 3) & ~3;
 	char[] px = mem::new_array(char, (sz)g.w * g.h);
 	defer free(px.ptr);
 	for (int y = 0; y < g.h; y++)
 	{
 		for (int x = 0; x < g.w; x++)
 		{
-			sz at = (sz)y * pitch + x;
-			px[(sz)y * g.w + x] = at < raw.len ? (char)math::min(255, (int)raw[at] * 255 / 64) : 0;
+			int sum = 0;
+			for (int j = 0; j < SUPERSAMPLE; j++)
+			{
+				int by = y * SUPERSAMPLE + j - g.sy;
+				if (by < 0 || by >= bh) continue;
+				for (int i = 0; i < SUPERSAMPLE; i++)
+				{
+					int bx = x * SUPERSAMPLE + i - g.sx;
+					sz at = (sz)by * pitch + bx;
+					if (bx >= 0 && bx < bw && at < raw.len) sum += raw[at];
+				}
+			}
+			px[(sz)y * g.w + x] = (char)math::min(255, sum * 255 / (64 * SUPERSAMPLE * SUPERSAMPLE));
 		}
 	}
 	g.ax = self.shelf_x;
@@ -343,7 +367,6 @@ fn void GuiD3D.set_icons(&self, Atlas* atlas)
 	d3d11::release(self.icon_view);
 	self.icon_view = null;
 	self.tiles.clear();
-	self.tile_lum.clear();
 	if (!self.device || atlas.width <= 0 || atlas.height <= 0 || atlas.rgba.len < (sz)atlas.width * atlas.height * 4) return;
 	Texture2DDesc td = { .width = (uint)atlas.width, .height = (uint)atlas.height, .mip_levels = 1, .array_size = 1, .format = d3d11::FORMAT_R8G8B8A8_UNORM,
 		.sample_count = 1, .usage = d3d11::USAGE_IMMUTABLE, .bind_flags = d3d11::BIND_SHADER_RESOURCE };
@@ -365,27 +388,10 @@ fn void GuiD3D.set_icons(&self, Atlas* atlas)
 		float[4] uv;
 		atlas.tile_uv((int)t, &uv);
 		self.tiles.push(uv);
-		// The tile's average brightness (its seen pixels), for dyeing.
-		float lum = -1;
-		if (src.len == content::TILE * content::TILE * 4)
-		{
-			float sum = 0;
-			float seen = 0;
-			for (sz i = 0; i + 3 < src.len; i += 4)
-			{
-				if (src[i + 3] > 0)
-				{
-					sum += content::pixel_lum(&src[i]);
-					seen++;
-				}
-			}
-			lum = seen > 0 ? sum / seen : 0.5f;
-		}
-		self.tile_lum.push(lum);
 	}
 }
 
-fn void GuiD3D.quad(&self, Area r, float[4] uv, uint c0, uint c1, bool vertical, uint dye, float[4] rect, float[4] params)
+fn void GuiD3D.quad(&self, Area r, float[4] uv, uint c0, uint c1, bool vertical, float[4] rect, float[4] params)
 {
 	if (self.verts.len() + 6 > BATCH) self.flush();
 	// Corners: top left, top right, bottom left, bottom right; c0 at the start, c1 at the end.
@@ -393,12 +399,12 @@ fn void GuiD3D.quad(&self, Area r, float[4] uv, uint c0, uint c1, bool vertical,
 	uint tr = vertical ? c0 : c1;
 	uint bl = vertical ? c1 : c0;
 	uint br = c1;
-	self.verts.push({ r.x0, r.y0, uv[0], uv[1], tl, dye, rect, params });
-	self.verts.push({ r.x1, r.y0, uv[2], uv[1], tr, dye, rect, params });
-	self.verts.push({ r.x0, r.y1, uv[0], uv[3], bl, dye, rect, params });
-	self.verts.push({ r.x1, r.y0, uv[2], uv[1], tr, dye, rect, params });
-	self.verts.push({ r.x1, r.y1, uv[2], uv[3], br, dye, rect, params });
-	self.verts.push({ r.x0, r.y1, uv[0], uv[3], bl, dye, rect, params });
+	self.verts.push({ r.x0, r.y0, uv[0], uv[1], tl, rect, params });
+	self.verts.push({ r.x1, r.y0, uv[2], uv[1], tr, rect, params });
+	self.verts.push({ r.x0, r.y1, uv[0], uv[3], bl, rect, params });
+	self.verts.push({ r.x1, r.y0, uv[2], uv[1], tr, rect, params });
+	self.verts.push({ r.x1, r.y1, uv[2], uv[3], br, rect, params });
+	self.verts.push({ r.x0, r.y1, uv[0], uv[3], bl, rect, params });
 }
 
 fn void GuiD3D.flush(&self)
@@ -469,10 +475,10 @@ fn void GuiD3D.draw(&self, int width, int height, DrawCmd[] cmds)
 			case STROKE:
 				bool fill = c.type == FILL;
 				// (A pixel wider each way, for the smoothed edge.)
-				self.quad({ c.rect.x0 - 1, c.rect.y0 - 1, c.rect.x1 + 1, c.rect.y1 + 1 }, none, rgba8(c.color), rgba8(c.color), true, 0, rect,
+				self.quad({ c.rect.x0 - 1, c.rect.y0 - 1, c.rect.x1 + 1, c.rect.y1 + 1 }, none, rgba8(c.color), rgba8(c.color), true, rect,
 					{ c.rounding, fill ? 0 : c.thickness, fill ? MODE_FILL : MODE_STROKE, 0 });
 			case GRADIENT:
-				self.quad(c.rect, none, rgba8(c.color), rgba8(c.color2), c.vertical, 0, rect, { 0, 0, MODE_FILL, 0 });
+				self.quad(c.rect, none, rgba8(c.color), rgba8(c.color2), c.vertical, rect, { 0, 0, MODE_FILL, 0 });
 			case TEXT:
 				Layout* l = self.layout(c.text, c.size, c.wrap);
 				Font* f = self.font(c.size);
@@ -495,20 +501,16 @@ fn void GuiD3D.draw(&self, int width, int height, DrawCmd[] cmds)
 						if (!self.to_atlas(f, p.cp, g)) continue;
 					}
 					if (g.ax < 0 || g.w <= 0) continue;
-					float x = x0 + p.x + (float)g.ox;
+					float x = math::round(x0 + p.x) + (float)g.ox; // (on a whole pixel: sampled nearest)
 					float y = y0 + p.y + (float)g.oy;
 					float s = 1.0f / GLYPH_ATLAS;
-					self.quad({ x, y, x + (float)g.w, y + (float)g.h }, { (float)g.ax * s, (float)g.ay * s, (float)(g.ax + g.w) * s, (float)(g.ay + g.h) * s }, color, color, true, 0,
+					self.quad({ x, y, x + (float)g.w, y + (float)g.h }, { (float)g.ax * s, (float)g.ay * s, (float)(g.ax + g.w) * s, (float)(g.ay + g.h) * s }, color, color, true,
 						none, { 0, 0, MODE_GLYPH, 0 });
 				}
 			case IMAGE:
 				if (!self.icon_view || c.image < 0 || c.image >= self.tiles.len()) break;
-				float lum = self.tile_lum[c.image];
-				bool dyed = c.dye != 0 && lum >= 0;
-				// The dye as RGBA8 (a Dye is 0xFFRRGGBB); alpha 255 says dyed.
-				uint dye = dyed ? (c.dye >> 16 & 255) | (c.dye & 0xff00) | (c.dye & 255) << 16 | 0xff000000u : 0;
 				uint color = (uint)c.color.a << 24 | 0xffffff;
-				self.quad(c.rect, self.tiles[c.image], color, color, true, dye, none, { 0, 0, MODE_ICON, lum });
+				self.quad(c.rect, self.tiles[c.image], color, color, true, none, { 0, 0, MODE_ICON, 0 });
 			case CLIP:
 				self.flush();
 				clips.push(c.rect);
