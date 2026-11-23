@@ -139,6 +139,21 @@ def wind():
     write("sounds/wind.wav", loop, 0.6)
 
 
+# --- The hum near the empty structures (a loop) ---------------------------------------------
+
+def hum():
+    seconds = 12.0
+    n = int(seconds * RATE)
+    # Every frequency a multiple of 1 / seconds: the loop joins without a click.
+    parts = ((55.0, 0.5), (55.25, 0.45), (82.5, 0.25), (110.5, 0.12), (165.0, 0.05))
+    out = []
+    for i in range(n):
+        t = i / RATE
+        swell = 0.75 + 0.25 * math.sin(2 * math.pi * 2 * t / seconds)
+        out.append(swell * sum(a * math.sin(2 * math.pi * f * t) for f, a in parts))
+    write("sounds/hum.wav", out, 0.6)
+
+
 # --- Cave sounds -------------------------------------------------------------------------
 
 def rumble():
@@ -272,22 +287,21 @@ def piano(out, start, midi, velocity, length=4.0):
 
 
 def piece(path, seed, scale, root, bars, beat):
-    """Bars of four beats: a low note now and then, a few melody notes
-    wandering the scale, long rests between phrases."""
+    """Bars of four beats: a soft low note now and then, one to three
+    melody notes wandering the scale, and many bars of rest: more silence
+    than notes."""
     rng = random.Random(seed)
     seconds = bars * 4 * beat + 6.0
     out = [0.0] * int(seconds * RATE)
     degree = rng.randrange(len(scale))
     t = 1.0
     for bar in range(bars):
-        if bar % 2 == 0 or rng.random() < 0.3:
+        if bar % 4 == 0 or rng.random() < 0.15:
             bass = root - 12 + scale[rng.choice((0, 0, 2, 3))]
-            piano(out, t, bass, 0.5, 5.0)
-            if rng.random() < 0.5:
-                piano(out, t + 0.02, bass + 7, 0.25, 4.5)
-        resting = rng.random() < 0.3 and bar not in (0, bars - 1)
+            piano(out, t, bass, 0.26, 4.0)
+        resting = rng.random() < 0.45 and bar not in (0, bars - 1)
         if not resting:
-            beats = sorted(rng.sample(range(8), rng.choice((2, 3, 3, 4))))
+            beats = sorted(rng.sample(range(8), rng.choice((1, 2, 2, 3))))
             for b in beats:
                 degree = max(0, min(len(scale) * 2 - 1, degree + rng.choice((-2, -1, -1, 1, 1, 2, 0))))
                 midi = root + 12 * (degree // len(scale)) + scale[degree % len(scale)]
@@ -305,6 +319,7 @@ def piece(path, seed, scale, root, bars, beat):
 
 if __name__ == "__main__":
     wind()
+    hum()
     rumble()
     scrape()
     drip()

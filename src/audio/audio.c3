@@ -2,22 +2,24 @@
 // "sound_sets": a list of files per kind), a random one of its files, its
 // pitch varied a little so repeats don't sound the same, heard from where it
 // is (full volume within UNIT_SIZE blocks, then falling off, silent beyond
-// MAX_DISTANCE). A wind loop, as loud as the game says (set_wind: how open
-// it is around), and now and then a piece of music (play_music: in both
-// ears, one at a time); underwater, everything is muffled.
+// MAX_DISTANCE). Two loops as loud as the game says: the wind (set_wind:
+// how open it is around) and a low hum (set_hum); now and then a piece of
+// music (play_music: in both ears, one at a time); underwater, everything
+// is muffled.
 //
 // Sounds (.wav) are read once and kept; at most VOICES play at a time (the
 // oldest stops for a new one). How loud each is in each ear and the
 // underwater filter are audio/mixing's. Without a sound device the game runs
 // silent; when the device goes, sound starts again on the default one.
 module gocube::audio @link("xaudio2", "ole32");
-import gocube::sound, gocube::content, gocube::data, gocube::log, gocube::win, gocube::util::vec, gocube::util::map, gocube::util::rand;
-import std::math, std::atomic;
+import gocube::sound, gocube::fs, gocube::content, gocube::data, gocube::log, gocube::win, gocube::util::vec, gocube::util::map, gocube::util::rand;
+import std::math, std::atomic, std::thread, std::io;
 
 const float MAX_DISTANCE = 32.0f;
 const float UNIT_SIZE = 6.0f;
 const float AMBIENCE_DB = -12.0f;
-const float MUSIC_DB = -4.0f;
+const float MUSIC_DB = -8.0f;
+const float HUM_DB = -14.0f;
 const int VOICES = 24;
 const float MUFFLE_HZ @private = 700.0f; // the underwater low-pass
 
@@ -278,14 +280,90 @@ fn void muffle_process(Muffle* self, uint in_count, ProcessParameters* in, uint 
 	// (and the filter's state waits, as a filter nothing goes through would).
 	out[0].flags = in[0].flags;
 	out[0].valid_frame_count = in[0].valid_frame_count;
-	if (!enabled) return;
 	float* samples = in[0].buffer;
-	if (in[0].flags == 0) // silent (silence still lets the filter's tail out)
+	if (enabled)
 	{
-		mem::clear(samples, (usz)in[0].valid_frame_count * self.channels * 4);
-		out[0].flags = 1;
+		if (in[0].flags == 0) // silent (silence still lets the filter's tail out)
+		{
+			mem::clear(samples, (usz)in[0].valid_frame_count * self.channels * 4);
+			out[0].flags = 1;
+		}
+		sound::lowpass(samples, in[0].valid_frame_count, (int)self.channels, self.a, &self.state);
 	}
-	sound::lowpass(samples, in[0].valid_frame_count, (int)self.channels, self.a, &self.state);
+	record(out[0].flags != 0 ? samples : null, in[0].valid_frame_count * self.channels);
+}
+
+// --- Recording what's heard (--record) ---------------------------------------------------
+// Every sample of the mix (after the underwater filter: what goes to the
+// speakers, before the master volume), kept from start_recording() and
+// written out by save_recording().
+
+struct Recording @private
+{
+	Mutex mutex;
+	bool on;
+	Vec{float} samples;
+}
+
+Recording recording @private;
+
+fn void recording_init() @init @private => recording.mutex.init()!!;
+
+// (The audio thread's: `samples` null for silence.)
+fn void record(float* samples, uint count) @private
+{
+	if (!recording.on) return;
+	recording.mutex.lock();
+	defer recording.mutex.unlock();
+	for (uint i = 0; i < count; i++) recording.samples.push(samples ? samples[i] : 0.0f);
+}
+
+fn void Audio.start_recording(&self)
+{
+	recording.mutex.lock();
+	recording.samples.clear();
+	recording.on = true;
+	recording.mutex.unlock();
+}
+
+fn void put_u32(Vec{char}* o, uint v) @private { for (int k = 0; k < 4; k++) o.push((char)(v >> (k * 8))); }
+fn void put_u16(Vec{char}* o, ushort v) @private { o.push((char)v); o.push((char)(v >> 8)); }
+
+// Writes what was heard since start_recording() to `path` (a 32-bit float
+// stereo WAV at the device's rate) and stops recording. False if it
+// couldn't (or there was no sound).
+fn bool Audio.save_recording(&self, String path) => @pool()
+{
+	if (!self.master) return false;
+	VoiceDetails details;
+	self.master.details(&details);
+	recording.mutex.lock();
+	recording.on = false;
+	Vec{float} samples = recording.samples;
+	recording.samples = {};
+	recording.mutex.unlock();
+	defer samples.free();
+	uint rate = details.input_sample_rate;
+	uint bytes = (uint)samples.len() * 4;
+	Vec{char} out;
+	defer out.free();
+	foreach (c : "RIFF") out.push(c);
+	put_u32(&out, 36 + bytes);
+	foreach (c : "WAVEfmt ") out.push(c);
+	put_u32(&out, 16);
+	put_u16(&out, WAVE_FORMAT_IEEE_FLOAT);
+	put_u16(&out, 2);
+	put_u32(&out, rate);
+	put_u32(&out, rate * 8);
+	put_u16(&out, 8);
+	put_u16(&out, 32);
+	foreach (c : "data") out.push(c);
+	put_u32(&out, bytes);
+	char* raw = (char*)samples.items;
+	for (uint i = 0; i < bytes; i++) out.push(raw[i]);
+	bool ok = fs::save_atomically(path, out.array_view());
+	log::log("Recorded %.1f s of sound to %s", (double)samples.len() / 2.0 / (double)math::max(rate, 1u), path);
+	return ok;
 }
 
 fn uint muffle_frames(Muffle* self, uint frames) @private => frames;
@@ -345,10 +423,10 @@ struct Audio
 	bool ok;
 	Map{String, Sound*} loaded; // by path (keys owned; never moved: voices point into them)
 	Vec{Voice} voices;
-	Voice wind, music;
-	String wind_path; // (heap)
+	Voice wind, hum, music;
+	String wind_path, hum_path; // (heap)
 	float[3] listener, forward;
-	float master_volume, effects, ambience, music_volume, wind_amount;
+	float master_volume, effects, ambience, music_volume, wind_amount, hum_amount;
 	bool underwater;
 }
 
@@ -442,7 +520,7 @@ fn void Audio.stop_engine(&self)
 	self.ok = false;
 	foreach (&v : self.voices) v.voice.destroy();
 	self.voices.clear();
-	foreach (v : (Voice*[2]){ &self.wind, &self.music })
+	foreach (v : (Voice*[3]){ &self.wind, &self.hum, &self.music })
 	{
 		if (v.voice) v.voice.destroy();
 		v.voice = null;
@@ -465,21 +543,27 @@ fn void Audio.unplaced(&self, Voice* v)
 	v.voice.set_output_matrix(self.all, v.sound.wav.channels, 2, &matrix);
 }
 
-fn void Audio.start_ambience(&self)
+fn void Audio.start_loop(&self, Voice* v, String path)
 {
-	Voice* v = &self.wind;
-	v.sound = self.wind_path.len ? self.load(self.wind_path) : null;
+	v.sound = path.len ? self.load(path) : null;
 	v.voice = v.sound ? self.start_voice(v.sound, true) : null;
 	if (!v.voice) return;
 	self.unplaced(v);
 	v.voice.set_volume(0.0f);
 	v.voice.start();
+}
+
+fn void Audio.start_ambience(&self)
+{
+	self.start_loop(&self.wind, self.wind_path);
+	self.start_loop(&self.hum, self.hum_path);
 	self.apply_ambience();
 }
 
 fn void Audio.apply_ambience(&self)
 {
 	if (self.wind.voice) self.wind.voice.set_volume(db_to_linear(AMBIENCE_DB) * self.ambience * self.wind_amount);
+	if (self.hum.voice) self.hum.voice.set_volume(db_to_linear(HUM_DB) * self.ambience * self.hum_amount);
 	if (self.music.voice) self.music.voice.set_volume(db_to_linear(MUSIC_DB) * self.music_volume);
 }
 
@@ -503,6 +587,7 @@ fn bool Audio.init(&self, Content* content, float master_volume = 1.0f)
 		.music_volume = 1 };
 	self.com = co_initialize_ex(null, 0) >= 0; // (COINIT_MULTITHREADED; RPC_E_CHANGED_MODE: COM is already up on this thread)
 	self.wind_path = self.pick("core:ambience", "wind");
+	self.hum_path = self.pick("core:ambience", "hum");
 	self.start_engine();
 	if (!self.ok) return false;
 	self.start_ambience();
@@ -521,6 +606,7 @@ fn void Audio.free(&self)
 	self.loaded.free();
 	self.voices.free();
 	if (self.wind_path.len) free(self.wind_path.ptr);
+	if (self.hum_path.len) free(self.hum_path.ptr);
 	if (self.com) co_uninitialize();
 	*self = {};
 }
@@ -566,6 +652,13 @@ fn void Audio.set_listener(&self, float[3] position, float[3] forward)
 fn void Audio.set_wind(&self, float amount)
 {
 	self.wind_amount = math::clamp(amount, 0.0f, 1.0f);
+	self.apply_ambience();
+}
+
+// How loud the hum: 0 .. 1 (right by one).
+fn void Audio.set_hum(&self, float amount)
+{
+	self.hum_amount = math::clamp(amount, 0.0f, 1.0f);
 	self.apply_ambience();
 }
 

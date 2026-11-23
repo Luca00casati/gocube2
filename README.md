@@ -11,14 +11,21 @@ moon lights the land and casts the block shadows, and goes through its
 phases: a new moon's night is very dark); an orange-red haze at sunset; fog,
 block shadows, light from lamps and a little of the player's own, dropped
 blocks and a first-person arm in your skin.
-A lonely mood: wind out in the open, rare strange sounds underground, now
-and then a slow piano piece between long silences (the sounds are made by
-`tools/make_mood_sounds.py`).
+A lonely, uncanny mood: wind out in the open that sometimes stops dead,
+rare strange sounds underground and your footsteps coming back late, a
+block breaking far off with nobody there, a low hum near the empty
+structures, fog that closes in for a while, some nights a small light far
+off that's gone when you come near, and now and then a slow piano piece
+between long silences (the sounds are made by `tools/make_mood_sounds.py`).
+To check it without listening: `--record=DIR` saves frames and everything
+heard, and `tools/review_audio.py DIR/audio.wav` draws it.
 The terrain comes from 3D noise: hills, cliffs, overhangs, seas with sand and
 gravel beaches, caves and lava deep down, huge dark hollows and ravines,
 rare floating islands and perfectly flat patches, and here and there an
 empty structure nobody explains (a pillar, a dirt hut, a shaft to a tunnel
-that goes nowhere, a broken wall). Players wear skins in the
+that goes nowhere, a broken wall) or something just wrong (sand hanging in
+the air, a perfect cube of stone, a tree with no leaves); deep down, tunnels
+dead straight for a hundred blocks. Players wear skins in the
 usual box-figure layout (`%APPDATA%\GoCube\skin.png`, 64x64 or 64x32, a
 PNG with see-through parts), and everyone sees each player's. The game's
 content is data (`content/content.json`: blocks, trees,

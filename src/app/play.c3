@@ -8,7 +8,7 @@ import gocube::game::figure, gocube::game::inventory, gocube::game::drops, gocub
 import gocube::content, gocube::content::item_models, gocube::content::skin, gocube::content::image, gocube::data, gocube::voxel;
 import gocube::world, gocube::world::save, gocube::net::session, gocube::profiler, gocube::mat, gocube::maths, gocube::log, gocube::win;
 import gocube::clock, gocube::d3d11, gocube::util::vec, gocube::util::rand, gocube::util::intern;
-import std::math, std::io::file;
+import std::math, std::io::file, std::io::path;
 
 enum End : char
 {
@@ -217,6 +217,7 @@ struct Playing
 	float accumulator;
 	double start, last, last_save;
 	long frame;
+	long recorded; // frames counted for --record
 	End end;
 	bool quit_requested;
 	float sleeping;  // seconds asleep (-1: awake)
@@ -235,6 +236,7 @@ struct Playing
 
 fn void Playing.free(&self)
 {
+	if (self.options.record.len && self.loaded_parts) self.audio.save_recording(string::tformat("%s/audio.wav", self.options.record));
 	if (self.loaded_parts)
 	{
 		self.session.leave();
@@ -250,6 +252,7 @@ fn void Playing.free(&self)
 	self.session.free();
 	self.content.free();
 	self.chat.free();
+	self.mood.free();
 	self.puffs.free();
 	self.say.free();
 	self.my_skin.free();
@@ -465,7 +468,13 @@ fn End Playing.run(&self)
 		self.window.set_mouse_captured(false);
 	}
 	self.item_models = { .content = &self.content, .table = &self.table };
-	if (!options.no_sound && (!options.hidden || options.sound)) self.audio.init(&self.content, options.hidden ? 0.0f : 1.0f);
+	if (!options.no_sound && (!options.hidden || options.sound || options.record.len)) self.audio.init(&self.content, options.hidden ? 0.0f : 1.0f);
+	if (options.record.len)
+	{
+		(void)path::mkdir(path::tnew(options.record)!!, true);
+		self.audio.start_recording();
+	}
+	if (options.mood_test) self.mood.test = true;
 	self.seen_swings = game.swings;
 	self.day.time = day_cycle::new().time; // a new world starts in the morning
 	if (self.has_save)
@@ -794,6 +803,16 @@ fn bool Playing.step(&self)
 		window.set_mouse_captured(false);
 		if (self.joining) session.open_container(self.container); // (its contents come from the host)
 	}
+	// Recordings: fly and turn by themselves.
+	if (!paused && (options.has_move || options.turn != 0))
+	{
+		for (int k = 0; k < 3; k++)
+		{
+			player.position[k] += options.move[k] * dt;
+			self.previous_position[k] += options.move[k] * dt;
+		}
+		player.yaw += options.turn * maths::PI / 180.0f * dt;
+	}
 	float[3] cam = { self.previous_position[0] + (player.position[0] - self.previous_position[0]) * alpha,
 		self.previous_position[1] + (player.position[1] - self.previous_position[1]) * alpha + player::EYE_HEIGHT,
 		self.previous_position[2] + (player.position[2] - self.previous_position[2]) * alpha };
@@ -825,10 +844,14 @@ fn bool Playing.step(&self)
 	{
 		self.audio.set_listener(cam, self.camera.forward());
 		Vec{SoundEvent} sounds = game.take_sounds();
-		foreach (&e : sounds) self.audio.play(e.set, e.kind, e.at, e.volume_db);
+		foreach (&e : sounds)
+		{
+			self.audio.play(e.set, e.kind, e.at, e.volume_db);
+			if (e.kind == "step") self.mood.heard_step(e.set, cam, self.camera.forward());
+		}
 		sounds.free();
 		self.audio.set_volumes(options.hidden ? 0.0f : settings.master_volume, settings.effects_volume, settings.ambience_volume, settings.music_volume);
-		self.mood.update(&self.audio, &self.world, cam, paused ? 0.0f : dt);
+		self.mood.update(&self.audio, &self.world, &self.generator, cam, self.day.day_amount(), paused ? 0.0f : dt);
 		self.audio.set_underwater(in_fluid);
 		self.audio.update();
 	};
@@ -893,7 +916,12 @@ fn bool Playing.step(&self)
 	bool presented;
 	profiler::@profile("present (UI, GPU, vsync)")
 	{
-		presented = self.renderer.end_frame(&ui_overlay, self.renderer, last_frame ? options.screenshot : "");
+		String shot = last_frame ? options.screenshot : "";
+		if (options.record.len && counting && !shot.len && self.recorded++ % math::max(options.record_every, 1) == 0)
+		{
+			shot = string::tformat("%s/frame_%05d.png", options.record, self.recorded / math::max(options.record_every, 1));
+		}
+		presented = self.renderer.end_frame(&ui_overlay, self.renderer, shot);
 	};
 	if (!presented)
 	{
@@ -1017,6 +1045,13 @@ fn void Playing.draw_world(&self, float dt, float alpha, bool paused)
 		self.day.cloud_offset = { 0.35f * 3.0f, 0.12f * 3.0f };
 	}
 	apply_day(&self.day, (float)view_distance(options), &self.sky);
+	// Underground the distance fades to black, not to the sky's haze.
+	float haze = 0.02f + 0.98f * self.mood.open * self.mood.open;
+	for (int k = 0; k < 3; k++) self.sky.fog_color[k] *= haze;
+	self.sky.sky_ground = self.sky.fog_color;
+	// Now and then the fog closes in for a while.
+	self.sky.fog_start *= self.mood.fog;
+	self.sky.fog_end *= self.mood.fog;
 	self.sky.player_light = hand::PLAYER_LIGHT;
 	r.begin_frame({ self.sky.fog_color[0], self.sky.fog_color[1], self.sky.fog_color[2], 1.0f }, false); // (the sky covers what the world doesn't)
 	float aspect = self.aspect();
@@ -1033,6 +1068,16 @@ fn void Playing.draw_world(&self, float dt, float alpha, bool paused)
 		Vec{WorldVertex} drop_mesh;
 		defer drop_mesh.free();
 		game.drops.build_mesh(&self.item_models, &light_at, self, &drop_mesh);
+		// The far light some nights: glowing, through the fog.
+		Vec{WorldVertex} far_light;
+		defer far_light.free();
+		self.mood.light_mesh(&far_light);
+		if (far_light.len())
+		{
+			SkyParams clear = self.sky;
+			clear.fog_start = clear.fog_end = 1.0e6f;
+			self.chunks.draw_items(far_light.array_view(), vp, self.camera.position, &clear, false);
+		}
 		self.chunks.draw_items(drop_mesh.array_view(), vp, self.camera.position, &self.sky, true);
 		CreatureVertices creature_mesh;
 		defer creature_mesh.free();

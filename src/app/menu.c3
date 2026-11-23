@@ -186,7 +186,7 @@ fn bool title_menu(Options* options, Window* window, Renderer* renderer, TitleMe
 			gu.begin_window("GoCube", { .pos = { gu.in.width * 0.5f, gu.in.height * 0.5f }, .pivot = { 0.5f, 0.5f },
 				.size = { math::min(760.0f, gu.in.width - 40), math::min(680.0f, gu.in.height - 40) } });
 			gu.text("GoCube", 2.0f);
-			gu.text_dim(VERSION);
+			gu.text_dim(title_line());
 			gu.same_line(gu.window_width() - 2 * gu.theme.padding.x - 110);
 			if (gu.button("Settings", { 110, 0 }))
 			{
@@ -311,4 +311,19 @@ fn bool title_menu(Options* options, Window* window, Renderer* renderer, TitleMe
 		};
 	}
 	return chosen; // (false: the window closed, or the test's last frame)
+}
+
+// Under the title: the version, or (one launch in TITLE_ODDS) something else.
+const int TITLE_ODDS @private = 12;
+String title_word @private;
+
+fn String title_line() @private
+{
+	if (!title_word.len)
+	{
+		Rng r = rand::seed_random();
+		String[*] odd = { "you are alone", "0.0.0", "it is quiet here", "still here", "don't dig down", "the light is not yours" };
+		title_word = r.unit() * TITLE_ODDS < 1.0 ? odd[(sz)(r.unit() * odd.len) % odd.len] : VERSION;
+	}
+	return title_word;
 }

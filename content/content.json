@@ -541,6 +541,7 @@
 	},
 	"sound_sets": {
 		"ambience": {
+			"hum": ["sounds/hum.wav"],
 			"wind": ["sounds/wind.wav"]
 		},
 		"cave": {

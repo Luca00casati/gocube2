@@ -4,7 +4,7 @@
 module gocube::voxel::generator_test;
 import gocube::voxel, gocube::util::vec;
 
-const ulong HAND_GENERATOR_HASH = 0x734f9b7ef097877d;
+const ulong HAND_GENERATOR_HASH = 0xdc5dda0206398090;
 
 fn ulong fnv(ulong h, void* data, sz size)
 {

@@ -20,6 +20,13 @@
 //   --frames=N       quit after N frames (with --screenshot: counted from
 //                    when the world around has finished loading)
 //   --screenshot=F   save the last frame as a PNG
+//   --record=DIR     record for review: every --record-every frame (default
+//                    30) as DIR/frame_NNNNN.png, once the world around has
+//                    loaded, and everything heard as DIR/audio.wav (written
+//                    when the game ends; tools/review_audio.py shows it)
+//   --move=X,Y,Z     fly this many blocks a second (recordings)
+//   --turn=DEG       turn this many degrees a second (recordings)
+//   --mood-test      music at once, a cave sound every few seconds
 //   --render-scale=F draw the world at this part of the window's resolution
 //   --screen=inventory|settings|chat  a screen open at the start
 //   --say=LINE       type LINE into the chat once the world has loaded
@@ -42,6 +49,12 @@ struct Options
 	bool hidden, no_sound, sound;
 	long frames;          // 0: until the window is closed
 	String screenshot;
+	String record;        // the folder recordings go in ("": none)
+	int record_every;
+	bool has_move;
+	float[3] move;
+	float turn;           // degrees a second
+	bool mood_test;
 	String world_name;
 	String world_dir;
 	uint seed;
@@ -97,7 +110,7 @@ fn float[3] floats3(String s, bool* ok) @private
 
 fn Options parse(String[] args) => @pool()
 {
-	Options o = { .renderer = { .vsync = true }, .seed = 777, .mode = "survival", .time = -1, .join_port = session::DEFAULT_PORT, .name = "Player" };
+	Options o = { .renderer = { .vsync = true }, .seed = 777, .mode = "survival", .time = -1, .record_every = 30, .join_port = session::DEFAULT_PORT, .name = "Player" };
 	foreach (i, a : args)
 	{
 		if (i == 0) continue;
@@ -108,6 +121,11 @@ fn Options parse(String[] args) => @pool()
 			case a == "--hidden": o.hidden = true;
 			case a.starts_with("--frames="): o.frames = a[9..].to_long() ?? 0;
 			case a.starts_with("--screenshot="): o.screenshot = a[13..];
+			case a.starts_with("--record="): o.record = a[9..];
+			case a.starts_with("--record-every="): o.record_every = (int)(a[15..].to_long() ?? 30);
+			case a.starts_with("--move="): o.move = floats3(a[7..], &o.has_move);
+			case a.starts_with("--turn="): o.turn = a[7..].to_float() ?? 0;
+			case a == "--mood-test": o.mood_test = true;
 			case a.starts_with("--world="): o.world_name = a[8..];
 			case a.starts_with("--world-dir="): o.world_dir = a[12..];
 			case a.starts_with("--seed="): o.seed = (uint)(a[7..].to_long() ?? 777);

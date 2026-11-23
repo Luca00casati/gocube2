@@ -74,7 +74,12 @@ const float FLAT_Y = 10.5f;      // the flat patches' top: y 10
 // Empty structures: at most one in each STRUCTURE_CELL x STRUCTURE_CELL,
 // STRUCTURE_PERCENT of them; no further than STRUCTURE_REACH from its spot.
 const int STRUCTURE_CELL = 80;
-const int STRUCTURE_PERCENT = 18;
+const int STRUCTURE_PERCENT = 24;
+// Dead-straight tunnels deep down: at most one in each TUNNEL_CELL x
+// TUNNEL_CELL, TUNNEL_PERCENT of them, TUNNEL_LENGTH long, 1 x 2.
+const int TUNNEL_CELL = 160;
+const int TUNNEL_PERCENT = 35;
+const int TUNNEL_LENGTH = 100;
 const int STRUCTURE_REACH = 12;
 // The density lattice: a value every LX, LY, LZ blocks (interpolated
 // between), from BOTTOM_Y up LY_COUNT points; solid where above 0.
@@ -583,6 +588,24 @@ fn void Generator.generate(&self, ChunkData* chunk, int ox, int oy, int oz)
 			}
 		}
 	}
+	{
+		TunnelList tunnels;
+		defer tunnels.free();
+		self.tunnels_near(ox, oz, ox + CHUNK, oz + CHUNK, &tunnels);
+		TreeSink sink = { .chunk = chunk, .ox = ox, .oy = oy, .oz = oz };
+		foreach (t : tunnels)
+		{
+			if (t.y + 1 < oy || t.y > top_y) continue;
+			for (int s = 0; s < TUNNEL_LENGTH; s++)
+			{
+				int tx = t.along_x ? t.x + s : t.x;
+				int tz = t.along_x ? t.z : t.z + s;
+				if (tx < ox || tx >= ox + CHUNK || tz < oz || tz >= oz + CHUNK) continue;
+				sink.force(tx, t.y, tz, AIR);
+				sink.force(tx, t.y + 1, tz, AIR);
+			}
+		}
+	}
 	if (top_y >= SEA_LEVEL + 2)
 	{
 		TreeList trees;
@@ -681,7 +704,8 @@ fn void TreeSink.force(&self, int wx, int wy, int wz, BlockId id)
 // --- Empty structures ----------------------------------------------------------------
 // Rare, small and abandoned, with nothing in them and nothing to say who
 // made them: a lone pillar, a dirt hut, a shaft down to a tunnel that goes
-// nowhere, a broken wall.
+// nowhere, a broken wall; and things that are just wrong: sand hanging in
+// the air, a perfect cube of stone, a tree that never had leaves.
 
 enum StructureKind : char
 {
@@ -689,6 +713,9 @@ enum StructureKind : char
 	HUT,
 	SHAFT,
 	WALL,
+	FLOATING_SAND,
+	CUBE,
+	DEAD_TREE,
 }
 
 struct Structure
@@ -699,6 +726,33 @@ struct Structure
 }
 
 alias StructureList = Vec{Structure};
+
+struct StraightTunnel
+{
+	int x, y, z;   // its first block (the lower of its two)
+	bool along_x;  // else along z
+}
+
+alias TunnelList = Vec{StraightTunnel};
+
+// Straight tunnels that pass through columns [x0, x1) x [z0, z1).
+fn void Generator.tunnels_near(&self, int x0, int z0, int x1, int z1, TunnelList* out)
+{
+	for (int cz = floor_div(z0 - TUNNEL_LENGTH, TUNNEL_CELL); cz <= floor_div(z1, TUNNEL_CELL); cz++)
+	{
+		for (int cx = floor_div(x0 - TUNNEL_LENGTH, TUNNEL_CELL); cx <= floor_div(x1, TUNNEL_CELL); cx++)
+		{
+			uint r = hash_point(cx, 17, cz, self.seed + 97);
+			if (r % 100 >= TUNNEL_PERCENT) continue;
+			StraightTunnel t = { .x = cx * TUNNEL_CELL + (int)((r >> 8) % (uint)TUNNEL_CELL), .y = -46 + (int)((r >> 16) % 22),
+				.z = cz * TUNNEL_CELL + (int)((r >> 20) % (uint)TUNNEL_CELL), .along_x = ((r >> 30) & 1) != 0 };
+			int ex = t.along_x ? t.x + TUNNEL_LENGTH : t.x + 1;
+			int ez = t.along_x ? t.z + 1 : t.z + TUNNEL_LENGTH;
+			if (ex <= x0 || t.x >= x1 || ez <= z0 || t.z >= z1) continue;
+			out.push(t);
+		}
+	}
+}
 
 // Structures that may reach columns [x0, x1) x [z0, z1).
 fn void Generator.structures_near(&self, int x0, int z0, int x1, int z1, StructureList* out)
@@ -714,7 +768,7 @@ fn void Generator.structures_near(&self, int x0, int z0, int x1, int z1, Structu
 			if (px + STRUCTURE_REACH < x0 || px - STRUCTURE_REACH >= x1 || pz + STRUCTURE_REACH < z0 || pz - STRUCTURE_REACH >= z1) continue;
 			int ground = self.height_at(px, pz);
 			if (ground <= SEA_LEVEL + 1 || ground > TOP_LIMIT - 16 || self.is_cave(px, ground, pz, ground)) continue; // the sea, a cave mouth
-			out.push({ .x = px, .z = pz, .ground = ground, .kind = StructureKind::from_ordinal((int)((r >> 24) % 4)), .r = hash_point(px, ground, pz, self.seed + 93) });
+			out.push({ .x = px, .z = pz, .ground = ground, .kind = StructureKind::from_ordinal((int)((r >> 24) % (uint)StructureKind::len)), .r = hash_point(px, ground, pz, self.seed + 93) });
 		}
 	}
 }
@@ -779,6 +833,44 @@ fn void Generator.build_structure(&self, Structure st, TreeSink* put)
 				int tx = along_x ? st.x + s : st.x;
 				int tz = along_x ? st.z : st.z + 1 + s;
 				for (int y = g - depth; y <= g - depth + 1; y++) put.force(tx, y, tz, AIR);
+			}
+		case FLOATING_SAND:
+			// A column of sand hanging a few blocks over the ground.
+			if (!self.ids.sand) return;
+			int lift = 3 + (int)(st.r % 3);
+			int tall = 2 + (int)((st.r >> 3) % 3);
+			for (int y = g + lift; y < g + lift + tall; y++) put.force(st.x, y, st.z, self.ids.sand);
+		case CUBE:
+			// 3 x 3 x 3 of stone, perfect, on whatever ground is there.
+			for (int dy = -2; dy <= 3; dy++)
+			{
+				for (int dz = -1; dz <= 1; dz++)
+				{
+					for (int dx = -1; dx <= 1; dx++)
+					{
+						if (dy <= 0)
+						{
+							put.put(st.x + dx, g + dy, st.z + dz, self.ids.stone, true); // (a footing under it)
+						}
+						else
+						{
+							put.force(st.x + dx, g + dy, st.z + dz, self.ids.stone);
+						}
+					}
+				}
+			}
+		case DEAD_TREE:
+			// A bare trunk with a stub or two, no leaves at all.
+			if (!self.trees.len()) return;
+			BlockId log = self.trees[0].log;
+			int trunk = 5 + (int)(st.r % 4);
+			for (int y = g + 1; y <= g + trunk; y++) put.force(st.x, y, st.z, log);
+			int[2][4] sides = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			int stubs = 1 + (int)((st.r >> 4) % 2);
+			for (int b = 0; b < stubs; b++)
+			{
+				int[2] d = sides[(st.r >> (uint)(6 + b * 3)) % 4];
+				put.force(st.x + d[0], g + trunk - 1 - b * 2, st.z + d[1], log);
 			}
 		case WALL:
 			// 7 long, 2 high, some of it fallen.
