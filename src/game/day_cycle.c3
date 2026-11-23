@@ -1,17 +1,19 @@
 // The time of day (0..1, 0.25 = sunrise, 0.5 = noon, 0.75 = sunset) and what
 // follows from it: daylight, the sky's colours, where the sun is. The moon is
 // always opposite the sun: at night it is the light that shines (and casts
-// the block shadows), weaker and blue. A day lasts
-// day_length seconds (a real day by default: new worlds start at the
-// computer's clock time).
+// the block shadows), weaker and blue. A whole day lasts day_length seconds
+// (40 minutes by default): DAY_SHARE of it the sun is up (20 minutes), the
+// rest is night (20). New worlds start in the morning.
 module gocube::game::day_cycle;
-import gocube::win, std::math;
+import std::math;
 
 alias Rgb = float[<3>];
 
 fn Rgb lerp(Rgb a, Rgb b, float t) => a + (b - a) * t;
 
-const double DEFAULT_DAY_LENGTH = 86400.0;
+const double DEFAULT_DAY_LENGTH = 40.0 * 60.0;
+const double DAY_SHARE = 0.5;           // sunrise to sunset (time 0.25..0.75)
+const double NIGHT_SHARE = 1.0 - DAY_SHARE;
 const float NIGHT_LIGHT = 0.48f;    // sky light at night: dim, but you can see the land (shaded in sRGB: about a tenth of the day)
 const float MOON_LIGHT = 0.6f;      // how strongly the moon shines (the sun: 1)
 const double MORNING = 0.26;        // what sleeping wakes you at
@@ -38,19 +40,15 @@ struct DayCycle
 
 fn DayCycle new() => { .time = 0.3, .day_length = DEFAULT_DAY_LENGTH };
 
+// The sky's half from sunrise to sunset passes in DAY_SHARE of the day's
+// seconds, the night's half in the rest.
 fn void DayCycle.update(&self, double dt)
 {
-	self.time = (self.time + dt / math::max(10.0, self.day_length)) % 1.0;
+	bool sun_up = self.time >= 0.25 && self.time < 0.75;
+	double half = math::max(10.0, self.day_length) * (sun_up ? DAY_SHARE : NIGHT_SHARE);
+	self.time = (self.time + dt * 0.5 / half) % 1.0;
 	self.cloud_offset[0] += 0.35f * (float)dt;
 	self.cloud_offset[1] += 0.12f * (float)dt;
-}
-
-// The computer's clock as a time of day.
-fn double system_time()
-{
-	SystemTime t;
-	win::get_local_time(&t);
-	return (double)(t.hour * 3600 + t.minute * 60 + t.second) / 86400.0;
 }
 
 fn float smoothstep(float a, float b, float x) @private

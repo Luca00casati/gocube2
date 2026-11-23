@@ -46,6 +46,7 @@ struct Settings
 	int max_fps;
 	bool vsync;
 	bool smooth_lighting;    // corner shading (ambient occlusion) and soft light
+	bool retro_filter;       // the screen filter: vignette, film grain, vivid colours
 	String shadow_mode;      // (one of SHADOW_MODES: a constant)
 	float render_scale;
 	bool clock_24h;          // 07:19 instead of 7:19 AM
@@ -61,7 +62,7 @@ struct Settings
 // The defaults.
 fn Settings new()
 {
-	Settings s = { .view_distance = 128, .mouse_sensitivity = 0.003f, .vsync = true, .smooth_lighting = false,
+	Settings s = { .view_distance = 128, .mouse_sensitivity = 0.003f, .vsync = true, .smooth_lighting = false, .retro_filter = true,
 		.shadow_mode = "blocks", .render_scale = 1.0f, .master_volume = 1.0f, .effects_volume = 1.0f, .ambience_volume = 0.7f };
 	s.reset_keys();
 	s.set_player_name("Player");
@@ -147,6 +148,7 @@ fn bool Settings.load(&self, String path, DString* error = null) => @pool()
 	self.max_fps = (int)v;
 	self.vsync = d.flag("vsync", self.vsync);
 	self.smooth_lighting = d.flag("smooth_lighting", self.smooth_lighting);
+	self.retro_filter = d.flag("retro_filter", self.retro_filter);
 	String mode = d.str("shadow_mode", self.shadow_mode);
 	foreach (m : SHADOW_MODES)
 	{
@@ -194,6 +196,7 @@ fn bool Settings.save(&self, String path) => @pool()
 	d.set_long("max_fps", self.max_fps);
 	d.set_bool("vsync", self.vsync);
 	d.set_bool("smooth_lighting", self.smooth_lighting);
+	d.set_bool("retro_filter", self.retro_filter);
 	d.set_string("shadow_mode", self.shadow_mode);
 	d.set_double("render_scale", self.render_scale);
 	d.set_bool("clock_24h", self.clock_24h);

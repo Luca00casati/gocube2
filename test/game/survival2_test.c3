@@ -25,8 +25,11 @@ fn void day_sun_daylight_clock() @test
 	};
 	d.time = 0.9;
 	d.day_length = 100;
-	d.update(20); // a fifth of a day: past midnight
-	assert(math::abs(d.time - 0.1) < 1e-6);
+	d.update(20); // at night (its half passes in NIGHT_SHARE of the day): past midnight
+	assert(math::abs(d.time - (0.9 + 20.0 * 0.5 / (100.0 * day_cycle::NIGHT_SHARE) - 1.0)) < 1e-6);
+	d.time = 0.3;
+	d.update(10); // by day, slower
+	assert(math::abs(d.time - (0.3 + 10.0 * 0.5 / (100.0 * day_cycle::DAY_SHARE))) < 1e-6);
 }
 
 fn void bed_reported_every_time() @test

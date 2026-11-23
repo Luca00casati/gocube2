@@ -101,7 +101,8 @@ with it empty): take blocks from the inventory screen's palette,
 pick up what lies around; placing never uses anything up, and nothing hurts.
 
 Settings (the title menu's Settings button, or the pause menu's): view distance,
-mouse sensitivity, frame rate limit, vsync, smooth lighting, sun shadows,
+mouse sensitivity, frame rate limit, vsync, smooth lighting, a retro screen
+filter (vignette, film grain, vivid colours), sun shadows,
 render scale, volumes, the clock and the keys. Changes show at once; they're kept in
 `%APPDATA%\GoCube\settings.json`, with your name and the last address you joined.
 

@@ -55,8 +55,12 @@ struct Renderer
 	SwapChain* swap_chain;
 	RenderTargetView* target;
 	DepthStencilView* depth;
-	// Render scale below 1: the world's smaller target, and the stretch.
+	// Render scale below 1 or the retro filter: the world's own target, then
+	// the last pass over it (the stretch, the filter: blit.hlsl).
 	float render_scale;
+	bool retro;
+	Buffer* blit_cb;
+	double blit_time;
 	int scaled_width, scaled_height;
 	RenderTargetView* scaled_target;
 	ShaderResourceView* scaled_view;
@@ -127,9 +131,12 @@ fn bool Renderer.create_blit(&self)
 {
 	SamplerDesc sd = { .filter = d3d11::FILTER_MIN_MAG_MIP_LINEAR, .address_u = d3d11::TEXTURE_ADDRESS_CLAMP, .address_v = d3d11::TEXTURE_ADDRESS_CLAMP,
 		.address_w = d3d11::TEXTURE_ADDRESS_CLAMP, .max_lod = d3d11::FLOAT32_MAX, .comparison_func = d3d11::COMPARISON_NEVER };
+	BufferDesc cb = { .usage = d3d11::USAGE_DYNAMIC, .bind_flags = d3d11::BIND_CONSTANT_BUFFER, .cpu_access_flags = d3d11::CPU_ACCESS_WRITE,
+		.byte_width = 16 };
 	return !failed(self.device.create_vertex_shader(shaders::code(BLIT_VS), &self.blit_vs), "blit_vs") &&
 		!failed(self.device.create_pixel_shader(shaders::code(BLIT_PS), &self.blit_ps), "blit_ps") &&
-		!failed(self.device.create_sampler_state(&sd, &self.bilinear), "CreateSamplerState(bilinear)");
+		!failed(self.device.create_sampler_state(&sd, &self.bilinear), "CreateSamplerState(bilinear)") &&
+		!failed(self.device.create_buffer(&cb, null, &self.blit_cb), "CreateBuffer(blit)");
 }
 
 fn void Renderer.release_targets(&self)
@@ -148,13 +155,14 @@ fn bool Renderer.create_targets(&self)
 	if (failed(self.swap_chain.get_buffer(0, &back_buffer), "GetBuffer")) return false;
 	defer d3d11::release(back_buffer);
 	if (failed(self.device.create_render_target_view(back_buffer, &self.target), "CreateRenderTargetView")) return false;
-	// Render scale: the world's own smaller target.
+	// Render scale or the filter: the world's own target (smaller, or the window's size).
 	self.scaled_width = self.width;
 	self.scaled_height = self.height;
-	if (self.render_scale < 0.999f)
+	if (self.render_scale < 0.999f || self.retro)
 	{
-		self.scaled_width = math::max(1, (int)((float)self.width * self.render_scale + 0.5f));
-		self.scaled_height = math::max(1, (int)((float)self.height * self.render_scale + 0.5f));
+		float scale = self.render_scale < 0.999f ? self.render_scale : 1.0f;
+		self.scaled_width = math::max(1, (int)((float)self.width * scale + 0.5f));
+		self.scaled_height = math::max(1, (int)((float)self.height * scale + 0.5f));
 		Texture2DDesc td = { .width = (uint)self.scaled_width, .height = (uint)self.scaled_height, .mip_levels = 1, .array_size = 1,
 			.format = BACK_BUFFER_FORMAT, .sample_count = 1, .usage = d3d11::USAGE_DEFAULT, .bind_flags = d3d11::BIND_RENDER_TARGET | d3d11::BIND_SHADER_RESOURCE };
 		Texture2D* scaled;
@@ -184,6 +192,18 @@ fn void Renderer.set_render_scale(&self, float scale)
 	scale = math::clamp(scale, 0.25f, 1.0f);
 	if (scale == self.render_scale) return;
 	self.render_scale = scale;
+	if (self.swap_chain)
+	{
+		self.release_targets();
+		self.create_targets();
+	}
+}
+
+// The retro screen filter (blit.hlsl) on or off.
+fn void Renderer.set_retro(&self, bool on)
+{
+	if (on == self.retro) return;
+	self.retro = on;
 	if (self.swap_chain)
 	{
 		self.release_targets();
@@ -285,7 +305,16 @@ fn bool Renderer.end_frame(&self, Overlay overlay = null, void* overlay_context 
 	self.gpu_mark("scaling, UI");
 	if (self.scaled())
 	{
-		// Stretch the world over the window.
+		// Stretch the world over the window, through the filter if it's on.
+		self.blit_time += 1.0 / 60.0; // (the grain's frame: new every frame)
+		float[4] k = { self.retro ? 1.0f : 0.0f, (float)(self.blit_time % 1000.0), (float)self.width, (float)self.height };
+		MappedSubresource m;
+		if (self.context.map(self.blit_cb, 0, d3d11::MAP_WRITE_DISCARD, &m) >= 0)
+		{
+			mem::copy(m.data, &k, 16);
+			self.context.unmap(self.blit_cb, 0);
+		}
+		self.context.ps_set_constant_buffers(0, { self.blit_cb });
 		self.context.om_set_render_targets({ self.target }, null);
 		self.context.rs_set_viewport({ 0, 0, (float)self.width, (float)self.height, 0, 1 });
 		self.context.ia_set_input_layout(null);
@@ -362,6 +391,7 @@ fn void Renderer.free(&self)
 	self.gpu_times.free();
 	d3d11::release(self.blit_vs);
 	d3d11::release(self.blit_ps);
+	d3d11::release(self.blit_cb);
 	d3d11::release(self.bilinear);
 	d3d11::release(self.target);
 	d3d11::release(self.depth);

@@ -465,7 +465,7 @@ fn End Playing.run(&self)
 	self.item_models = { .content = &self.content, .table = &self.table };
 	if (!options.no_sound && (!options.hidden || options.sound)) self.audio.init(&self.content, options.hidden ? 0.0f : 1.0f);
 	self.seen_swings = game.swings;
-	self.day.time = day_cycle::system_time(); // a new world starts at the computer's clock
+	self.day.time = day_cycle::new().time; // a new world starts in the morning
 	if (self.has_save)
 	{
 		if (Data* t = self.save.field("time")) if (t.is_number()) self.day.time = t.as_double() % 1.0;
@@ -836,6 +836,7 @@ fn bool Playing.step(&self)
 	self.world.set_smooth_lighting(settings.smooth_lighting);
 	self.world.set_block_shadows(settings.shadow_mode == "blocks");
 	self.renderer.set_render_scale(render_scale(options));
+	self.renderer.set_retro(settings.retro_filter);
 	self.renderer.options.vsync = !options.no_vsync && settings.vsync;
 	self.world.set_sun_angle(self.day.light_angle()); // (shadows follow the sun or moon in steps)
 	profiler::@profile("world (loading, meshes in)")

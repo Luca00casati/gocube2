@@ -106,6 +106,8 @@ fn bool SettingsScreen.draw(&self, Gui* g, Settings* s, Window* window, bool esc
 	g.checkbox("Wait for the screen (no tearing)", &s.vsync);
 	row(g, "Smooth lighting", column);
 	g.checkbox("Blend light at block corners", &s.smooth_lighting);
+	row(g, "Retro filter", column);
+	g.checkbox("Vignette, film grain, vivid colours", &s.retro_filter);
 	row(g, "Sun shadows", column);
 	String[settings::SHADOW_MODES.len] shadow_names;
 	at = 0;
