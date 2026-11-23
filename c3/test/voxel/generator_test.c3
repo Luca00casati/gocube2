@@ -1,7 +1,7 @@
 // The generator configured by hand to use everything it has (ores, every
 // tree style, biomes with frozen seas, mountains, bare rock, caps and snow),
 // its output hashed (FNV-1a, 64 bits): the same configuration and hash as the
-// C++ game's test, so worlds made before the port stay the same.
+// game's earlier versions recorded, so worlds made before stay the same.
 module gocube::voxel::generator_test;
 import gocube::voxel, gocube::util::vec;
 
@@ -138,7 +138,7 @@ fn void hand_generator_hash() @test
 			h = fnv(h, &only_air, 1);
 		}
 	}
-	assert(h == HAND_GENERATOR_HASH, "the generator's hash is %x, the C++ one's %x", h, HAND_GENERATOR_HASH);
+	assert(h == HAND_GENERATOR_HASH, "the generator's hash is %x, not %x", h, HAND_GENERATOR_HASH);
 }
 
 // A chunk set block by block, collapsing back to one value, and dyes.

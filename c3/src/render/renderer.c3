@@ -127,8 +127,8 @@ fn bool Renderer.create_blit(&self)
 {
 	SamplerDesc sd = { .filter = d3d11::FILTER_MIN_MAG_MIP_LINEAR, .address_u = d3d11::TEXTURE_ADDRESS_CLAMP, .address_v = d3d11::TEXTURE_ADDRESS_CLAMP,
 		.address_w = d3d11::TEXTURE_ADDRESS_CLAMP, .max_lod = d3d11::FLOAT32_MAX, .comparison_func = d3d11::COMPARISON_NEVER };
-	return !failed(self.device.create_vertex_shader(shaders::BLIT_VS, &self.blit_vs), "blit_vs") &&
-		!failed(self.device.create_pixel_shader(shaders::BLIT_PS, &self.blit_ps), "blit_ps") &&
+	return !failed(self.device.create_vertex_shader(shaders::code(BLIT_VS), &self.blit_vs), "blit_vs") &&
+		!failed(self.device.create_pixel_shader(shaders::code(BLIT_PS), &self.blit_ps), "blit_ps") &&
 		!failed(self.device.create_sampler_state(&sd, &self.bilinear), "CreateSamplerState(bilinear)");
 }
 

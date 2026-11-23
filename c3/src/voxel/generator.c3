@@ -2,8 +2,8 @@
 // overhangs, now and then a floating bit), seas with sand and gravel beaches
 // and sea floors, bare stone where the dirt runs out, biomes, caves, lava deep
 // down, ore veins and trees. Thread-safe once configured; the same seed
-// always gives the same world, block for block the same as the C++ game's
-// (c3/test/voxel/generator_test.c3 checks it).
+// always gives the same world, block for block, as it always has (worlds made
+// by older versions carry on seamlessly; test/voxel/generator_test.c3 checks it).
 module gocube::voxel;
 import std::math, gocube::util::vec, gocube::util::map, std::thread, std::atomic;
 

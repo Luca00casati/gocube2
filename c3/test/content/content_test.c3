@@ -1,5 +1,5 @@
 // The base game's content: its block table and atlas, and a world of seed
-// 777, exactly as the C++ game made them (the numbers it recorded).
+// 777, exactly as older versions made them (the numbers they recorded).
 module gocube::content::content_test;
 import gocube::content, gocube::content::image, gocube::data, gocube::voxel, gocube::util::vec, gocube::util::map;
 import std::io, std::hash::sha256, std::sort;
@@ -107,7 +107,7 @@ fn void png_read_with_alpha() @test
 	assert(back.rgba == im.rgba);
 }
 
-// --- Seed 777, as the C++ game had it ------------------------------------
+// --- Seed 777, as older versions had it ------------------------------------
 
 const String WORLD_FINGERPRINT = "79025b3a4669200c";
 const int CHUNK_Y_MIN = -3;

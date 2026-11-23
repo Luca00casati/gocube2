@@ -1,6 +1,5 @@
 {
-  // GoCube, in C3 (see ../README.md). `nob` builds it: it compiles the
-  // shaders first (build/shaders/*.cso), which the game embeds.
+  // GoCube (see ../README.md): `c3c build`, `c3c test`, `c3c run` here.
   "langrev": "1",
   "version": "0.1.0",
   "sources": [ "src/**" ],

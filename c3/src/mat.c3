@@ -1,6 +1,6 @@
 // 4x4 matrices as DirectXMath has them: row-major, row vectors (a point is
 // transformed as v * M; A * B does A first, then B). The models build their
-// nodes this way, and HLSL reads them as the C++ game sent them.
+// nodes this way, and the shaders read them so.
 module gocube::mat;
 import std::math;
 

@@ -18,18 +18,16 @@ biome, sounds; with its textures and sounds); its rules are game code. Every
 data file (`content.json`, a world's `world.json`, the settings) is JSON, read
 and written by our own code.
 
-The game was C++ (with mods as DLLs) until it was ported to C3, without mods;
-the C++ is in git's history. Worlds made by the C++ game open unchanged: the
-generator makes the same terrain, bit for bit, and the files are the same.
+Worlds made by earlier versions open unchanged: the generator makes the same
+terrain, bit for bit, and the files are the same.
 
 ## Requirements
 - Windows 10 or 11, x64
 - A GPU with Direct3D 11 at feature level 11_0 (or `--warp` to render in software)
-- [c3c](https://github.com/c3lang/c3c) 0.8.6, the C3 compiler
-- Visual Studio 2026 (or 2022) with "Desktop development with C++", for `cl`
-  (to compile `nob.c`, the build) and the Windows SDK's shader compiler
-  (`fxc`). No third-party libraries (the build uses
-  [nob.h](https://github.com/tsoding/nob.h), one header, in this folder).
+- [c3c](https://github.com/c3lang/c3c) 0.8.6, the C3 compiler, and the
+  Windows SDK's libraries, which it links against (installed with Visual
+  Studio or its Build Tools, or the Windows SDK on its own). Nothing else: no
+  build tool, no third-party libraries.
 - Optional: Windows' **Graphics Tools** (Settings > System > Optional features) for
   the Direct3D debug layer (`--debug`)
 
@@ -38,20 +36,16 @@ such as the HD 4600, where every Direct3D 12 draw hangs the GPU; their Direct3D 
 drivers are mature, and nothing a voxel game needs is missing from Direct3D 11.
 
 ## Build and test
-The build is `nob.c`, a C program: it compiles the shaders with `fxc` (into
-`build\shaders\*.cso`, which the game embeds), then has `c3c` build the game
-(`c3\project.json`). From a **Developer PowerShell for VS** (it puts `cl` and
-`fxc` on the path), in this folder:
+The project is `c3\project.json`; in `c3\`:
 
-    cl nob.c                  # once: afterwards nob rebuilds itself when nob.c changes
-    nob                       # build build\c3\gocube.exe
-    nob test                  # build, then run the tests
-    nob run -- --world=Test   # build, then play (arguments after --)
-    nob clean                 # delete build\
+    c3c build                    # build ..\build\c3\gocube.exe
+    c3c test                     # build, then run the tests
+    c3c run -- --world=Test      # build, then play (arguments after --)
 
-`nob` runs `c3c` from the path, or the one the `C3C` environment variable
-names (`$env:C3C = "...\c3c.exe"`). Floats are `strict` (no fused
-multiply-add, no reordering), so worlds generate the same everywhere.
+The shaders (`shaders\`, HLSL) are embedded in the game and compiled when it
+starts, by Windows' own shader compiler (`d3dcompiler_47.dll`), so there's no
+build step for them. Floats are `strict` (no fused multiply-add, no
+reordering), so worlds generate the same everywhere.
 
 The tests (`c3\test\`, `@test` functions, by module) cover world generation
 (the fingerprint of seed 777's world, the generator's hash), the block table
@@ -232,6 +226,4 @@ same way):
 ## Dependencies
 None but Windows' own: Direct3D 11 and DXGI, GDI (the UI's text), XAudio2
 (sound), Winsock (multiplayer), user32, shell32 (the Recycle Bin), winmm (the
-timer) and bcrypt (random numbers). The build uses
-[nob.h](https://github.com/tsoding/nob.h) 3.10.1 (`nob.h`, MIT or public
-domain), the only third-party file, used by `nob.c` alone.
+timer), bcrypt (random numbers) and the D3D shader compiler.

@@ -8,7 +8,8 @@ import std::io;
 alias Message = Vec{char};
 alias Messages = Vec{Message};
 
-fn int transport_port(int n) => 46000 + (int)(win::get_current_process_id() % 1000) * 8 + n;
+// (Below 49152, where Windows picks ports for outgoing connections.)
+fn int transport_port(int n) => 36000 + (int)(win::get_current_process_id() % 1000) * 8 + n;
 
 // One end: what it has had.
 struct End

@@ -10,22 +10,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up the MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
-
       # The C3 compiler, the version the game is written for.
       - name: Get c3c 0.8.6
         run: |
           Invoke-WebRequest https://github.com/c3lang/c3c/releases/download/v0.8.6/c3-windows.zip -OutFile c3c.zip
           Expand-Archive c3c.zip -DestinationPath $env:RUNNER_TEMP\c3c
           $c3c = Get-ChildItem $env:RUNNER_TEMP\c3c -Recurse -Filter c3c.exe | Select-Object -First 1
-          "C3C=$($c3c.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-
-      # The build is nob.c: it compiles the shaders (fxc), then runs c3c.
-      - name: Build nob
-        run: cl nob.c
+          $c3c.DirectoryName | Out-File $env:GITHUB_PATH -Append -Encoding utf8
 
       # The rendering tests run on WARP (no GPU on the runner); with no sound
       # device, the sound test only checks the mixing.
       - name: Build and test
-        run: .\nob.exe test
+        working-directory: c3
+        run: c3c test

@@ -197,10 +197,10 @@ fn bool ChunkRenderer.init(&self, Device* device, DeviceContext* context, Atlas*
 {
 	self.device = device;
 	self.context = context;
-	if (!ok(device.create_vertex_shader(shaders::CHUNK_VS, &self.vs), "CreateVertexShader") ||
-		!ok(device.create_pixel_shader(shaders::CHUNK_PS_OPAQUE, &self.ps_opaque), "ps_opaque") ||
-		!ok(device.create_pixel_shader(shaders::CHUNK_PS_CUTOUT, &self.ps_cutout), "ps_cutout") ||
-		!ok(device.create_pixel_shader(shaders::CHUNK_PS_FLUID, &self.ps_fluid), "ps_fluid")) return false;
+	if (!ok(device.create_vertex_shader(shaders::code(CHUNK_VS), &self.vs), "CreateVertexShader") ||
+		!ok(device.create_pixel_shader(shaders::code(CHUNK_PS_OPAQUE), &self.ps_opaque), "ps_opaque") ||
+		!ok(device.create_pixel_shader(shaders::code(CHUNK_PS_CUTOUT), &self.ps_cutout), "ps_cutout") ||
+		!ok(device.create_pixel_shader(shaders::code(CHUNK_PS_FLUID), &self.ps_fluid), "ps_fluid")) return false;
 	InputElementDesc[5] layout = {
 		{ "POSITION", 0, d3d11::FORMAT_R32G32B32_FLOAT, 0, (uint)WorldVertex::members[0].offset, 0, 0 },
 		{ "NORMAL", 0, d3d11::FORMAT_R32G32B32_FLOAT, 0, (uint)WorldVertex::members[1].offset, 0, 0 },
@@ -208,7 +208,7 @@ fn bool ChunkRenderer.init(&self, Device* device, DeviceContext* context, Atlas*
 		{ "COLOR", 0, d3d11::FORMAT_R32G32B32A32_FLOAT, 0, (uint)WorldVertex::members[3].offset, 0, 0 },
 		{ "COLOR", 1, d3d11::FORMAT_R32G32B32A32_FLOAT, 0, (uint)WorldVertex::members[4].offset, 0, 0 },
 	};
-	if (!ok(device.create_input_layout(&layout, shaders::CHUNK_VS, &self.layout), "CreateInputLayout")) return false;
+	if (!ok(device.create_input_layout(&layout, shaders::code(CHUNK_VS), &self.layout), "CreateInputLayout")) return false;
 	BufferDesc cb = { .usage = d3d11::USAGE_DYNAMIC, .bind_flags = d3d11::BIND_CONSTANT_BUFFER, .cpu_access_flags = d3d11::CPU_ACCESS_WRITE,
 		.byte_width = FrameConstants::size };
 	if (!ok(device.create_buffer(&cb, null, &self.frame_cb), "CreateBuffer(frame)")) return false;
@@ -251,10 +251,10 @@ fn bool ChunkRenderer.init(&self, Device* device, DeviceContext* context, Atlas*
 	device.create_blend_state(&bd, &self.alpha_blend);
 
 	// Outline lines.
-	if (!ok(device.create_vertex_shader(shaders::LINES_VS, &self.line_vs), "lines_vs") ||
-		!ok(device.create_pixel_shader(shaders::LINES_PS, &self.line_ps), "lines_ps")) return false;
+	if (!ok(device.create_vertex_shader(shaders::code(LINES_VS), &self.line_vs), "lines_vs") ||
+		!ok(device.create_pixel_shader(shaders::code(LINES_PS), &self.line_ps), "lines_ps")) return false;
 	InputElementDesc[1] line_layout = { { "POSITION", 0, d3d11::FORMAT_R32G32B32_FLOAT, 0, 0, 0, 0 } };
-	if (!ok(device.create_input_layout(&line_layout, shaders::LINES_VS, &self.line_layout), "line layout")) return false;
+	if (!ok(device.create_input_layout(&line_layout, shaders::code(LINES_VS), &self.line_layout), "line layout")) return false;
 	BufferDesc lb = { .usage = d3d11::USAGE_DYNAMIC, .bind_flags = d3d11::BIND_VERTEX_BUFFER, .cpu_access_flags = d3d11::CPU_ACCESS_WRITE,
 		.byte_width = MAX_OUTLINE_BOXES * 24 * 12 };
 	cb.byte_width = 16;
@@ -262,7 +262,7 @@ fn bool ChunkRenderer.init(&self, Device* device, DeviceContext* context, Atlas*
 
 	// The sky.
 	cb.byte_width = SkyConstants::size;
-	if (!ok(device.create_vertex_shader(shaders::SKY_VS, &self.sky_vs), "sky_vs") || !ok(device.create_pixel_shader(shaders::SKY_PS, &self.sky_ps), "sky_ps") ||
+	if (!ok(device.create_vertex_shader(shaders::code(SKY_VS), &self.sky_vs), "sky_vs") || !ok(device.create_pixel_shader(shaders::code(SKY_PS), &self.sky_ps), "sky_ps") ||
 		!ok(device.create_buffer(&cb, null, &self.sky_cb), "sky constants")) return false;
 
 	// Held torches' light (HandLights): one level per block, written whenever it changes.
@@ -287,7 +287,7 @@ fn bool ChunkRenderer.init(&self, Device* device, DeviceContext* context, Atlas*
 
 	// Items and the hand (the terrain's vertex layout).
 	cb.byte_width = ItemConstants::size;
-	if (!ok(device.create_vertex_shader(shaders::ITEMS_VS, &self.items_vs), "items_vs") || !ok(device.create_pixel_shader(shaders::ITEMS_PS, &self.items_ps), "items_ps") ||
+	if (!ok(device.create_vertex_shader(shaders::code(ITEMS_VS), &self.items_vs), "items_vs") || !ok(device.create_pixel_shader(shaders::code(ITEMS_PS), &self.items_ps), "items_ps") ||
 		!ok(device.create_buffer(&cb, null, &self.items_cb), "item constants")) return false;
 
 	// Creatures.
@@ -299,9 +299,9 @@ fn bool ChunkRenderer.init(&self, Device* device, DeviceContext* context, Atlas*
 		{ "TEXCOORD", 1, d3d11::FORMAT_R32G32B32A32_FLOAT, 0, (uint)CreatureVertex::members[4].offset, 0, 0 },
 		{ "TEXCOORD", 2, d3d11::FORMAT_R32G32B32_FLOAT, 0, (uint)CreatureVertex::members[5].offset, 0, 0 },
 	};
-	return ok(device.create_vertex_shader(shaders::CREATURES_VS, &self.creatures_vs), "creatures_vs") &&
-		ok(device.create_pixel_shader(shaders::CREATURES_PS, &self.creatures_ps), "creatures_ps") &&
-		ok(device.create_input_layout(&creature_layout, shaders::CREATURES_VS, &self.creatures_layout), "creature layout");
+	return ok(device.create_vertex_shader(shaders::code(CREATURES_VS), &self.creatures_vs), "creatures_vs") &&
+		ok(device.create_pixel_shader(shaders::code(CREATURES_PS), &self.creatures_ps), "creatures_ps") &&
+		ok(device.create_input_layout(&creature_layout, shaders::code(CREATURES_VS), &self.creatures_layout), "creature layout");
 }
 
 // Smooth noise for the terrain shader (cloud shadows, the grass's green

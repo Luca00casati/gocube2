@@ -125,8 +125,8 @@ fn bool GuiD3D.init(&self, Device* device, DeviceContext* context)
 		.address_w = d3d11::TEXTURE_ADDRESS_CLAMP, .max_lod = d3d11::FLOAT32_MAX };
 	Texture2DDesc td = { .width = GLYPH_ATLAS, .height = GLYPH_ATLAS, .mip_levels = 1, .array_size = 1, .format = d3d11::FORMAT_R8_UNORM,
 		.sample_count = 1, .usage = d3d11::USAGE_DEFAULT, .bind_flags = d3d11::BIND_SHADER_RESOURCE };
-	return device.create_vertex_shader(shaders::GUI_VS, &self.vs) >= 0 && device.create_pixel_shader(shaders::GUI_PS, &self.ps) >= 0 &&
-		device.create_input_layout(&elements, shaders::GUI_VS, &self.input) >= 0 && device.create_buffer(&vbd, null, &self.vb) >= 0 &&
+	return device.create_vertex_shader(shaders::code(GUI_VS), &self.vs) >= 0 && device.create_pixel_shader(shaders::code(GUI_PS), &self.ps) >= 0 &&
+		device.create_input_layout(&elements, shaders::code(GUI_VS), &self.input) >= 0 && device.create_buffer(&vbd, null, &self.vb) >= 0 &&
 		device.create_buffer(&cbd, null, &self.cb) >= 0 && device.create_blend_state(&bd, &self.blend) >= 0 &&
 		device.create_rasterizer_state(&rd, &self.raster) >= 0 && device.create_depth_stencil_state(&dd, &self.depth) >= 0 &&
 		device.create_sampler_state(&sd, &self.sampler) >= 0 && device.create_texture2d(&td, null, &self.glyph_tex) >= 0 &&

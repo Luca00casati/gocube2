@@ -75,7 +75,7 @@ fn void written_and_read_back() @test
 	String s = json::to_string(mem, &pair, true);
 	defer free(s.ptr);
 	assert(s == "[1,2]");
-	// The C++ game's layout: sorted keys, short values on one line.
+	// The established layout: sorted keys, short values on one line.
 	Data small = data::object();
 	defer small.free();
 	small.set_long("b", 2);
