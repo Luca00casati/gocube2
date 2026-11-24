@@ -1221,11 +1221,11 @@ fn void Session.on_client_message(&self, char[] data) => @pool()
 				float[3] center = { pos.x + 0.5f, pos.y + 0.5f, pos.z + 0.5f };
 				if (id == 0)
 				{
-					game.play_block_sound(self.a.rules.id_of(old), "break", center);
+					game.play_block_sound(self.a.rules.id_of(old), "break", center, game::BLOCK_SOUND_DB);
 				}
 				else if (!self.a.rules.is_fluid(id))
 				{
-					game.play_block_sound(self.a.rules.id_of(id), "place", center);
+					game.play_block_sound(self.a.rules.id_of(id), "place", center, game::BLOCK_SOUND_DB);
 				}
 			}
 		case H_CHUNK:

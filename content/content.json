@@ -7,7 +7,6 @@
 			"flammable": true,
 			"hardness": 0.3,
 			"shape": "bed",
-			"sound": "core:wood",
 			"textures": {
 				"bottom": {
 					"blotch": 0.5,
@@ -55,7 +54,6 @@
 			"hardness": 0.4,
 			"plant_on": ["core:sand", "core:cactus"],
 			"shape": "boxes",
-			"sound": "core:grass",
 			"textures": {
 				"bottom": {
 					"color": "#43832e",
@@ -82,7 +80,6 @@
 			"block_entity": "chest",
 			"color": "#9a7448",
 			"hardness": 2.5,
-			"sound": "core:wood",
 			"textures": {
 				"bottom": {
 					"blotch": 0.5,
@@ -108,7 +105,6 @@
 			"color": "#6a6a6a",
 			"hardness": 2.0,
 			"random_rotation": true,
-			"sound": "core:stone",
 			"textures": {
 				"all": {
 					"cells": {"edge": "#4e5156", "size": 5},
@@ -122,7 +118,6 @@
 			"color": "#6a6a6a",
 			"hardness": 1.5,
 			"shape": "stairs",
-			"sound": "core:stone",
 			"textures": {
 				"all": {
 					"cells": {"edge": "#4e5156", "size": 5},
@@ -136,7 +131,6 @@
 			"color": "#8b5a2b",
 			"hardness": 0.5,
 			"random_rotation": true,
-			"sound": "core:grass",
 			"textures": {
 				"all": {"blotch": 0.25, "color": "#7d583b", "noise": 0.24, "shades": 4}
 			}
@@ -145,7 +139,6 @@
 			"color": "#cfe3ec",
 			"drops": "",
 			"hardness": 0.4,
-			"sound": "core:stone",
 			"textures": {"all": "textures/glass.png"},
 			"transparent": true
 		},
@@ -154,7 +147,6 @@
 			"drops": "core:dirt",
 			"hardness": 0.6,
 			"random_rotation": true,
-			"sound": "core:grass",
 			"sprouts_trees": {"core:big_oak": 1, "core:oak": 9},
 			"textures": {
 				"bottom": {"blotch": 0.25, "color": "#7d583b", "noise": 0.24, "shades": 4},
@@ -174,7 +166,6 @@
 			"falls": true,
 			"hardness": 0.6,
 			"random_rotation": true,
-			"sound": "core:gravel",
 			"textures": {
 				"all": {
 					"cells": {
@@ -193,7 +184,6 @@
 			"drops": "",
 			"hardness": 0.5,
 			"random_rotation": true,
-			"sound": "core:stone",
 			"textures": {
 				"all": {
 					"blotch": 0.7,
@@ -211,14 +201,12 @@
 			"hardness": 0.6,
 			"needs_support": true,
 			"shape": "ladder",
-			"sound": "core:wood",
 			"textures": {"all": "textures/ladder.png"}
 		},
 		"lamp": {
 			"color": "#f2c25a",
 			"hardness": 0.3,
 			"light": 14,
-			"sound": "core:stone",
 			"textures": {"all": "textures/lamp.png"}
 		},
 		"lava": {
@@ -361,7 +349,6 @@
 			"flammable": true,
 			"hardness": 0.2,
 			"leaves": true,
-			"sound": "core:grass",
 			"textures": {
 				"all": {"blotch": 0.2, "color": "#2f5e24", "noise": 0.3, "shades": 4}
 			},
@@ -371,7 +358,6 @@
 			"color": "#59422c",
 			"flammable": true,
 			"hardness": 2.0,
-			"sound": "core:wood",
 			"textures": {
 				"bottom": {
 					"color": "#a07246",
@@ -397,7 +383,6 @@
 			"color": "#b8945f",
 			"flammable": true,
 			"hardness": 2.0,
-			"sound": "core:wood",
 			"textures": {
 				"all": {
 					"blotch": 0.5,
@@ -421,7 +406,6 @@
 			"color": "#a67748",
 			"hardness": 1.5,
 			"shape": "fence",
-			"sound": "core:wood",
 			"textures": {
 				"all": {
 					"blotch": 0.5,
@@ -445,7 +429,6 @@
 			"color": "#a67748",
 			"hardness": 1.0,
 			"shape": "stairs",
-			"sound": "core:wood",
 			"textures": {
 				"all": {
 					"blotch": 0.5,
@@ -470,7 +453,6 @@
 			"falls": true,
 			"hardness": 0.5,
 			"random_rotation": true,
-			"sound": "core:sand",
 			"textures": {
 				"all": {"blotch": 0.3, "color": "#d4c18a", "noise": 0.12, "shades": 5}
 			}
@@ -479,7 +461,6 @@
 			"color": "#cdb57a",
 			"hardness": 1.0,
 			"random_rotation": true,
-			"sound": "core:stone",
 			"textures": {
 				"all": {
 					"color": "#cbb47a",
@@ -496,7 +477,6 @@
 			"needs_support": true,
 			"replaceable": true,
 			"shape": "boxes",
-			"sound": "core:grass",
 			"textures": {
 				"all": {"blotch": 0.5, "color": "#f0f5fa", "noise": 0.05, "shades": 3}
 			}
@@ -506,7 +486,6 @@
 			"drops": "core:cobblestone",
 			"hardness": 1.5,
 			"random_rotation": true,
-			"sound": "core:stone",
 			"textures": {
 				"all": {"blotch": 0.35, "color": "#75787e", "noise": 0.3, "shades": 5}
 			}
@@ -515,7 +494,6 @@
 			"color": "#7a7d83",
 			"hardness": 1.5,
 			"shape": "stairs",
-			"sound": "core:stone",
 			"textures": {
 				"all": {"blotch": 0.35, "color": "#75787e", "noise": 0.3, "shades": 5}
 			}
@@ -534,7 +512,6 @@
 			"icon": "textures/door_upper.png",
 			"needs_support": true,
 			"shape": "door",
-			"sound": "core:wood",
 			"textures": {"all": "textures/door_lower.png"},
 			"textures_upper": {"all": "textures/door_upper.png"}
 		}
@@ -557,31 +534,6 @@
 			"hurt": ["sounds/hurt.wav"],
 			"pickup": ["sounds/pickup.wav"],
 			"splash": ["sounds/splash_1.wav", "sounds/splash_2.wav"]
-		},
-		"grass": {
-			"break": ["sounds/grass_break_1.wav", "sounds/grass_break_2.wav", "sounds/grass_break_3.wav"],
-			"place": ["sounds/grass_place.wav"],
-			"step": ["sounds/grass_step_1.wav", "sounds/grass_step_2.wav", "sounds/grass_step_3.wav"]
-		},
-		"gravel": {
-			"break": ["sounds/gravel_break_1.wav", "sounds/gravel_break_2.wav", "sounds/gravel_break_3.wav"],
-			"place": ["sounds/gravel_place.wav"],
-			"step": ["sounds/gravel_step_1.wav", "sounds/gravel_step_2.wav", "sounds/gravel_step_3.wav"]
-		},
-		"sand": {
-			"break": ["sounds/sand_break_1.wav", "sounds/sand_break_2.wav", "sounds/sand_break_3.wav"],
-			"place": ["sounds/sand_place.wav"],
-			"step": ["sounds/sand_step_1.wav", "sounds/sand_step_2.wav", "sounds/sand_step_3.wav"]
-		},
-		"stone": {
-			"break": ["sounds/stone_break_1.wav", "sounds/stone_break_2.wav", "sounds/stone_break_3.wav"],
-			"place": ["sounds/stone_place.wav"],
-			"step": ["sounds/stone_step_1.wav", "sounds/stone_step_2.wav", "sounds/stone_step_3.wav"]
-		},
-		"wood": {
-			"break": ["sounds/wood_break_1.wav", "sounds/wood_break_2.wav", "sounds/wood_break_3.wav"],
-			"place": ["sounds/wood_place.wav"],
-			"step": ["sounds/wood_step_1.wav", "sounds/wood_step_2.wav", "sounds/wood_step_3.wav"]
 		}
 	},
 	"trees": {

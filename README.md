@@ -17,6 +17,10 @@ block breaking far off with nobody there, a low hum near the empty
 structures, fog that closes in for a while, some nights a small light far
 off that's gone when you come near, and now and then a slow piano piece
 between long silences (the sounds are made by `tools/make_mood_sounds.py`).
+Blocks have no sound files: breaking, placing and stepping on one is a soft,
+dull sound the game makes from what the block is (hardness, a grainy or
+woody texture, colour, shape, glass, leaves, falling; `src/audio/block_sound.c3`;
+a block can still name a sound set with "sound").
 To check it without listening: `--record=DIR` saves frames and everything
 heard, and `tools/review_audio.py DIR/audio.wav` draws it.
 The terrain comes from 3D noise: hills, cliffs, overhangs, seas with sand and
@@ -67,8 +71,8 @@ The tests (`test\`, `@test` functions, by module) cover world generation
 (the fingerprint of seed 777's world, the generator's hash), the block table
 and atlas, JSON, saving, the player, survival and creative, commands,
 multiplayer (a host and a client in one process: joining, block changes,
-survival, chests, chat, the host's checks), sound (mixing, and a sound played
-on the device), the UI's controls, and rendering on WARP (a frame, the world
+survival, chests, chat, the host's checks), sound (mixing, blocks' made
+sounds, and a sound played on the device), the UI's controls, and rendering on WARP (a frame, the world
 and the UI, read back from screenshots in `build\`). They run in the test
 runner's leak-tracking allocator: a test that leaks fails.
 

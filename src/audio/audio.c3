@@ -1,5 +1,6 @@
 // The game's sounds, through XAudio2: a sound set's sound (content
-// "sound_sets": a list of files per kind), a random one of its files, its
+// "sound_sets": a list of files per kind; or "block:<id>", a block's sound
+// made from what the block is, by sound::block), a random one of them, its
 // pitch varied a little so repeats don't sound the same, heard from where it
 // is (full volume within UNIT_SIZE blocks, then falling off, silent beyond
 // MAX_DISTANCE). Two loops as loud as the game says: the wind (set_wind:
@@ -12,7 +13,7 @@
 // underwater filter are audio/mixing's. Without a sound device the game runs
 // silent; when the device goes, sound starts again on the default one.
 module gocube::audio @link("xaudio2", "ole32");
-import gocube::sound, gocube::fs, gocube::content, gocube::data, gocube::log, gocube::win, gocube::util::vec, gocube::util::map, gocube::util::rand;
+import gocube::sound, gocube::sound::block, gocube::fs, gocube::content, gocube::data, gocube::log, gocube::win, gocube::util::vec, gocube::util::map, gocube::util::rand;
 import std::math, std::atomic, std::thread, std::io;
 
 const float MAX_DISTANCE = 32.0f;
@@ -614,6 +615,37 @@ fn void Audio.free(&self)
 fn bool Audio.active(&self) => self.ok;
 fn int Audio.voice_count(&self) => (int)self.voices.len();
 
+// A block's sound of `kind`, one of its variants at random (made the first
+// time it's wanted, then kept); null if the block makes none.
+fn Sound* Audio.block_sound(&self, String id, String kind) => @pool()
+{
+	int variant = (int)(self.random.unit() * (double)block::variants(kind)) % block::variants(kind);
+	String key = string::tformat("%s%s/%s/%d", block::SET_PREFIX, id, kind, variant);
+	if (Sound* s = self.loaded.get_or(key, null)) return s;
+	if (!self.content) return null;
+	Data* def = self.content.blocks.get(id);
+	if (!block::has_sound(def)) return null;
+	BlockVoice voice = block::voice_of(def);
+	Sound* s = mem::new(Sound);
+	s.wav = block::make(&voice, id, kind, variant);
+	Wav* w = &s.wav;
+	s.format = { .format_tag = WAVE_FORMAT_PCM, .channels = w.channels, .samples_per_sec = w.rate, .bits_per_sample = w.bits,
+		.block_align = (ushort)(w.channels * w.bits / 8) };
+	s.format.avg_bytes_per_sec = w.rate * s.format.block_align;
+	self.loaded[key.copy(mem)] = s;
+	return s;
+}
+
+// A sound of a set's kind: a block's (made) or a random file's.
+fn Sound* Audio.sound_of(&self, String set, String kind)
+{
+	if (set.starts_with(block::SET_PREFIX)) return self.block_sound(set[block::SET_PREFIX.len..], kind);
+	String path = self.pick(set, kind);
+	if (!path.len) return null;
+	defer free(path.ptr);
+	return self.load(path);
+}
+
 fn void Audio.play(&self, String set, String kind, float[3] at, float volume_db = 0)
 {
 	if (!self.ok) return;
@@ -621,10 +653,7 @@ fn void Audio.play(&self, String set, String kind, float[3] at, float volume_db 
 	float dy = at[1] - self.listener[1];
 	float dz = at[2] - self.listener[2];
 	if (dx * dx + dy * dy + dz * dz > MAX_DISTANCE * MAX_DISTANCE) return; // out of earshot
-	String path = self.pick(set, kind);
-	if (!path.len) return;
-	defer free(path.ptr);
-	Sound* s = self.load(path);
+	Sound* s = self.sound_of(set, kind);
 	if (!s) return;
 	if (self.voices.len() >= VOICES) // the oldest makes room
 	{

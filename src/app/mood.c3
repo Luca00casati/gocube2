@@ -152,7 +152,7 @@ fn void Mood.update(&self, Audio* audio, World* world, Generator* generator, flo
 	self.phantom_wait -= dt;
 	if (self.phantom_wait <= 0.0f)
 	{
-		String[2][4] sounds = { { "core:stone", "break" }, { "core:wood", "break" }, { "core:wood", "place" }, { "core:gravel", "break" } };
+		String[2][4] sounds = { { "block:core:stone", "break" }, { "block:core:planks", "break" }, { "block:core:planks", "place" }, { "block:core:gravel", "break" } };
 		String[2] s = sounds[(sz)(self.random.unit() * 4.0) % 4];
 		audio.play(s[0], s[1], self.around(eye, self.random.range(22.0f, 29.0f), 3.0f), -4.0f);
 		self.phantom_wait = self.wait(PHANTOM_GAP_MIN, PHANTOM_GAP_MAX, 7, 10);

@@ -94,6 +94,7 @@ struct BlockChanged
 const int MAX_HEALTH = vitals::MAX_HEALTH;
 const float MAX_BREATH = vitals::MAX_BREATH; // seconds underwater before drowning starts
 const float THROW_SPEED = 7.0f;
+const float BLOCK_SOUND_DB = -5.0f; // breaking and placing: soft, not a click in the quiet
 
 struct Game
 {
@@ -265,15 +266,15 @@ fn void Game.play_sound(&self, String set, String kind, float[3] at, float volum
 	self.sounds.push({ intern::intern(set), intern::intern(kind), at, volume_db });
 }
 
-// A block's sound of `kind` ("step", "break", "place"), from its "sound".
-fn void Game.play_block_sound(&self, String block, String kind, float[3] at, float volume_db = 0)
+// A block's sound of `kind` ("step", "break", "place"): its "sound" (a
+// sound set of files) if it names one, else made from what the block is
+// (the sound set "block:<id>", audio's).
+fn void Game.play_block_sound(&self, String block, String kind, float[3] at, float volume_db = 0) => @pool()
 {
 	if (self.content.block_index(block) < 0) return;
 	Data* def = self.rules.def(block);
-	if (Data* s = def.get("sound"))
-	{
-		if (s.is_string()) self.play_sound(s.s, kind, at, volume_db);
-	}
+	Data* s = def ? def.get("sound") : null;
+	self.play_sound(s && s.is_string() ? s.s : string::tformat("block:%s", block), kind, at, volume_db);
 }
 
 // A sound everyone hears (the host shares it).
@@ -575,7 +576,7 @@ fn bool Game.use(&self, Actor* who, bool sneak)
 		// A door opened or closed sounds like the door; a placed block like itself.
 		String id = changes.is_empty() ? self.rules.id_of(hit.block) : changes[0].id;
 		BlockPos at = changes.is_empty() ? hit.position : changes[0].pos;
-		self.play_block_sound(id, "place", { at.x + 0.5f, at.y + 0.5f, at.z + 0.5f });
+		self.play_block_sound(id, "place", { at.x + 0.5f, at.y + 0.5f, at.z + 0.5f }, BLOCK_SOUND_DB);
 	}
 	bool placed = false;
 	foreach (c : changes) placed = placed || c.placed;
@@ -607,7 +608,7 @@ fn void Game.break_block(&self, BlockPos p)
 		rules::drops(self.content.blocks.get(broken), broken, &dropped);
 		foreach (block : dropped) self.drops.spawn(block, 1, at);
 	}
-	self.play_block_sound(broken, "break", { p.x + 0.5f, p.y + 0.5f, p.z + 0.5f });
+	self.play_block_sound(broken, "break", { p.x + 0.5f, p.y + 0.5f, p.z + 0.5f }, BLOCK_SOUND_DB);
 	self.swings++;
 }
 

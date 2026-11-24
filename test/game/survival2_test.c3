@@ -193,13 +193,13 @@ fn void sounds_of_blocks_steps_pickups_hurts() @test
 	defer p.free();
 	Vec{SoundEvent} sounds = p.game.take_sounds();
 	sounds.free();
-	// Breaking stone by hand: the stone set's break, at the block.
+	// Breaking stone by hand: the stone's own break (made from it), at the block.
 	p.set(2, 60, 0, "core:stone");
 	p.player.position = { 0.5f, 59.0f, 0.5f };
 	p.player.flying = true;
 	p.game.break_block({ 2, 60, 0 });
 	sounds = p.game.take_sounds();
-	assert(count_sounds(sounds.array_view(), "core:stone", "break") == 1);
+	assert(count_sounds(sounds.array_view(), "block:core:stone", "break") == 1);
 	assert(near(sounds[0].at[0], 2.5f));
 	sounds.free();
 	// Hurt: the effects' hurt.
@@ -234,7 +234,7 @@ fn void sounds_of_blocks_steps_pickups_hurts() @test
 		p.game.after_move(player::STEP);
 	}
 	sounds = p.game.take_sounds();
-	int steps = count_sounds(sounds.array_view(), "core:grass", "step");
+	int steps = count_sounds(sounds.array_view(), "block:core:grass", "step");
 	sounds.free();
 	assert(steps >= 5 && steps <= 6, "%d steps", steps);
 	// Picking up a drop.
