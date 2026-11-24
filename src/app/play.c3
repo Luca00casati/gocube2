@@ -851,7 +851,7 @@ fn bool Playing.step(&self)
 		}
 		sounds.free();
 		self.audio.set_volumes(options.hidden ? 0.0f : settings.master_volume, settings.effects_volume, settings.ambience_volume, settings.music_volume);
-		self.mood.update(&self.audio, &self.world, &self.generator, cam, self.day.day_amount(), paused ? 0.0f : dt);
+		self.mood.update(&self.audio, &self.world, cam, self.day.day_amount(), paused ? 0.0f : dt);
 		self.audio.set_underwater(in_fluid);
 		self.audio.update();
 	};

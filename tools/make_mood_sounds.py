@@ -1,6 +1,8 @@
-"""Makes the game's mood sounds (content/sounds, content/music): the wind
-loop, the rare cave sounds and the slow piano pieces. All synthesized here,
-from fixed seeds: running it again makes the same files.
+"""Makes some of the game's rare cave sounds (content/sounds/cave_*.wav:
+a rumble, a drip, steps, a moan, falling pebbles). All synthesized here,
+from fixed seeds: running it again makes the same files. (The wind, the
+scrape, the splash and the blocks' sounds are recordings: tools/cut_takes.py
+and tools/make_loop.py make them from refs/.)
 
     python tools/make_mood_sounds.py
 
@@ -111,49 +113,6 @@ def envelope(n, attack, release):
     return [min(1.0, i / a, (n - i) / r) for i in range(n)]
 
 
-# --- Wind -------------------------------------------------------------------------------
-
-def wind():
-    rng = random.Random(11)
-    seconds = 24.0
-    fade = 2.0
-    n = int((seconds + fade) * RATE)
-    # Gusts: slow waves that fit the loop exactly (k / seconds Hz).
-    def gust(t):
-        return 0.55 + 0.25 * math.sin(2 * math.pi * 2 * t / seconds) + 0.15 * math.sin(2 * math.pi * 5 * t / seconds + 1.3) \
-            + 0.08 * math.sin(2 * math.pi * 11 * t / seconds + 0.4)
-    white = noise(n, rng)
-    body = lowpass(white, 380.0, 2)
-    whistle = resonator(white, 520.0, 18.0)
-    out = []
-    for i in range(n):
-        g = gust(i / RATE)
-        out.append(body[i] * g * 2.2 + whistle[i] * max(0.0, g - 0.55) * 0.9)
-    # Seamless: the extra end fades into the start.
-    m = int(seconds * RATE)
-    f = int(fade * RATE)
-    loop = out[:m]
-    for i in range(f):
-        t = i / f
-        loop[i] = loop[i] * t + out[m + i] * (1.0 - t)
-    write("sounds/wind.wav", loop, 0.6)
-
-
-# --- The hum near the empty structures (a loop) ---------------------------------------------
-
-def hum():
-    seconds = 12.0
-    n = int(seconds * RATE)
-    # Every frequency a multiple of 1 / seconds: the loop joins without a click.
-    parts = ((55.0, 0.5), (55.25, 0.45), (82.5, 0.25), (110.5, 0.12), (165.0, 0.05))
-    out = []
-    for i in range(n):
-        t = i / RATE
-        swell = 0.75 + 0.25 * math.sin(2 * math.pi * 2 * t / seconds)
-        out.append(swell * sum(a * math.sin(2 * math.pi * f * t) for f, a in parts))
-    write("sounds/hum.wav", out, 0.6)
-
-
 # --- Cave sounds -------------------------------------------------------------------------
 
 def rumble():
@@ -164,24 +123,6 @@ def rumble():
     out = [v * e * 40.0 + 0.15 * e * math.sin(2 * math.pi * 38.0 * i / RATE) for i, (v, e) in enumerate(zip(x, env))]
     out = highpass(out, 18.0)  # (no drift off zero)
     write("sounds/cave_rumble.wav", reverb(out, 0.35, 1.3, 1.5), 0.8)
-
-
-def scrape():
-    rng = random.Random(22)
-    n = int(2.4 * RATE)
-    x = resonator(highpass(noise(n, rng), 600.0), 1300.0, 2.5)
-    # Jerky: the stone catches and slips.
-    amp = []
-    level = 0.0
-    target = 0.0
-    for i in range(n):
-        if i % 900 == 0:
-            target = rng.choice((0.0, 0.2, 0.6, 1.0, 0.9))
-        level += (target - level) * 0.004
-        amp.append(level)
-    env = envelope(n, 0.3, 0.6)
-    out = [v * a * e for v, a, e in zip(x, amp, env)]
-    write("sounds/cave_scrape.wav", reverb(out, 0.5, 1.4, 1.8), 0.6)
 
 
 def drip():
@@ -252,80 +193,9 @@ def pebbles():
     write("sounds/cave_pebbles.wav", reverb(out, 0.5, 1.4, 1.6), 0.5)
 
 
-# --- Music: slow, sparse piano ------------------------------------------------------------
-
-def note_freq(midi):
-    return 440.0 * 2.0 ** ((midi - 69) / 12.0)
-
-
-def piano(out, start, midi, velocity, length=4.0):
-    """A soft piano-like note added into `out` at `start` seconds."""
-    f0 = note_freq(midi)
-    s = int(start * RATE)
-    n = min(int(length * RATE), len(out) - s)
-    if n <= 0:
-        return
-    for k in range(1, 6):
-        f = f0 * k * math.sqrt(1.0 + 0.0004 * k * k)
-        if f > RATE * 0.45:
-            break
-        amp = velocity / k ** 1.4
-        decay = math.exp(-(0.55 + 0.45 * k) / RATE)
-        # A rotating phasor: cheap sine.
-        w = 2.0 * math.pi * f / RATE
-        c, sn = math.cos(w), math.sin(w)
-        x, y = 0.0, 1.0
-        a = amp
-        attack = int(0.006 * RATE)
-        for i in range(n):
-            x, y = x * c + y * sn, y * c - x * sn
-            v = x * a
-            if i < attack:
-                v *= i / attack
-            out[s + i] += v
-            a *= decay
-
-
-def piece(path, seed, scale, root, bars, beat):
-    """Bars of four beats: a soft low note now and then, one to three
-    melody notes wandering the scale, and many bars of rest: more silence
-    than notes."""
-    rng = random.Random(seed)
-    seconds = bars * 4 * beat + 6.0
-    out = [0.0] * int(seconds * RATE)
-    degree = rng.randrange(len(scale))
-    t = 1.0
-    for bar in range(bars):
-        if bar % 4 == 0 or rng.random() < 0.15:
-            bass = root - 12 + scale[rng.choice((0, 0, 2, 3))]
-            piano(out, t, bass, 0.26, 4.0)
-        resting = rng.random() < 0.45 and bar not in (0, bars - 1)
-        if not resting:
-            beats = sorted(rng.sample(range(8), rng.choice((1, 2, 2, 3))))
-            for b in beats:
-                degree = max(0, min(len(scale) * 2 - 1, degree + rng.choice((-2, -1, -1, 1, 1, 2, 0))))
-                midi = root + 12 * (degree // len(scale)) + scale[degree % len(scale)]
-                piano(out, t + b * beat * 0.5 + rng.uniform(0.0, 0.04), midi, rng.uniform(0.28, 0.42))
-        t += 4 * beat
-    # The last chord.
-    for i, d in enumerate((0, 2, 4)):
-        piano(out, t, root + scale[d % len(scale)], 0.3 - i * 0.05, 6.0)
-    out = reverb(out, 0.35, 1.2, 3.0)
-    fade = int(3.0 * RATE)
-    for i in range(fade):
-        out[len(out) - fade + i] *= 1.0 - i / fade
-    write(path, out, 0.5)
-
-
 if __name__ == "__main__":
-    wind()
-    hum()
     rumble()
-    scrape()
     drip()
     steps()
     moan()
     pebbles()
-    piece("music/drift_1.wav", 101, (0, 3, 5, 7, 10), 57, 16, 1.05)   # A minor pentatonic
-    piece("music/drift_2.wav", 202, (0, 2, 4, 6, 7, 9, 11), 62, 14, 1.15)  # D lydian
-    piece("music/drift_3.wav", 303, (0, 2, 4, 7, 9), 53, 16, 1.0)     # F major pentatonic

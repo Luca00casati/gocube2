@@ -1,7 +1,7 @@
 // Benchmarks (`c3c benchmark`; not part of the game build): the noise, a chunk's light, and meshing it
 // with and without block shadows, on seed 777's terrain around the origin
 // (the base game's content). Each prints its mean time per call.
-module gocube::bench::voxel_bench @if($feature(BENCHMARKING)); // (only in `c3c benchmark`)
+module gocube::bench::voxel_bench @feat(BENCHMARKING); // (only in `c3c benchmark`)
 import gocube::content, gocube::voxel, gocube::util::vec, gocube::util::map;
 
 const String CONTENT_DIR = "content";

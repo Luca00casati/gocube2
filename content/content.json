@@ -184,6 +184,7 @@
 			"drops": "",
 			"hardness": 0.5,
 			"random_rotation": true,
+			"sound": "core:glass",
 			"textures": {
 				"all": {
 					"blotch": 0.7,
@@ -207,6 +208,7 @@
 			"color": "#f2c25a",
 			"hardness": 0.3,
 			"light": 14,
+			"sound": "core:glass",
 			"textures": {"all": "textures/lamp.png"}
 		},
 		"lava": {
@@ -461,6 +463,7 @@
 			"color": "#cdb57a",
 			"hardness": 1.0,
 			"random_rotation": true,
+			"sound": "core:stone",
 			"textures": {
 				"all": {
 					"color": "#cbb47a",
@@ -518,22 +521,75 @@
 	},
 	"sound_sets": {
 		"ambience": {
-			"hum": ["sounds/hum.wav"],
 			"wind": ["sounds/wind.wav"]
 		},
 		"cave": {
 			"sounds": [
 				"sounds/cave_drip.wav", "sounds/cave_moan.wav", "sounds/cave_pebbles.wav",
-				"sounds/cave_rumble.wav", "sounds/cave_scrape.wav", "sounds/cave_steps.wav"
+				"sounds/cave_rumble.wav", "sounds/cave_steps.wav", "sounds/scrape_1.wav",
+				"sounds/scrape_2.wav", "sounds/scrape_3.wav"
 			]
 		},
 		"music": {
-			"pieces": ["music/drift_1.wav", "music/drift_2.wav", "music/drift_3.wav"]
+			"pieces": []
 		},
 		"effects": {
-			"hurt": ["sounds/hurt.wav"],
-			"pickup": ["sounds/pickup.wav"],
-			"splash": ["sounds/splash_1.wav", "sounds/splash_2.wav"]
+			"splash": [
+				"sounds/splash_1.wav", "sounds/splash_2.wav", "sounds/splash_3.wav",
+				"sounds/splash_4.wav"
+			]
+		},
+		"dirt": {
+			"hits": [
+				"sounds/blocks/dirt_1.wav", "sounds/blocks/dirt_2.wav", "sounds/blocks/dirt_3.wav",
+				"sounds/blocks/dirt_4.wav", "sounds/blocks/dirt_5.wav", "sounds/blocks/dirt_6.wav",
+				"sounds/blocks/dirt_7.wav", "sounds/blocks/dirt_8.wav"
+			]
+		},
+		"glass": {
+			"hits": ["sounds/blocks/glass_1.wav"]
+		},
+		"grass": {
+			"hits": [
+				"sounds/blocks/grass_1.wav", "sounds/blocks/grass_2.wav", "sounds/blocks/grass_3.wav",
+				"sounds/blocks/grass_4.wav", "sounds/blocks/grass_5.wav", "sounds/blocks/grass_6.wav",
+				"sounds/blocks/grass_7.wav", "sounds/blocks/grass_8.wav"
+			]
+		},
+		"gravel": {
+			"hits": [
+				"sounds/blocks/gravel_1.wav", "sounds/blocks/gravel_2.wav", "sounds/blocks/gravel_3.wav",
+				"sounds/blocks/gravel_4.wav", "sounds/blocks/gravel_5.wav", "sounds/blocks/gravel_6.wav",
+				"sounds/blocks/gravel_7.wav", "sounds/blocks/gravel_8.wav"
+			]
+		},
+		"sand": {
+			"hits": [
+				"sounds/blocks/dirt_1.wav", "sounds/blocks/dirt_2.wav", "sounds/blocks/dirt_3.wav",
+				"sounds/blocks/dirt_4.wav", "sounds/blocks/dirt_5.wav", "sounds/blocks/dirt_6.wav",
+				"sounds/blocks/dirt_7.wav", "sounds/blocks/dirt_8.wav"
+			]
+		},
+		"snow": {
+			"hits": [
+				"sounds/blocks/snow_1.wav", "sounds/blocks/snow_2.wav", "sounds/blocks/snow_3.wav",
+				"sounds/blocks/snow_4.wav", "sounds/blocks/snow_5.wav", "sounds/blocks/snow_6.wav",
+				"sounds/blocks/snow_7.wav", "sounds/blocks/snow_8.wav"
+			]
+		},
+		"stone": {
+			"hits": [
+				"sounds/blocks/stone_1.wav", "sounds/blocks/stone_2.wav", "sounds/blocks/stone_3.wav",
+				"sounds/blocks/stone_4.wav", "sounds/blocks/stone_5.wav", "sounds/blocks/stone_6.wav",
+				"sounds/blocks/stone_7.wav", "sounds/blocks/stone_8.wav"
+			]
+		},
+		"wood": {
+			"hits": [
+				"sounds/blocks/wood_1.wav", "sounds/blocks/wood_2.wav", "sounds/blocks/wood_3.wav",
+				"sounds/blocks/wood_4.wav", "sounds/blocks/wood_5.wav", "sounds/blocks/wood_6.wav",
+				"sounds/blocks/wood_7.wav", "sounds/blocks/wood_8.wav"
+			]
 		}
 	},
 	"trees": {

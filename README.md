@@ -13,14 +13,19 @@ block shadows, light from lamps and a little of the player's own, dropped
 blocks and a first-person arm in your skin.
 A lonely, uncanny mood: wind out in the open that sometimes stops dead,
 rare strange sounds underground and your footsteps coming back late, a
-block breaking far off with nobody there, a low hum near the empty
-structures, fog that closes in for a while, some nights a small light far
-off that's gone when you come near, and now and then a slow piano piece
-between long silences (the sounds are made by `tools/make_mood_sounds.py`).
-Blocks have no sound files: breaking, placing and stepping on one is a soft,
-dull sound the game makes from what the block is (hardness, a grainy or
-woody texture, colour, shape, glass, leaves, falling; `src/audio/block_sound.c3`;
-a block can still name a sound set with "sound").
+block breaking far off with nobody there, fog that closes in for a while,
+some nights a small light far off that's gone when you come near, and (once
+there is some in the "core:music" sound set) now and then a piece of music
+between long silences.
+Breaking, placing and stepping on a block plays recordings of its material
+(stone, wood, grass, gravel, sand, snow, dirt, glass), chosen from what the
+block is (glass, plants, soft, falling, woody or hard) and pitched from it
+(lighter colours, smaller pieces and harder blocks a little higher;
+`src/audio/block_sound.c3`); a block's "sound" names another sound set.
+The recordings are cut from long takes kept in `refs/` (not in git):
+`tools/cut_takes.py` cuts a take into single hits, `tools/make_loop.py`
+makes the wind loop seamless; `tools/make_mood_sounds.py` synthesizes some
+of the cave sounds.
 To check it without listening: `--record=DIR` saves frames and everything
 heard, and `tools/review_audio.py DIR/audio.wav` draws it.
 The terrain comes from 3D noise: hills, cliffs, overhangs, seas with sand and

@@ -9,7 +9,6 @@
 //  - rarely, far off and out of sight, a block breaking or being placed,
 //    with nobody there;
 //  - rarely, a slow piece of music (content "core:music");
-//  - a low hum near the empty structures (the generator's);
 //  - now and then the fog closes in for a few minutes, then lifts;
 //  - some nights, a small warm light far off on the land, gone when you
 //    come near (and by morning).
@@ -39,7 +38,6 @@ const float FOG_THICK @private = 0.4f;           // the fog's distances, then
 const float LIGHT_CHANCE @private = 0.5f;        // of a night having the far light
 const float LIGHT_NEAREST @private = 40.0f;      // nearer than this: gone
 const float ECHO_CHANCE @private = 0.3f;
-const float HUM_REACH @private = 22.0f;          // blocks from a structure the hum is heard
 const int UNDERGROUND_SKY @private = 4;          // sky light at the eyes at or below it: underground
 const float CAVE_SOUND_DB @private = -4.0f;
 
@@ -63,7 +61,6 @@ struct Mood
 	float wind;        // 0..1, smoothed
 	float open;        // the sky light at the eyes, 0..1, smoothed (underground: about 0)
 	float fog;         // the fog's distances times this (1: as the day says)
-	float hum, hum_check;
 	Vec{Echo} echoes;
 	// The far light: where it is, if it's there tonight.
 	bool light_on, light_tried;
@@ -72,10 +69,10 @@ struct Mood
 
 fn void Mood.free(&self) => self.echoes.free();
 
-fn float Mood.wait(&self, float lo, float hi, float test_lo, float test_hi) @private
+fn float Mood.wait(&self, float lo, float hi, float test_lo, float test_hi)
 	=> self.test ? self.random.range(test_lo, test_hi) : self.random.range(lo, hi);
 
-fn void Mood.start(&self) @private
+fn void Mood.start(&self)
 {
 	self.random = rand::seed_random();
 	self.music_wait = self.test ? 0.5f : self.random.range(MUSIC_FIRST_MIN, MUSIC_FIRST_MAX);
@@ -89,14 +86,14 @@ fn void Mood.start(&self) @private
 }
 
 // A point `distance` away from `eye` in a random direction (level, give or take).
-fn float[3] Mood.around(&self, float[3] eye, float distance, float dy) @private
+fn float[3] Mood.around(&self, float[3] eye, float distance, float dy)
 {
 	float angle = self.random.range(0.0f, 6.2831853f);
 	return { eye[0] + math::cos(angle) * distance, eye[1] + self.random.range(-dy, dy), eye[2] + math::sin(angle) * distance };
 }
 
 // `day`: 0 night .. 1 day.
-fn void Mood.update(&self, Audio* audio, World* world, Generator* generator, float[3] eye, float day, float dt)
+fn void Mood.update(&self, Audio* audio, World* world, float[3] eye, float day, float dt)
 {
 	if (!self.started) self.start();
 	int sky;
@@ -167,27 +164,6 @@ fn void Mood.update(&self, Audio* audio, World* world, Generator* generator, flo
 			self.music_wait = self.wait(MUSIC_GAP_MIN, MUSIC_GAP_MAX, 60, 90);
 		}
 	}
-	// The hum near an empty structure (looked for once a second).
-	self.hum_check -= dt;
-	if (self.hum_check <= 0.0f)
-	{
-		self.hum_check = 1.0f;
-		StructureList found;
-		defer found.free();
-		int reach = (int)HUM_REACH;
-		generator.structures_near((int)eye[0] - reach, (int)eye[2] - reach, (int)eye[0] + reach + 1, (int)eye[2] + reach + 1, &found);
-		float nearest = HUM_REACH;
-		foreach (s : found)
-		{
-			float dx = (float)s.x + 0.5f - eye[0];
-			float dy = (float)s.ground + 2.0f - eye[1];
-			float dz = (float)s.z + 0.5f - eye[2];
-			nearest = math::min(nearest, math::sqrt(dx * dx + dy * dy * 0.5f + dz * dz));
-		}
-		float near = 1.0f - nearest / HUM_REACH;
-		self.hum = near * near;
-	}
-	audio.set_hum(self.hum);
 	// The fog closes in, then lifts.
 	if (self.fog_left > 0.0f)
 	{

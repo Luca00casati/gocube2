@@ -1,10 +1,11 @@
 // The game's sounds, through XAudio2: a sound set's sound (content
-// "sound_sets": a list of files per kind; or "block:<id>", a block's sound
-// made from what the block is, by sound::block), a random one of them, its
+// "sound_sets": a list of files per kind; or "block:<id>", a block's: its
+// material's recordings, pitched from what it is, by sound::block), a
+// random one of them, its
 // pitch varied a little so repeats don't sound the same, heard from where it
 // is (full volume within UNIT_SIZE blocks, then falling off, silent beyond
 // MAX_DISTANCE). Two loops as loud as the game says: the wind (set_wind:
-// how open it is around) and a low hum (set_hum); now and then a piece of
+// how open it is around); now and then a piece of
 // music (play_music: in both ears, one at a time); underwater, everything
 // is muffled.
 //
@@ -20,7 +21,6 @@ const float MAX_DISTANCE = 32.0f;
 const float UNIT_SIZE = 6.0f;
 const float AMBIENCE_DB = -12.0f;
 const float MUSIC_DB = -8.0f;
-const float HUM_DB = -14.0f;
 const int VOICES = 24;
 const float MUFFLE_HZ @private = 700.0f; // the underwater low-pass
 
@@ -424,10 +424,10 @@ struct Audio
 	bool ok;
 	Map{String, Sound*} loaded; // by path (keys owned; never moved: voices point into them)
 	Vec{Voice} voices;
-	Voice wind, hum, music;
-	String wind_path, hum_path; // (heap)
+	Voice wind, music;
+	String wind_path; // (heap)
 	float[3] listener, forward;
-	float master_volume, effects, ambience, music_volume, wind_amount, hum_amount;
+	float master_volume, effects, ambience, music_volume, wind_amount;
 	bool underwater;
 }
 
@@ -521,7 +521,7 @@ fn void Audio.stop_engine(&self)
 	self.ok = false;
 	foreach (&v : self.voices) v.voice.destroy();
 	self.voices.clear();
-	foreach (v : (Voice*[3]){ &self.wind, &self.hum, &self.music })
+	foreach (v : (Voice*[2]){ &self.wind, &self.music })
 	{
 		if (v.voice) v.voice.destroy();
 		v.voice = null;
@@ -557,14 +557,12 @@ fn void Audio.start_loop(&self, Voice* v, String path)
 fn void Audio.start_ambience(&self)
 {
 	self.start_loop(&self.wind, self.wind_path);
-	self.start_loop(&self.hum, self.hum_path);
 	self.apply_ambience();
 }
 
 fn void Audio.apply_ambience(&self)
 {
 	if (self.wind.voice) self.wind.voice.set_volume(db_to_linear(AMBIENCE_DB) * self.ambience * self.wind_amount);
-	if (self.hum.voice) self.hum.voice.set_volume(db_to_linear(HUM_DB) * self.ambience * self.hum_amount);
 	if (self.music.voice) self.music.voice.set_volume(db_to_linear(MUSIC_DB) * self.music_volume);
 }
 
@@ -588,7 +586,6 @@ fn bool Audio.init(&self, Content* content, float master_volume = 1.0f)
 		.music_volume = 1 };
 	self.com = co_initialize_ex(null, 0) >= 0; // (COINIT_MULTITHREADED; RPC_E_CHANGED_MODE: COM is already up on this thread)
 	self.wind_path = self.pick("core:ambience", "wind");
-	self.hum_path = self.pick("core:ambience", "hum");
 	self.start_engine();
 	if (!self.ok) return false;
 	self.start_ambience();
@@ -607,7 +604,6 @@ fn void Audio.free(&self)
 	self.loaded.free();
 	self.voices.free();
 	if (self.wind_path.len) free(self.wind_path.ptr);
-	if (self.hum_path.len) free(self.hum_path.ptr);
 	if (self.com) co_uninitialize();
 	*self = {};
 }
@@ -615,31 +611,28 @@ fn void Audio.free(&self)
 fn bool Audio.active(&self) => self.ok;
 fn int Audio.voice_count(&self) => (int)self.voices.len();
 
-// A block's sound of `kind`, one of its variants at random (made the first
-// time it's wanted, then kept); null if the block makes none.
-fn Sound* Audio.block_sound(&self, String id, String kind) => @pool()
+// A random file of a block's sound set (sound::block: its material's, or
+// its "sound"), and how much higher it plays; null if it makes none.
+fn Sound* Audio.block_sound(&self, String id, String kind, float* pitch) => @pool()
 {
-	int variant = (int)(self.random.unit() * (double)block::variants(kind)) % block::variants(kind);
-	String key = string::tformat("%s%s/%s/%d", block::SET_PREFIX, id, kind, variant);
-	if (Sound* s = self.loaded.get_or(key, null)) return s;
 	if (!self.content) return null;
 	Data* def = self.content.blocks.get(id);
 	if (!block::has_sound(def)) return null;
 	BlockVoice voice = block::voice_of(def);
-	Sound* s = mem::new(Sound);
-	s.wav = block::make(&voice, id, kind, variant);
-	Wav* w = &s.wav;
-	s.format = { .format_tag = WAVE_FORMAT_PCM, .channels = w.channels, .samples_per_sec = w.rate, .bits_per_sample = w.bits,
-		.block_align = (ushort)(w.channels * w.bits / 8) };
-	s.format.avg_bytes_per_sec = w.rate * s.format.block_align;
-	self.loaded[key.copy(mem)] = s;
-	return s;
+	*pitch = block::pitch_of(&voice, kind);
+	String set = block::set_of(def, &voice);
+	String path = self.pick(set, kind);
+	if (!path.len) path = self.pick(set, "hits");
+	if (!path.len) return null;
+	defer free(path.ptr);
+	return self.load(path);
 }
 
-// A sound of a set's kind: a block's (made) or a random file's.
-fn Sound* Audio.sound_of(&self, String set, String kind)
+// A sound of a set's kind (a random file), and how much higher it plays.
+fn Sound* Audio.sound_of(&self, String set, String kind, float* pitch)
 {
-	if (set.starts_with(block::SET_PREFIX)) return self.block_sound(set[block::SET_PREFIX.len..], kind);
+	*pitch = 1;
+	if (set.starts_with(block::SET_PREFIX)) return self.block_sound(set[block::SET_PREFIX.len..], kind, pitch);
 	String path = self.pick(set, kind);
 	if (!path.len) return null;
 	defer free(path.ptr);
@@ -653,7 +646,8 @@ fn void Audio.play(&self, String set, String kind, float[3] at, float volume_db 
 	float dy = at[1] - self.listener[1];
 	float dz = at[2] - self.listener[2];
 	if (dx * dx + dy * dy + dz * dz > MAX_DISTANCE * MAX_DISTANCE) return; // out of earshot
-	Sound* s = self.sound_of(set, kind);
+	float pitch;
+	Sound* s = self.sound_of(set, kind, &pitch);
 	if (!s) return;
 	if (self.voices.len() >= VOICES) // the oldest makes room
 	{
@@ -664,7 +658,7 @@ fn void Audio.play(&self, String set, String kind, float[3] at, float volume_db 
 	v.voice = self.start_voice(s, false);
 	if (!v.voice) return;
 	self.place(&v);
-	v.voice.set_frequency_ratio(self.random.range(0.9f, 1.1f));
+	v.voice.set_frequency_ratio(pitch * self.random.range(0.92f, 1.08f));
 	v.voice.set_volume(db_to_linear(volume_db) * self.effects);
 	v.voice.start();
 	self.voices.push(v);
@@ -681,13 +675,6 @@ fn void Audio.set_listener(&self, float[3] position, float[3] forward)
 fn void Audio.set_wind(&self, float amount)
 {
 	self.wind_amount = math::clamp(amount, 0.0f, 1.0f);
-	self.apply_ambience();
-}
-
-// How loud the hum: 0 .. 1 (right by one).
-fn void Audio.set_hum(&self, float amount)
-{
-	self.hum_amount = math::clamp(amount, 0.0f, 1.0f);
 	self.apply_ambience();
 }
 

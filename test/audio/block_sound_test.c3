@@ -1,103 +1,120 @@
-// Blocks' sounds, made from what they are (sound::block).
+// Blocks' sounds: each plays its material's recordings (sound::block), and
+// every sound file the content names is there and reads.
 module gocube::test::block_sound_test;
 import gocube::sound, gocube::sound::block, gocube::content, gocube::data, gocube::util::vec;
 import std::math, std::io;
 
-fn float[] samples_of(Wav* w) // (temp)
+fn Content* load() @private
 {
-	float[] out = mem::temp_array(float, w.data.len() / 2);
-	foreach (i, &s : out) *s = (float)(short)((ushort)w.data[i * 2] | (ushort)w.data[i * 2 + 1] << 8) / 32768.0f;
-	return out;
-}
-
-// How much of a sound is above ~1.5 kHz, 0..1 (roughly: two one-pole
-// passes, so a low ring counts a little too; the old bright sound files
-// were about 0.9).
-fn float bright_share(float[] x)
-{
-	float a = 1.0f - math::exp(-2.0f * (float)math::PI * 1500.0f / (float)block::RATE);
-	float lo1, lo2, all, high;
-	foreach (v : x)
-	{
-		lo1 += a * (v - lo1);
-		lo2 += a * (lo1 - lo2);
-		all += v * v;
-		high += (v - lo2) * (v - lo2);
-	}
-	return high / math::max(all, 1e-9f);
-}
-
-fn Data* def_of(Content* c, String id) => c.blocks.get(id);
-
-// Every block that can be broken has its sounds: the same each time, soft
-// (little high end, glass aside), starting and ending quietly, not clipped.
-fn void every_block_sounds_soft_and_the_same() @test => @pool()
-{
-	Content content;
-	defer content.free();
+	Content* c = mem::new(Content);
 	DString why;
 	defer why.free();
-	assert(content.load("content", &why), "%s", why.str_view());
-	int made;
-	foreach (e : content.blocks.all())
+	assert(c.load("content", &why), "%s", why.str_view());
+	return c;
+}
+
+fn void unload(Content* c) @private
+{
+	c.free();
+	free(c);
+}
+
+fn String material_of(Content* c, String id) @private
+{
+	BlockVoice v = block::voice_of(c.blocks.get(id));
+	return block::material(&v);
+}
+
+fn String set_of(Content* c, String id) @private
+{
+	Data* def = c.blocks.get(id);
+	BlockVoice v = block::voice_of(def);
+	return block::set_of(def, &v);
+}
+
+// Each block's material, from what it is.
+fn void each_block_sounds_like_its_material() @test => @pool()
+{
+	Content* c = load();
+	defer unload(c);
+	String[2][*] expected = {
+		{ "core:stone", "stone" }, { "core:cobblestone", "stone" }, { "core:stone_stairs", "stone" },
+		{ "core:dirt", "dirt" }, { "core:grass", "grass" }, { "core:leaves", "grass" }, { "core:cactus", "grass" },
+		{ "core:sand", "sand" }, { "core:gravel", "gravel" }, { "core:snow", "snow" }, { "core:glass", "glass" },
+		{ "core:log", "wood" }, { "core:planks", "wood" }, { "core:planks_stairs", "wood" }, { "core:planks_fence", "wood" },
+		{ "core:wood_door", "wood" }, { "core:ladder", "wood" }, { "core:chest", "wood" },
+	};
+	foreach (e : expected) assert(material_of(c, e[0]) == e[1], "%s: %s, not %s", e[0], material_of(c, e[0]), e[1]);
+	// What properties can't tell, "sound" does.
+	assert(set_of(c, "core:sandstone") == "core:stone");
+	assert(set_of(c, "core:ice") == "core:glass");
+	assert(set_of(c, "core:stone") == "core:stone");
+	assert(!block::has_sound(c.blocks.get("core:water")) && !block::has_sound(c.blocks.get("core:air")));
+}
+
+// Every block that makes a sound has recordings to play.
+fn void every_block_has_recordings() @test => @pool()
+{
+	Content* c = load();
+	defer unload(c);
+	foreach (e : c.blocks.all())
 	{
-		Data* def = def_of(&content, e.id);
+		Data* def = c.blocks.get(e.id);
 		if (!block::has_sound(def)) continue;
-		BlockVoice v = block::voice_of(def);
-		foreach (kind : (String[3]){ "break", "place", "step" })
+		String set = set_of(c, e.id);
+		Data* s = c.sound_sets.get(set);
+		assert(s, "%s: no sound set %s", e.id, set);
+		Data* hits = s.get("hits");
+		assert(hits && hits.len() > 0, "%s: %s has no hits", e.id, set);
+	}
+}
+
+// Every file a sound set names reads, and a block's recordings are short.
+fn void every_sound_file_reads() @test
+{
+	Content* c = load();
+	defer unload(c);
+	int files;
+	foreach (e : c.sound_sets.all())
+	{
+		foreach (kind : e.def.fields())
 		{
-			for (int n = 0; n < block::variants(kind); n++)
+			foreach (f : kind.value.items())
 			{
-				Wav w = block::make(&v, e.id, kind, n);
-				defer w.free();
-				Wav again = block::make(&v, e.id, kind, n);
-				defer again.free();
-				assert(w.data.array_view() == again.data.array_view(), "%s %s changes", e.id, kind);
-				assert(w.rate == block::RATE && w.channels == 1 && w.bits == 16);
-				float[] x = samples_of(&w);
-				assert(x.len > block::RATE / 20, "%s %s is too short", e.id, kind);
-				float peak = 0;
-				foreach (s : x) peak = math::max(peak, math::abs(s));
-				assert(peak > 0.3f && peak < 0.51f, "%s %s peak %f", e.id, kind, peak);
-				assert(math::abs(x[0]) < 0.01f && math::abs(x[^1]) < 0.01f, "%s %s clicks", e.id, kind);
-				if (v.glass < 0.5f) assert(bright_share(x) < 0.25f, "%s %s is bright: %f", e.id, kind, bright_share(x));
-				made++;
+				@pool()
+				{
+					String path = c.asset_path(f.as_string());
+					Wav w;
+					defer w.free();
+					String error;
+					assert(sound::read_wav(path, &w, &error), "%s: %s", path, error);
+					double seconds = (double)w.frames() / (double)w.rate;
+					assert(seconds > 0.02, "%s is empty", path);
+					if (kind.key == "hits") assert(seconds < 1.0, "%s: %.2f s, long for a block", path, seconds);
+					files++;
+				};
 			}
 		}
 	}
-	assert(made > 100, "%d", made);
-	// Variants differ.
-	BlockVoice stone = block::voice_of(def_of(&content, "core:stone"));
-	Wav a = block::make(&stone, "core:stone", "break", 0);
-	defer a.free();
-	Wav b = block::make(&stone, "core:stone", "break", 1);
-	defer b.free();
-	assert(a.data.array_view() != b.data.array_view());
+	assert(files > 40, "%d", files);
 }
 
-// What a block is shapes its sound.
-fn void sound_follows_the_block() @test
+// The pitch: lighter, smaller and harder a little higher; never far off.
+fn void pitch_follows_the_block() @test => @pool()
 {
-	Content content;
-	defer content.free();
-	DString why;
-	defer why.free();
-	assert(content.load("content", &why), "%s", why.str_view());
-	BlockVoice stone = block::voice_of(def_of(&content, "core:cobblestone"));
-	BlockVoice dirt = block::voice_of(def_of(&content, "core:dirt"));
-	BlockVoice gravel = block::voice_of(def_of(&content, "core:gravel"));
-	BlockVoice planks = block::voice_of(def_of(&content, "core:planks"));
-	BlockVoice glass = block::voice_of(def_of(&content, "core:glass"));
-	BlockVoice leaves = block::voice_of(def_of(&content, "core:leaves"));
-	BlockVoice snow = block::voice_of(def_of(&content, "core:snow"));
-	BlockVoice stairs = block::voice_of(def_of(&content, "core:stone_stairs"));
-	assert(stone.hard > 0.9f && dirt.hard < 0.25f);           // hardness
-	assert(gravel.grain > 0.8f && gravel.falls);               // cells; falls
-	assert(planks.wood == 1.0f && stone.wood == 0.0f && planks.dry); // flammable
-	assert(glass.glass == 1.0f && stone.glass == 0.0f);        // transparent
-	assert(leaves.leaves && leaves.glass == 0.0f && leaves.wood == 0.0f);
-	assert(snow.small > 0.75f && stairs.small > 0.2f && stone.small == 0.0f); // shape
-	assert(snow.pitch > stone.pitch);                          // a light colour
-	assert(!block::has_sound(def_of(&content, "core:water")) && !block::has_sound(def_of(&content, "core:air")));
-	assert(block::variants("break") == 3 && block::variants("place") == 2);
+	Content* c = load();
+	defer unload(c);
+	BlockVoice stone = block::voice_of(c.blocks.get("core:stone"));
+	BlockVoice stairs = block::voice_of(c.blocks.get("core:stone_stairs"));
+	BlockVoice dirt = block::voice_of(c.blocks.get("core:dirt"));
+	BlockVoice sand = block::voice_of(c.blocks.get("core:sand"));
+	assert(block::pitch_of(&stairs, "break") > block::pitch_of(&stone, "break"));
+	assert(block::pitch_of(&sand, "break") > block::pitch_of(&dirt, "break"));
+	assert(block::pitch_of(&stone, "place") > block::pitch_of(&stone, "break"));
+	foreach (e : c.blocks.all())
+	{
+		BlockVoice v = block::voice_of(c.blocks.get(e.id));
+		float p = block::pitch_of(&v, "break");
+		assert(p >= 0.7f && p <= 1.5f, "%s: %f", e.id, p);
+	}
 }

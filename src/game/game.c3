@@ -266,15 +266,12 @@ fn void Game.play_sound(&self, String set, String kind, float[3] at, float volum
 	self.sounds.push({ intern::intern(set), intern::intern(kind), at, volume_db });
 }
 
-// A block's sound of `kind` ("step", "break", "place"): its "sound" (a
-// sound set of files) if it names one, else made from what the block is
-// (the sound set "block:<id>", audio's).
+// A block's sound of `kind` ("step", "break", "place"): the sound set
+// "block:<id>" (audio plays its material's recordings, or its "sound").
 fn void Game.play_block_sound(&self, String block, String kind, float[3] at, float volume_db = 0) => @pool()
 {
 	if (self.content.block_index(block) < 0) return;
-	Data* def = self.rules.def(block);
-	Data* s = def ? def.get("sound") : null;
-	self.play_sound(s && s.is_string() ? s.s : string::tformat("block:%s", block), kind, at, volume_db);
+	self.play_sound(string::tformat("block:%s", block), kind, at, volume_db);
 }
 
 // A sound everyone hears (the host shares it).

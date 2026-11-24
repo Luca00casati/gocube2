@@ -142,7 +142,7 @@ fn void plays_through_xaudio2() @test
 	defer a.free();
 	if (!a.init(&content, 0.0f)) return; // (no sound device here: nothing to check)
 	a.set_listener({ 0, 0, 0 }, { 0, 0, -1 });
-	a.play("core:effects", "pickup", { 1, 0, 0 });
+	a.play("core:effects", "splash", { 1, 0, 0 });
 	assert(a.voice_count() == 1);
 	a.set_underwater(true);
 	for (int i = 0; i < 100 && a.voice_count() > 0; i++)
