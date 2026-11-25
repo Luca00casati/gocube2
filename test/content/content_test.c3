@@ -79,7 +79,7 @@ fn void block_table_hash() @test
 	f.put_int(table.atlas.width);
 	f.put_int(table.atlas.height);
 	f.put(table.atlas.rgba.ptr, table.atlas.rgba.len);
-	assert(f.h == 0x4a35cd13bdd1929f, "the block table's hash is %x", f.h);
+	assert(f.h == 0xbf8f0b524231f5c, "the block table's hash is %x", f.h);
 }
 
 fn void png_read_with_alpha() @test
@@ -109,7 +109,7 @@ fn void png_read_with_alpha() @test
 // --- Seed 777: the same terrain as ever, but stone where ore veins were
 // (worlds made before keep their own block table) ----------------------------
 
-const String WORLD_FINGERPRINT = "556c40d3704a47a1";
+const String WORLD_FINGERPRINT = "0a57fd8589d7e5b8";
 const int CHUNK_Y_MIN = -3;
 const int CHUNK_Y_MAX = 3;
 

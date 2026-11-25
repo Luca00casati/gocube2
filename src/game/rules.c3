@@ -1,5 +1,5 @@
 // The base game's rules (formerly set by the core mod's code): mining
-// time, what breaking a block drops, fall and void damage, the hand recipe
+// time, what breaking a block drops, the hand recipe
 // and what a new player starts with.
 module gocube::game::rules;
 import gocube::data, gocube::util::vec, gocube::util::intern;
@@ -7,7 +7,6 @@ import std::math;
 
 const double MINE_SECONDS_PER_HARDNESS = 0.375;
 const double MIN_MINE_SECONDS = 0.1;
-const double SAFE_FALL = 3.0; // blocks you can fall without damage
 
 // Mining: hardness x 0.375 s, whatever is held (no tools). `def`: the block's (null: unknown).
 fn float mine_seconds(Data* def) => (float)math::max(MIN_MINE_SECONDS, (def ? def.num("hardness", 1.0) : 1.0) * MINE_SECONDS_PER_HARDNESS);
@@ -24,12 +23,6 @@ fn void drops(Data* def, String block, Vec{String}* out)
 	}
 	if (main.len) out.push(intern::intern(main));
 }
-
-// Health a fall of that many blocks takes.
-fn int fall_damage(double blocks) => blocks <= SAFE_FALL ? 0 : (int)math::floor(blocks - SAFE_FALL);
-
-// Below the world's bottom: damage every half second.
-const int VOID_DAMAGE = 4;
 
 struct Recipe
 {

@@ -5,7 +5,8 @@ the recording's ends are left out.
 
     python tools/make_loop.py IN.wav OUT.wav FROM TO [FADE]
 
-16-bit PCM in (any channels), the same out. Plain Python (no packages).
+16-bit PCM in (any channels), the same out (tools/to_flac.py then makes it
+the .flac the game plays). Plain Python (no packages).
 """
 import math
 import struct

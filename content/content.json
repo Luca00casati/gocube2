@@ -1,123 +1,10 @@
 {
 	"blocks": {
 		"air": {"solid": false, "transparent": true},
-		"bed": {
-			"bed": true,
-			"color": "#b43a36",
-			"flammable": true,
-			"hardness": 0.3,
-			"shape": "bed",
-			"textures": {
-				"bottom": {
-					"blotch": 0.5,
-					"color": "#93683d",
-					"noise": 0.1,
-					"shades": 3,
-					"stripes": [
-						{"across": true, "color": "#b88653", "every": 4},
-						{
-							"across": true,
-							"color": "#76522f",
-							"every": 4,
-							"offset": 3,
-							"seams": "#6b4a2b"
-						}
-					]
-				},
-				"side": "textures/bed_side.png",
-				"top": "textures/bed_foot_top.png"
-			},
-			"textures_head": {
-				"bottom": {
-					"blotch": 0.5,
-					"color": "#93683d",
-					"noise": 0.1,
-					"shades": 3,
-					"stripes": [
-						{"across": true, "color": "#b88653", "every": 4},
-						{
-							"across": true,
-							"color": "#76522f",
-							"every": 4,
-							"offset": 3,
-							"seams": "#6b4a2b"
-						}
-					]
-				},
-				"side": "textures/bed_side.png",
-				"top": "textures/bed_head_top.png"
-			}
-		},
-		"cactus": {
-			"boxes": [[1, 0, 1, 15, 16, 15]],
-			"color": "#43832e",
-			"hardness": 0.4,
-			"plant_on": ["core:sand", "core:cactus"],
-			"shape": "boxes",
-			"textures": {
-				"bottom": {
-					"color": "#43832e",
-					"noise": 0.1,
-					"rings": {"color": "#367026", "every": 3},
-					"shades": 3
-				},
-				"side": {
-					"color": "#43832e",
-					"noise": 0.08,
-					"shades": 3,
-					"spots": {"color": "#e6deb4", "count": 10, "size": 1},
-					"stripes": {"color": "#346b25", "every": 4}
-				},
-				"top": {
-					"color": "#43832e",
-					"noise": 0.1,
-					"rings": {"color": "#367026", "every": 3},
-					"shades": 3
-				}
-			}
-		},
-		"chest": {
-			"block_entity": "chest",
-			"color": "#9a7448",
-			"hardness": 2.5,
-			"textures": {
-				"bottom": {
-					"blotch": 0.5,
-					"color": "#93683d",
-					"noise": 0.1,
-					"shades": 3,
-					"stripes": [
-						{"across": true, "color": "#b88653", "every": 4},
-						{
-							"across": true,
-							"color": "#76522f",
-							"every": 4,
-							"offset": 3,
-							"seams": "#6b4a2b"
-						}
-					]
-				},
-				"side": "textures/chest_side.png",
-				"top": "textures/chest_top.png"
-			}
-		},
 		"cobblestone": {
 			"color": "#6a6a6a",
 			"hardness": 2.0,
 			"random_rotation": true,
-			"textures": {
-				"all": {
-					"cells": {"edge": "#4e5156", "size": 5},
-					"color": "#72757b",
-					"noise": 0.28,
-					"shades": 4
-				}
-			}
-		},
-		"cobblestone_stairs": {
-			"color": "#6a6a6a",
-			"hardness": 1.5,
-			"shape": "stairs",
 			"textures": {
 				"all": {
 					"cells": {"edge": "#4e5156", "size": 5},
@@ -195,14 +82,6 @@
 					"spots": {"color": "#c3dcf3", "count": 4, "shape": "dash", "size": 3}
 				}
 			}
-		},
-		"ladder": {
-			"climbable": true,
-			"color": "#93683d",
-			"hardness": 0.6,
-			"needs_support": true,
-			"shape": "ladder",
-			"textures": {"all": "textures/ladder.png"}
 		},
 		"lamp": {
 			"color": "#f2c25a",
@@ -427,29 +306,6 @@
 				}
 			}
 		},
-		"planks_stairs": {
-			"color": "#a67748",
-			"hardness": 1.0,
-			"shape": "stairs",
-			"textures": {
-				"all": {
-					"blotch": 0.5,
-					"color": "#93683d",
-					"noise": 0.1,
-					"shades": 3,
-					"stripes": [
-						{"across": true, "color": "#b88653", "every": 4},
-						{
-							"across": true,
-							"color": "#76522f",
-							"every": 4,
-							"offset": 3,
-							"seams": "#6b4a2b"
-						}
-					]
-				}
-			}
-		},
 		"sand": {
 			"color": "#d6c38a",
 			"falls": true,
@@ -493,14 +349,6 @@
 				"all": {"blotch": 0.35, "color": "#75787e", "noise": 0.3, "shades": 5}
 			}
 		},
-		"stone_stairs": {
-			"color": "#7a7d83",
-			"hardness": 1.5,
-			"shape": "stairs",
-			"textures": {
-				"all": {"blotch": 0.35, "color": "#75787e", "noise": 0.3, "shades": 5}
-			}
-		},
 		"water": {"color": "#3f76d6b3", "fluid": "water", "level": 8, "solid": false},
 		"water_1": {"color": "#3f76d6b3", "flowing": true, "fluid": "water", "level": 1, "solid": false},
 		"water_2": {"color": "#3f76d6b3", "flowing": true, "fluid": "water", "level": 2, "solid": false},
@@ -508,88 +356,47 @@
 		"water_4": {"color": "#3f76d6b3", "flowing": true, "fluid": "water", "level": 4, "solid": false},
 		"water_5": {"color": "#3f76d6b3", "flowing": true, "fluid": "water", "level": 5, "solid": false},
 		"water_6": {"color": "#3f76d6b3", "flowing": true, "fluid": "water", "level": 6, "solid": false},
-		"water_7": {"color": "#3f76d6b3", "flowing": true, "fluid": "water", "level": 7, "solid": false},
-		"wood_door": {
-			"color": "#93683d",
-			"hardness": 1.5,
-			"icon": "textures/door_upper.png",
-			"needs_support": true,
-			"shape": "door",
-			"textures": {"all": "textures/door_lower.png"},
-			"textures_upper": {"all": "textures/door_upper.png"}
-		}
+		"water_7": {"color": "#3f76d6b3", "flowing": true, "fluid": "water", "level": 7, "solid": false}
 	},
 	"sound_sets": {
 		"ambience": {
-			"wind": ["sounds/wind.wav"]
+			"wind": ["sounds/wind.flac"]
 		},
 		"cave": {
 			"sounds": [
-				"sounds/cave_drip.wav", "sounds/cave_moan.wav", "sounds/cave_pebbles.wav",
-				"sounds/cave_rumble.wav", "sounds/cave_steps.wav", "sounds/scrape_1.wav",
-				"sounds/scrape_2.wav", "sounds/scrape_3.wav"
+				"sounds/cave_drip.flac", "sounds/cave_moan.flac", "sounds/cave_pebbles.flac",
+				"sounds/cave_rumble.flac", "sounds/cave_steps.flac", "sounds/scrape.flac"
 			]
 		},
 		"music": {
 			"pieces": []
 		},
 		"effects": {
-			"splash": [
-				"sounds/splash_1.wav", "sounds/splash_2.wav", "sounds/splash_3.wav",
-				"sounds/splash_4.wav"
-			]
+			"splash": ["sounds/splash.flac"]
 		},
 		"dirt": {
-			"hits": [
-				"sounds/blocks/dirt_1.wav", "sounds/blocks/dirt_2.wav", "sounds/blocks/dirt_3.wav",
-				"sounds/blocks/dirt_4.wav", "sounds/blocks/dirt_5.wav", "sounds/blocks/dirt_6.wav",
-				"sounds/blocks/dirt_7.wav", "sounds/blocks/dirt_8.wav"
-			]
+			"hits": ["sounds/blocks/dirt.flac"]
 		},
 		"glass": {
-			"hits": ["sounds/blocks/glass_1.wav"]
+			"hits": ["sounds/blocks/glass.flac"]
 		},
 		"grass": {
-			"hits": [
-				"sounds/blocks/grass_1.wav", "sounds/blocks/grass_2.wav", "sounds/blocks/grass_3.wav",
-				"sounds/blocks/grass_4.wav", "sounds/blocks/grass_5.wav", "sounds/blocks/grass_6.wav",
-				"sounds/blocks/grass_7.wav", "sounds/blocks/grass_8.wav"
-			]
+			"hits": ["sounds/blocks/grass.flac"]
 		},
 		"gravel": {
-			"hits": [
-				"sounds/blocks/gravel_1.wav", "sounds/blocks/gravel_2.wav", "sounds/blocks/gravel_3.wav",
-				"sounds/blocks/gravel_4.wav", "sounds/blocks/gravel_5.wav", "sounds/blocks/gravel_6.wav",
-				"sounds/blocks/gravel_7.wav", "sounds/blocks/gravel_8.wav"
-			]
+			"hits": ["sounds/blocks/gravel.flac"]
 		},
 		"sand": {
-			"hits": [
-				"sounds/blocks/dirt_1.wav", "sounds/blocks/dirt_2.wav", "sounds/blocks/dirt_3.wav",
-				"sounds/blocks/dirt_4.wav", "sounds/blocks/dirt_5.wav", "sounds/blocks/dirt_6.wav",
-				"sounds/blocks/dirt_7.wav", "sounds/blocks/dirt_8.wav"
-			]
+			"hits": ["sounds/blocks/dirt.flac"]
 		},
 		"snow": {
-			"hits": [
-				"sounds/blocks/snow_1.wav", "sounds/blocks/snow_2.wav", "sounds/blocks/snow_3.wav",
-				"sounds/blocks/snow_4.wav", "sounds/blocks/snow_5.wav", "sounds/blocks/snow_6.wav",
-				"sounds/blocks/snow_7.wav", "sounds/blocks/snow_8.wav"
-			]
+			"hits": ["sounds/blocks/snow.flac"]
 		},
 		"stone": {
-			"hits": [
-				"sounds/blocks/stone_1.wav", "sounds/blocks/stone_2.wav", "sounds/blocks/stone_3.wav",
-				"sounds/blocks/stone_4.wav", "sounds/blocks/stone_5.wav", "sounds/blocks/stone_6.wav",
-				"sounds/blocks/stone_7.wav", "sounds/blocks/stone_8.wav"
-			]
+			"hits": ["sounds/blocks/stone.flac"]
 		},
 		"wood": {
-			"hits": [
-				"sounds/blocks/wood_1.wav", "sounds/blocks/wood_2.wav", "sounds/blocks/wood_3.wav",
-				"sounds/blocks/wood_4.wav", "sounds/blocks/wood_5.wav", "sounds/blocks/wood_6.wav",
-				"sounds/blocks/wood_7.wav", "sounds/blocks/wood_8.wav"
-			]
+			"hits": ["sounds/blocks/wood.flac"]
 		}
 	},
 	"trees": {

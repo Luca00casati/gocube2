@@ -38,11 +38,10 @@ fn void each_block_sounds_like_its_material() @test => @pool()
 	Content* c = load();
 	defer unload(c);
 	String[2][*] expected = {
-		{ "core:stone", "stone" }, { "core:cobblestone", "stone" }, { "core:stone_stairs", "stone" },
-		{ "core:dirt", "dirt" }, { "core:grass", "grass" }, { "core:leaves", "grass" }, { "core:cactus", "grass" },
+		{ "core:stone", "stone" }, { "core:cobblestone", "stone" },
+		{ "core:dirt", "dirt" }, { "core:grass", "grass" }, { "core:leaves", "grass" },
 		{ "core:sand", "sand" }, { "core:gravel", "gravel" }, { "core:snow", "snow" }, { "core:glass", "glass" },
-		{ "core:log", "wood" }, { "core:planks", "wood" }, { "core:planks_stairs", "wood" }, { "core:planks_fence", "wood" },
-		{ "core:wood_door", "wood" }, { "core:ladder", "wood" }, { "core:chest", "wood" },
+		{ "core:log", "wood" }, { "core:planks", "wood" }, { "core:planks_fence", "wood" },
 	};
 	foreach (e : expected) assert(material_of(c, e[0]) == e[1], "%s: %s, not %s", e[0], material_of(c, e[0]), e[1]);
 	// What properties can't tell, "sound" does.
@@ -84,10 +83,10 @@ fn void every_sound_file_reads() @test
 				@pool()
 				{
 					String path = c.asset_path(f.as_string());
-					Wav w;
+					Samples w;
 					defer w.free();
 					String error;
-					assert(sound::read_wav(path, &w, &error), "%s: %s", path, error);
+					assert(sound::read_sound(path, &w, &error), "%s: %s", path, error);
 					double seconds = (double)w.frames() / (double)w.rate;
 					assert(seconds > 0.02, "%s is empty", path);
 					if (kind.key == "hits") assert(seconds < 1.0, "%s: %.2f s, long for a block", path, seconds);
@@ -96,19 +95,21 @@ fn void every_sound_file_reads() @test
 			}
 		}
 	}
-	assert(files > 40, "%d", files);
+	assert(files > 15, "%d", files);
 }
 
-// The pitch: lighter, smaller and harder a little higher; never far off.
+// The pitch (of a material with one recording): lighter, smaller and
+// harder a little higher; never far off.
 fn void pitch_follows_the_block() @test => @pool()
 {
 	Content* c = load();
 	defer unload(c);
 	BlockVoice stone = block::voice_of(c.blocks.get("core:stone"));
-	BlockVoice stairs = block::voice_of(c.blocks.get("core:stone_stairs"));
+	BlockVoice fence = block::voice_of(c.blocks.get("core:planks_fence"));
+	BlockVoice planks = block::voice_of(c.blocks.get("core:planks"));
 	BlockVoice dirt = block::voice_of(c.blocks.get("core:dirt"));
 	BlockVoice sand = block::voice_of(c.blocks.get("core:sand"));
-	assert(block::pitch_of(&stairs, "break") > block::pitch_of(&stone, "break"));
+	assert(block::pitch_of(&fence, "break") > block::pitch_of(&planks, "break"));
 	assert(block::pitch_of(&sand, "break") > block::pitch_of(&dirt, "break"));
 	assert(block::pitch_of(&stone, "place") > block::pitch_of(&stone, "break"));
 	foreach (e : c.blocks.all())

@@ -1,8 +1,8 @@
-"""Makes some of the game's rare cave sounds (content/sounds/cave_*.wav:
+"""Makes some of the game's rare cave sounds (content/sounds/cave_*.flac:
 a rumble, a drip, steps, a moan, falling pebbles). All synthesized here,
 from fixed seeds: running it again makes the same files. (The wind, the
 scrape, the splash and the blocks' sounds are recordings: tools/cut_takes.py
-and tools/make_loop.py make them from refs/.)
+and tools/make_loop.py make them from refs/, tools/to_flac.py compresses them.)
 
     python tools/make_mood_sounds.py
 
@@ -14,12 +14,14 @@ import random
 import struct
 import wave
 
+import to_flac
+
 RATE = 22050
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "content")
 
 
 def write(path, samples, peak=0.7):
-    """Normalized to `peak`, written as 16-bit mono."""
+    """Normalized to `peak`, written as 16-bit mono .flac (`path`: its .wav name)."""
     top = max(1e-9, max(abs(s) for s in samples))
     k = peak / top
     data = struct.pack("<%dh" % len(samples), *(int(max(-1.0, min(1.0, s * k)) * 32767) for s in samples))
@@ -30,7 +32,9 @@ def write(path, samples, peak=0.7):
         w.setsampwidth(2)
         w.setframerate(RATE)
         w.writeframes(data)
-    print("%-28s %5.1f s" % (path, len(samples) / RATE))
+    to_flac.to_flac(full, full[:-4] + ".flac")
+    os.remove(full)
+    print("%-28s %5.1f s" % (path[:-4] + ".flac", len(samples) / RATE))
 
 
 def coef(hz):

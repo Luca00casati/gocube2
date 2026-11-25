@@ -1,15 +1,14 @@
 // The game's sounds, through XAudio2: a sound set's sound (content
 // "sound_sets": a list of files per kind; or "block:<id>", a block's: its
-// material's recordings, pitched from what it is, by sound::block), a
-// random one of them, its
-// pitch varied a little so repeats don't sound the same, heard from where it
-// is (full volume within UNIT_SIZE blocks, then falling off, silent beyond
-// MAX_DISTANCE). Two loops as loud as the game says: the wind (set_wind:
-// how open it is around); now and then a piece of
-// music (play_music: in both ears, one at a time); underwater, everything
-// is muffled.
+// material's recordings, by sound::block), a random one of them, as
+// recorded (a set of only one file: its pitch varied a little so repeats
+// don't sound the same), heard from where it is (full volume within
+// UNIT_SIZE blocks, then falling off, silent beyond MAX_DISTANCE). The wind
+// loop as loud as the game says (set_wind: how open it is around); now and
+// then a piece of music (play_music: in both ears, one at a time);
+// underwater, everything is muffled.
 //
-// Sounds (.wav) are read once and kept; at most VOICES play at a time (the
+// Sounds (.flac) are read once and kept; at most VOICES play at a time (the
 // oldest stops for a new one). How loud each is in each ear and the
 // underwater filter are audio/mixing's. Without a sound device the game runs
 // silent; when the device goes, sound starts again on the default one.
@@ -401,7 +400,7 @@ EngineCallbackVtbl engine_callback_vtbl @private = { &on_pass, &on_pass, &on_cri
 // A loaded sound file: its samples, which every voice of it plays from.
 struct Sound
 {
-	Wav wav;
+	Samples samples;
 	WaveFormat format;
 }
 
@@ -438,13 +437,13 @@ fn Sound* Audio.load(&self, String path)
 	if (Sound* s = self.loaded.get_or(path, null)) return s;
 	Sound* s = mem::new(Sound);
 	String error;
-	if (!sound::read_wav(path, &s.wav, &error))
+	if (!sound::read_sound(path, &s.samples, &error))
 	{
 		log::log("Can't play %s: %s", path, error);
 		free(s);
 		return null;
 	}
-	Wav* w = &s.wav;
+	Samples* w = &s.samples;
 	s.format = { .format_tag = w.format == sound::FLOAT ? WAVE_FORMAT_IEEE_FLOAT : WAVE_FORMAT_PCM, .channels = w.channels,
 		.samples_per_sec = w.rate, .bits_per_sample = w.bits, .block_align = (ushort)(w.channels * w.bits / 8) };
 	s.format.avg_bytes_per_sec = w.rate * s.format.block_align;
@@ -454,12 +453,12 @@ fn Sound* Audio.load(&self, String path)
 
 fn XVoice* Audio.start_voice(&self, Sound* s, bool loop)
 {
-	if (s.wav.data.is_empty()) return null;
+	if (s.samples.data.is_empty()) return null;
 	SendDescriptor send = { 0, self.all };
 	VoiceSends sends = { 1, &send };
 	XVoice* v;
 	if (((CreateSourceFn)self.engine.vt.create_source_voice)(self.engine, &v, &s.format, 0, XAUDIO2_DEFAULT_FREQ_RATIO, null, &sends, null) < 0) return null;
-	XBuffer buffer = { .flags = XAUDIO2_END_OF_STREAM, .audio_bytes = (uint)s.wav.data.len(), .audio_data = s.wav.data.items,
+	XBuffer buffer = { .flags = XAUDIO2_END_OF_STREAM, .audio_bytes = (uint)s.samples.data.len(), .audio_data = s.samples.data.items,
 		.loop_count = loop ? XAUDIO2_LOOP_INFINITE : 0 };
 	if (v.submit(&buffer) < 0)
 	{
@@ -473,8 +472,8 @@ fn XVoice* Audio.start_voice(&self, Sound* s, bool loop)
 fn void Audio.place(&self, Voice* v)
 {
 	float[2] g = sound::stereo_gains(self.listener, self.forward, v.at, UNIT_SIZE, MAX_DISTANCE);
-	float[4] matrix = v.sound.wav.channels == 1 ? { g[0], g[1], 0, 0 } : { g[0], 0, 0, g[1] };
-	v.voice.set_output_matrix(self.all, v.sound.wav.channels, 2, &matrix);
+	float[4] matrix = v.sound.samples.channels == 1 ? { g[0], g[1], 0, 0 } : { g[0], 0, 0, g[1] };
+	v.voice.set_output_matrix(self.all, v.sound.samples.channels, 2, &matrix);
 }
 
 fn void Audio.start_engine(&self)
@@ -540,8 +539,8 @@ fn void Audio.stop_engine(&self)
 // A voice not placed anywhere: in both ears as it is.
 fn void Audio.unplaced(&self, Voice* v)
 {
-	float[4] matrix = v.sound.wav.channels == 1 ? { 1, 1, 0, 0 } : { 1, 0, 0, 1 };
-	v.voice.set_output_matrix(self.all, v.sound.wav.channels, 2, &matrix);
+	float[4] matrix = v.sound.samples.channels == 1 ? { 1, 1, 0, 0 } : { 1, 0, 0, 1 };
+	v.voice.set_output_matrix(self.all, v.sound.samples.channels, 2, &matrix);
 }
 
 fn void Audio.start_loop(&self, Voice* v, String path)
@@ -567,13 +566,16 @@ fn void Audio.apply_ambience(&self)
 }
 
 // A random file of a sound set's kind (heap; "" if none).
-fn String Audio.pick(&self, String set, String kind) => @pool()
+// `count`: how many files it chose from.
+fn String Audio.pick(&self, String set, String kind, sz* count = null) => @pool()
 {
+	if (count) *count = 0;
 	if (!self.content) return "";
 	Data* def = self.content.sound_sets.get(set);
 	if (!def) return "";
 	Data* files = def.get(kind);
 	if (!files || !files.is_array() || files.len() == 0) return "";
+	if (count) *count = files.len();
 	Data* file = files.at((sz)(self.random.unit() * (double)files.len()) % files.len());
 	return file.is_string() ? self.content.asset_path(file.as_string()).copy(mem) : "";
 }
@@ -598,7 +600,7 @@ fn void Audio.free(&self)
 	self.loaded.@each(; String k, Sound* s)
 	{
 		free(k.ptr);
-		s.wav.free();
+		s.samples.free();
 		free(s);
 	};
 	self.loaded.free();
@@ -612,30 +614,36 @@ fn bool Audio.active(&self) => self.ok;
 fn int Audio.voice_count(&self) => (int)self.voices.len();
 
 // A random file of a block's sound set (sound::block: its material's, or
-// its "sound"), and how much higher it plays; null if it makes none.
+// its "sound"), and how much higher it plays: as recorded when there are
+// several recordings (they vary already); with only one, pitched from what
+// the block is and a little at random, so it doesn't repeat the same.
 fn Sound* Audio.block_sound(&self, String id, String kind, float* pitch) => @pool()
 {
 	if (!self.content) return null;
 	Data* def = self.content.blocks.get(id);
 	if (!block::has_sound(def)) return null;
 	BlockVoice voice = block::voice_of(def);
-	*pitch = block::pitch_of(&voice, kind);
 	String set = block::set_of(def, &voice);
-	String path = self.pick(set, kind);
-	if (!path.len) path = self.pick(set, "hits");
+	sz count;
+	String path = self.pick(set, kind, &count);
+	if (!path.len) path = self.pick(set, "hits", &count);
 	if (!path.len) return null;
 	defer free(path.ptr);
+	*pitch = count > 1 ? 1.0f : block::pitch_of(&voice, kind) * self.random.range(0.92f, 1.08f);
 	return self.load(path);
 }
 
-// A sound of a set's kind (a random file), and how much higher it plays.
+// A sound of a set's kind (a random file), and how much higher it plays
+// (as recorded, unless the set has only the one: then a little at random).
 fn Sound* Audio.sound_of(&self, String set, String kind, float* pitch)
 {
 	*pitch = 1;
 	if (set.starts_with(block::SET_PREFIX)) return self.block_sound(set[block::SET_PREFIX.len..], kind, pitch);
-	String path = self.pick(set, kind);
+	sz count;
+	String path = self.pick(set, kind, &count);
 	if (!path.len) return null;
 	defer free(path.ptr);
+	if (count == 1) *pitch = self.random.range(0.92f, 1.08f);
 	return self.load(path);
 }
 
@@ -658,7 +666,7 @@ fn void Audio.play(&self, String set, String kind, float[3] at, float volume_db 
 	v.voice = self.start_voice(s, false);
 	if (!v.voice) return;
 	self.place(&v);
-	v.voice.set_frequency_ratio(pitch * self.random.range(0.92f, 1.08f));
+	v.voice.set_frequency_ratio(pitch);
 	v.voice.set_volume(db_to_linear(volume_db) * self.effects);
 	v.voice.start();
 	self.voices.push(v);

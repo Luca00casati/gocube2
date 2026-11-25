@@ -1,16 +1,19 @@
 // The sounds of blocks (breaking, placing, stepping on): recordings of a
 // material (content sound sets "core:stone", "core:wood", "core:grass",
 // "core:gravel", "core:sand", "core:snow", "core:dirt", "core:glass", each
-// a list of "hits"), chosen from what the block is, and pitched from it.
+// a list of "hits"), chosen from what the block is.
 //
 // The material: see-through is glass; leaves, plants and grass blocks are
 // grass; the softest ("hardness" 0.15 or less) is snow; a block that falls
 // is gravel (a texture of "cells") or sand; woody ("flammable", "rings" or
-// "stripes", a door, ladder or fence) is wood; hard is stone; the rest is
+// "stripes", a fence) is wood; hard is stone; the rest is
 // dirt. A block's "sound" names a sound set instead (sandstone is stone).
 //
-// The pitch: lighter colours a little higher, smaller pieces (stairs, a
-// layer of snow) higher, harder a touch higher; placing a little higher.
+// A material has one recording, played a little higher or lower each time
+// and pitched from the block (pitch_of: lighter colours a little higher,
+// smaller pieces higher, harder a touch higher, placing a little higher), so
+// blocks of it don't all sound the same. (A material given several
+// recordings plays them as recorded instead.)
 module gocube::sound::block;
 import gocube::data, gocube::content::image;
 import std::math;

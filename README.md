@@ -3,7 +3,7 @@
 Voxel sandbox for Windows, in [C3](https://c3-lang.org) with Direct3D 11.
 
 Everything in it is a block: there are no other items, no creatures and no
-enemies. Survival: mining by hand, drops, chests, health, the day and night,
+enemies. Survival: mining by hand, drops, health, the day and night,
 trees coming up on grass by themselves, flowing water and lava; sound;
 creative; multiplayer (one player hosts, others join); a title menu and pause
 menu. A sky with a sun, moon, stars and drifting clouds; moonlit nights (the
@@ -17,15 +17,19 @@ block breaking far off with nobody there, fog that closes in for a while,
 some nights a small light far off that's gone when you come near, and (once
 there is some in the "core:music" sound set) now and then a piece of music
 between long silences.
-Breaking, placing and stepping on a block plays recordings of its material
+Breaking, placing and stepping on a block plays the recording of its material
 (stone, wood, grass, gravel, sand, snow, dirt, glass), chosen from what the
-block is (glass, plants, soft, falling, woody or hard) and pitched from it
-(lighter colours, smaller pieces and harder blocks a little higher;
-`src/audio/block_sound.c3`); a block's "sound" names another sound set.
-The recordings are cut from long takes kept in `refs/` (not in git):
-`tools/cut_takes.py` cuts a take into single hits, `tools/make_loop.py`
-makes the wind loop seamless; `tools/make_mood_sounds.py` synthesizes some
-of the cave sounds.
+block is (glass, plants, soft, falling, woody or hard; `src/audio/block_sound.c3`),
+pitched a little differently each time and from the block (a material with
+several recordings plays them as recorded instead); a block's "sound" names
+another sound set.
+Landing makes the sound of the block landed on, even from a little jump.
+Sounds are .flac (lossless, about half the size or less; the game reads
+nothing else, with its own decoder, `src/audio/flac.c3`). The recordings are
+cut from long takes kept in `refs/` (not in git): `tools/cut_takes.py` cuts
+a take into single hits, `tools/make_loop.py` makes the wind loop seamless,
+`tools/to_flac.py` turns the .wav files into .flac; `tools/make_mood_sounds.py`
+synthesizes some of the cave sounds.
 To check it without listening: `--record=DIR` saves frames and everything
 heard, and `tools/review_audio.py DIR/audio.wav` draws it.
 The terrain comes from 3D noise: hills, cliffs, overhangs, seas with sand and
@@ -76,7 +80,7 @@ The tests (`test\`, `@test` functions, by module) cover world generation
 (the fingerprint of seed 777's world, the generator's hash), the block table
 and atlas, JSON, saving, the player, survival and creative, commands,
 multiplayer (a host and a client in one process: joining, block changes,
-survival, chests, chat, the host's checks), sound (mixing, blocks' made
+survival, chat, the host's checks), sound (mixing, blocks' made
 sounds, and a sound played on the device), the UI's controls, and rendering on WARP (a frame, the world
 and the UI, read back from screenshots in `build\`). They run in the test
 runner's leak-tracking allocator: a test that leaks fails.
@@ -99,8 +103,8 @@ survival or creative). Or straight into a world:
 | Shift | Sneak (fly down; landing ends flight) |
 | Ctrl | Sprint |
 | F | Fly |
-| Left button | Break the block aimed at (hold it in survival; doors and beds go whole) |
-| Right button | Place the held block; open a chest, use a door or bed (sneak to place against them) |
+| Left button | Break the block aimed at (hold it in survival) |
+| Right button | Place the held block |
 | 1-9, wheel | Choose a hotbar slot |
 | Middle button | Creative: take the block aimed at |
 | E | Inventory (creative: every block to take from) |
@@ -110,10 +114,11 @@ survival or creative). Or straight into a world:
 
 Survival without tools, weapons, armour or smelting, and only one recipe
 (planks from a log): everything is mined by hand (hardness x 0.375 s) and
-drops itself (or what it gives: stone gives cobblestone), chests, health
-(falls, lava, drowning, falling out of the world; no bar: the screen reddens the lower it is,
-and healing with time fades it), death and respawn at your bed or the world spawn, a day that
-lasts a real day by default and a bed to sleep through the night, falling sand,
+drops itself (or what it gives: stone gives cobblestone), nothing
+that hurts (no fall damage, lava doesn't burn, no drowning; falling out of
+the world brings you back at the world spawn; only /kill takes
+health), a day that
+lasts a real day by default, no beds, chests, doors, ladders, stairs or cacti, falling sand,
 trees sprouting on grass, decaying leaves. One kind of grass and of wood (oak), no
 saplings, no small plants (flowers, tall grass), no farming and no food: health
 comes back by itself. The world is saved every minute and
@@ -134,8 +139,7 @@ play a world (others join it on port 24680: TCP, and UDP too if it gets through,
 for smoother movement), or type the host's address and
 "Join their world". The host's world is the world: it checks and does what
 joined players do, keeps their inventories and health (saved in its world, by
-name), and runs the dropped blocks, chests and time; the night is
-skipped once everyone is in bed. Everyone plays the same game, so any copy
+name), and runs the dropped blocks and time. Everyone plays the same game, so any copy
 of the same version can join any host.
 
 | Option | What it does |
@@ -199,8 +203,8 @@ same way):
 - `world/`: chunk streaming on worker threads, editing, the raycast,
   collision; the world folder (`world.json`, `chunks\`).
 - `game/`: the player (movement, breaking, placing), the block rules (shaped
-  blocks' variants, doors, beds, support), survival (inventory, health,
-  drops), chests, players' figures, the day, commands, the first-person
+  blocks' variants, support), survival (inventory, health,
+  drops), players' figures, the day, commands, the first-person
   hand, and the base game's rules (`rules.c3`: mining time, drops, fall
   damage, the recipe; `core.c3`: plants, fluids).
 - `data/`: the game's data value and JSON (our own).

@@ -10,7 +10,8 @@ the rest), each made as loud as the others (peak -3 dB).
 sound is that long from where a gesture starts, faded out, whatever follows.
 
 Writes OUT_PREFIX_1.wav, OUT_PREFIX_2.wav ... (mono, 16-bit, the take's
-rate) and prints what it kept. Plain Python (no packages). Reads 16/24-bit
+rate) and prints what it kept; tools/to_flac.py makes them .flac for the
+game, which plays only .flac. Plain Python (no packages). Reads 16/24-bit
 PCM and 32-bit float WAV.
 """
 import math

@@ -1,86 +1,73 @@
-// The sound maths: .wav files, each ear's loudness, the underwater filter.
+// The sound maths: .flac files, each ear's loudness, the underwater filter.
 module gocube::test::mixing_test;
 import gocube::sound, gocube::audio, gocube::content, gocube::clock, gocube::util::vec;
-import std::math, std::io;
+import std::math, std::io, std::hash::md5;
 
-fn void u16(Vec{char}* s, uint v) => s.push_all({ (char)(v & 0xFF), (char)(v >> 8) });
-fn void u32(Vec{char}* s, uint v)
+// The samples a .flac file was made from, rebuilt from what the game reads
+// (8, 16 or 24 bits as in the file): their MD5 is the one its STREAMINFO keeps.
+fn void decodes_exactly(String path, ushort channels, uint rate, sz frames)
 {
-	u16(s, v & 0xFFFF);
-	u16(s, v >> 16);
-}
-
-// A .wav file of these samples (the caller frees it).
-fn Vec{char} wav(ushort tag, ushort channels, uint rate, ushort bits, char[] samples, bool extensible = false)
-{
-	Vec{char} fmt;
-	defer fmt.free();
-	u16(&fmt, extensible ? 0xFFFE : tag);
-	u16(&fmt, channels);
-	u32(&fmt, rate);
-	u32(&fmt, rate * channels * bits / 8);
-	u16(&fmt, channels * bits / 8);
-	u16(&fmt, bits);
-	if (extensible)
-	{
-		u16(&fmt, 22);
-		u16(&fmt, bits);
-		u32(&fmt, 0);
-		u16(&fmt, tag); // the sub-format GUID starts with the format tag
-		for (int i = 0; i < 14; i++) fmt.push(0);
-	}
-	Vec{char} body;
-	defer body.free();
-	body.push_all("WAVEfmt ");
-	u32(&body, (uint)fmt.len());
-	body.push_all(fmt.array_view());
-	body.push_all("LIST");
-	u32(&body, 3);
-	body.push_all("abc");
-	body.push(0); // (odd chunks are padded)
-	body.push_all("data");
-	u32(&body, (uint)samples.len);
-	body.push_all(samples);
-	Vec{char} out;
-	out.push_all("RIFF");
-	u32(&out, (uint)body.len());
-	out.push_all(body.array_view());
-	return out;
-}
-
-fn bool parses(Vec{char} file, Wav* w, String* error)
-{
-	defer file.free();
-	w.free();
-	return sound::parse_wav(file.array_view(), w, error);
-}
-
-fn void wav_files() @test
-{
-	Wav w;
-	defer w.free();
+	char[] bytes = file::load_temp(path)!!;
+	Samples s;
+	defer s.free();
 	String error;
-	char[10] ten = { [0..9] = 1 };
-	char[17] seventeen;
-	char[12] twelve;
-	char[24] twentyfour;
-	assert(parses(wav(1, 1, 22050, 16, &ten), &w, &error));
-	assert(w.format == sound::PCM && w.channels == 1 && w.rate == 22050 && w.bits == 16 && w.frames() == 5);
-	assert(parses(wav(3, 2, 48000, 32, &seventeen, true), &w, &error));
-	assert(w.format == sound::FLOAT && w.frames() == 2 && w.data.len() == 16); // (a broken last frame is left out)
-	assert(parses(wav(1, 2, 44100, 24, &twelve), &w, &error));
-	assert(!sound::parse_wav("RIFF....WAVEjunk", &w, &error));
-	assert(!sound::parse_wav("not a wav at all", &w, &error));
-	assert(!parses(wav(2, 1, 22050, 4, "abcd"), &w, &error)); // ADPCM
-	assert(error.contains("compressed"));
-	assert(!parses(wav(1, 6, 48000, 16, &twentyfour), &w, &error)); // 5.1
-	assert(!parses(wav(3, 1, 48000, 16, "ab"), &w, &error)); // 16-bit float
-	w.free();
-	@pool()
+	assert(sound::parse_flac(bytes, &s, &error), "%s: %s", path, error);
+	assert(s.channels == channels && s.rate == rate && s.frames() == frames, "%s: %d channels, %d Hz, %d frames", path, s.channels, s.rate, s.frames());
+	int bps = ((bytes[20] & 1) << 4 | bytes[21] >> 4) + 1;
+	Vec{char} raw;
+	defer raw.free();
+	if (bps > 16)
 	{
-		assert(sound::read_wav("content/sounds/wind.wav", &w, &error), "%s", error);
-	};
-	assert(w.frames() > 0);
+		assert(s.format == sound::FLOAT && s.bits == 32);
+		float* f = (float*)s.data.items;
+		for (sz i = 0; i < s.frames() * channels; i++)
+		{
+			int v = (int)math::round(f[i] * (float)(1 << (bps - 1)));
+			for (int k = 0; k < bps / 8; k++) raw.push((char)(v >> (8 * k)));
+		}
+	}
+	else
+	{
+		assert(s.format == sound::PCM && s.bits == 16);
+		short* p = (short*)s.data.items;
+		for (sz i = 0; i < s.frames() * channels; i++)
+		{
+			int v = p[i] >> (16 - bps);
+			for (int k = 0; k < (bps + 7) / 8; k++) raw.push((char)(v >> (8 * k)));
+		}
+	}
+	char[16] sum = md5::hash(raw.array_view());
+	assert((String)sum[..] == (String)bytes[26:16], "%s: the samples aren't the ones encoded", path);
+}
+
+// Files from another encoder (libsndfile's: LPC, mid/side, 8 and 24 bits)
+// and the game's own (tools/to_flac.py).
+fn void flac_files() @test => @pool()
+{
+	decodes_exactly("test/audio/flac/mono16.flac", 1, 22050, 5000);
+	decodes_exactly("test/audio/flac/stereo16.flac", 2, 48000, 9001);
+	decodes_exactly("test/audio/flac/stereo24.flac", 2, 44100, 4500);
+	decodes_exactly("test/audio/flac/mono8.flac", 1, 8000, 3000);
+	decodes_exactly("content/sounds/wind.flac", 2, 48000, 25 * 48000);
+	decodes_exactly("content/sounds/blocks/stone.flac", 1, 48000, 5664);
+}
+
+// What isn't a .flac file that plays, or is damaged, is turned down.
+fn void broken_flac_files() @test => @pool()
+{
+	Samples s;
+	String error;
+	assert(!sound::parse_flac("not a flac at all", &s, &error));
+	assert(!sound::read_sound("content/sounds/none.flac", &s, &error));
+	char[] good = file::load_temp("test/audio/flac/stereo16.flac")!!;
+	char[] copy = mem::talloc_array(char, good.len);
+	copy[..] = good[..];
+	copy[good.len / 2] ^= 0x10; // a bit flipped in the middle
+	assert(!sound::parse_flac(copy, &s, &error));
+	assert(error.contains("damaged") || error.contains("broken"), "%s", error);
+	assert(!sound::parse_flac(good[:good.len / 2], &s, &error)); // cut short
+	assert(sound::parse_flac(good, &s, &error), "%s", error);
+	s.free();
 }
 
 fn void check_gains(float[3] listener, float[3] forward, float[3] at, float left, float right)

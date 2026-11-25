@@ -121,9 +121,8 @@ struct Game
 	int health;
 	float breath;
 	bool dead;
-	float fall_peak;
 	bool was_on_floor;
-	float since_damage, regen_timer, drown_timer, burn_timer, void_timer;
+	float since_damage, regen_timer;
 	float since_hurt;
 	bool has_bed;
 	BlockPos bed;
@@ -153,7 +152,7 @@ fn void Game.init(&self, Content* content, BlockTable* table, BlockRules* rules,
 {
 	*self = { .content = content, .table = table, .rules = rules, .world = world, .player = player, .creative = creative,
 		.inventory = inventory::new(content), .entities = { .content = content }, .random = rand::seed_random(),
-		.health = MAX_HEALTH, .breath = MAX_BREATH, .was_on_floor = true, .burn_timer = 0.5f, .void_timer = 0.5f,
+		.health = MAX_HEALTH, .breath = MAX_BREATH, .was_on_floor = true,
 		.since_hurt = 99, .mining_target = NOWHERE, .day = 1, .mining_seconds = 1 };
 	self.drops.init();
 	self.notice_text.init(mem);
@@ -299,7 +298,6 @@ fn void Game.set_creative(&self, bool on)
 	{
 		self.health = MAX_HEALTH;
 		self.breath = MAX_BREATH;
-		self.fall_peak = self.player.position[1];
 	}
 }
 
@@ -798,7 +796,6 @@ fn void Game.tick(&self, double dt)
 	if (self.spawn_pending && self.try_place_on_ground())
 	{
 		self.spawn_pending = false;
-		self.fall_peak = self.player.position[1];
 		if (!self.has_world_spawn) // where new players appear and the dead respawn
 		{
 			self.world_spawn = self.player.position;

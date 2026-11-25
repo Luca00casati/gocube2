@@ -32,23 +32,6 @@ fn void day_sun_daylight_clock() @test
 	assert(math::abs(d.time - (0.3 + 10.0 * 0.5 / (100.0 * day_cycle::DAY_SHARE))) < 1e-6);
 }
 
-fn void bed_reported_every_time() @test
-{
-	Play* p = play::new();
-	defer p.free();
-	p.pool("core:air");
-	p.set(1, 40, 0, "core:bed");
-	p.set(1, 40, -1, "core:bed_n_head");
-	p.player.position = { 1.5f, 41.0f, 2.5f };
-	p.player.pitch = -math::atan2(1.62f + 0.45f, 2.0f);
-	for (int i = 0; i < 2; i++)
-	{
-		p.game.update(0.016f, { .captured = true, .use_pressed = true });
-		assert(p.game.take_bed_used());
-		assert(!p.game.take_bed_used());
-	}
-}
-
 // Game ticks (20 a second) for this long.
 fn void run_ticks(Play* p, float seconds)
 {
@@ -68,15 +51,16 @@ fn void sand_falls_unsupported_pop_off() @test
 	defer p.free();
 	p.pool("core:air");
 	p.set(1, 45, 1, "core:sand"); // 5 above the floor (y 40)
-	p.set(0, 41, 1, "core:ladder_w"); // against the west wall (x -1)
+	p.set(0, 40, 2, "core:stone");
+	p.set(0, 41, 2, "core:snow"); // lies on the stone
 	run_ticks(p, 1.0f);
 	assert(p.block(1, 45, 1) == "core:air");
 	assert(p.block(1, 40, 1) == "core:sand");
-	assert(p.block(0, 41, 1) == "core:ladder_w"); // still held by the wall
-	p.set(-1, 41, 1, "core:air"); // the wall behind it goes
+	assert(p.block(0, 41, 2) == "core:snow"); // still held up
+	p.set(0, 40, 2, "core:air"); // the stone under it goes
 	run_ticks(p, 0.5f);
-	assert(p.block(0, 41, 1) == "core:air");
-	assert(drops_of_item(p, "core:ladder") == 1);
+	assert(p.block(0, 41, 2) == "core:air");
+	assert(drops_of_item(p, "core:snow") == 1);
 }
 
 fn void leaves_decay_without_log() @test
@@ -202,8 +186,8 @@ fn void sounds_of_blocks_steps_pickups_hurts() @test
 	assert(count_sounds(sounds.array_view(), "block:core:stone", "break") == 1);
 	assert(near(sounds[0].at[0], 2.5f));
 	sounds.free();
-	// Hurt: the effects' hurt.
-	p.game.damage(2);
+	// Hurt (a command): the effects' hurt.
+	p.game.damage(2, "command");
 	sounds = p.game.take_sounds();
 	assert(count_sounds(sounds.array_view(), "core:effects", "hurt") == 1);
 	sounds.free();
@@ -298,22 +282,64 @@ fn void trees_sprout_on_grass() @test
 	}
 }
 
-fn void the_void_hurts_not_in_creative() @test
+// Fallen out of the world: back at the spawn, unhurt (creative too).
+fn void out_of_the_void_unhurt() @test
+{
+	foreach (creative : (bool[2]){ false, true })
+	{
+		Play* p = play::new(play::setup(creative));
+		defer p.free();
+		p.game.world_spawn = { 0.5f, 60.0f, 0.5f };
+		p.game.has_world_spawn = true;
+		p.player.flying = false;
+		p.player.position = { 0.5f, (float)world::BOTTOM_Y - 20.0f, 0.5f };
+		p.live(0.05f);
+		assert(p.player.position[1] > (float)world::BOTTOM_Y, "%f", p.player.position[1]);
+		assert(p.game.health == game::MAX_HEALTH && !p.game.dead);
+	}
+}
+
+// Jumping up onto a block lands with its sound (a fall of only a third of
+// a block, but coming down fast enough).
+fn void landing_on_a_block_sounds() @test
 {
 	Play* p = play::new();
 	defer p.free();
-	p.player.position = { 0.5f, (float)world::BOTTOM_Y - 2.0f, 0.5f };
-	p.live(0.05f);
-	assert(p.game.health == game::MAX_HEALTH - 4); // at once
-	p.live(0.5f);
-	assert(p.game.health == game::MAX_HEALTH - 8);
-	p.live(2.0f);
-	assert(p.game.health == 0); // (gone)
-	Play* creative = play::new(play::setup(true));
-	defer creative.free();
-	creative.player.position = { 0.5f, (float)world::BOTTOM_Y - 2.0f, 0.5f };
-	creative.live(1.0f);
-	assert(creative.game.health == game::MAX_HEALTH);
+	p.pool("core:air");
+	for (int x = -2; x <= 3; x++)
+	{
+		for (int z = -2; z <= 2; z++)
+		{
+			p.set(x, 39, z, "core:stone");
+			for (int y = 40; y <= 44; y++) p.set(x, y, z, "core:air");
+		}
+	}
+	for (int z = -2; z <= 2; z++) for (int x = 2; x <= 3; x++) p.set(x, 40, z, "core:planks"); // a step up, one block high
+	p.player.flying = false;
+	p.player.position = { 0.5f, 40.0f, 0.5f };
+	for (int i = 0; i < 30; i++)
+	{
+		p.player.step({}, &p.world, &p.rules);
+		p.game.after_move(player::STEP);
+	}
+	Vec{SoundEvent} sounds = p.game.take_sounds();
+	sounds.free();
+	p.player.yaw = -(float)math::PI / 2; // towards +x
+	for (int i = 0; i < 120 && p.player.position[0] < 2.4f; i++) // jump forward onto it
+	{
+		p.player.step({ .jump = true, .forward = 1 }, &p.world, &p.rules);
+		p.game.after_move(player::STEP);
+	}
+	for (int i = 0; i < 60; i++) // and come down on it
+	{
+		p.player.step({}, &p.world, &p.rules);
+		p.game.after_move(player::STEP);
+	}
+	assert(p.player.position[1] > 40.9f && p.player.on_floor, "%f", p.player.position[1]);
+	sounds = p.game.take_sounds();
+	int landed = count_sounds(sounds.array_view(), "block:core:planks", "step");
+	sounds.free();
+	assert(landed >= 1);
 }
 
 fn void nothing_hurts_at_night() @test

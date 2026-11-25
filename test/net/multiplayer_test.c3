@@ -114,8 +114,8 @@ fn void survival_client_through_host() @test
 	// A survival inventory as the host keeps it for a player who played before.
 	Inventory kept = inventory::new(&host.play.content);
 	kept.slots[0] = inventory::stack("core:planks", 4);
-	kept.slots[1] = inventory::stack("core:wood_door", 1);
-	kept.slots[2] = inventory::stack("core:bed", 3);
+	kept.slots[1] = inventory::stack("core:glass", 1);
+	kept.slots[2] = inventory::stack("core:sand", 3);
 	Data entry = data::object();
 	entry.set("inventory", kept.serialize());
 	Data players = data::object();
@@ -127,7 +127,7 @@ fn void survival_client_through_host() @test
 	defer client.free();
 	Sides s = { host, client, { 4, 100, 1 }, "core:planks", 0 };
 	NetPlay*[2] sides = both_sides(&s);
-	assert(netplay::run_until(&sides, fn bool(void* x) => count_of(((Sides*)x).c, "core:planks") == 4 && count_of(((Sides*)x).c, "core:bed") == 3, &s, 5));
+	assert(netplay::run_until(&sides, fn bool(void* x) => count_of(((Sides*)x).c, "core:planks") == 4 && count_of(((Sides*)x).c, "core:sand") == 3, &s, 5));
 	assert(netplay::run_until(&sides, fn bool(void* x) => ((Sides*)x).c.world().is_loaded(4, 100, 1), &s, 20));
 	// Placing takes the item from the host's copy of our inventory.
 	assert(client.hold("core:planks"));
@@ -149,69 +149,25 @@ fn void survival_client_through_host() @test
 	// (Where it lands is random: we step onto the cell, as a player would.)
 	client.player().position = { 4.5f, netplay::FLOOR_Y, 1.5f };
 	assert(netplay::run_until(&sides, fn bool(void* x) => count_of(((Sides*)x).c, "core:planks") == 4 && ((Sides*)x).h.game().drops.drops.is_empty(), &s, 5));
-	// A door, opened.
-	BlockPos door = { 1, 100, 4 };
-	assert(client.hold("core:wood_door"));
-	client.frame();
-	client.aim_at_floor(door.x, door.z);
-	client.input.use_pressed = true;
-	assert(netplay::run_until(&sides, fn bool(void* x) => ((Sides*)x).h.play.block(1, 101, 4).ends_with("_upper") && ((Sides*)x).c.play.block(1, 101, 4).ends_with("_upper"), &s, 5));
-	client.aim(door.x + 0.5f, 100.5f, door.z + 0.5f);
-	client.input.use_pressed = true;
-	assert(netplay::run_until(&sides, fn bool(void* x) => ((Sides*)x).c.play.block(1, 100, 4).ends_with("_open") && ((Sides*)x).h.play.block(1, 100, 4).ends_with("_open"), &s, 5));
 	// A teleport is put back.
 	float start = client.player().position[0];
 	client.player().position[0] += 200;
 	s.n = (int)start;
 	assert(netplay::run_until(&sides, fn bool(void* x) => math::abs(((Sides*)x).c.player().position[0] - (float)((Sides*)x).n) < 2.0f, &s, 5));
-	// Health is the host's: lava under our feet burns, the host says so.
+	// Health is the host's: lava doesn't burn; a command's damage, the host says so.
 	BlockPos feet = { (int)math::floor(client.player().position[0]), 100, (int)math::floor(client.player().position[2]) };
 	host.world().set_block(feet, host.play.id("core:lava"));
-	assert(netplay::run_until(&sides, fn bool(void* x) => ((Sides*)x).c.game().health < game::MAX_HEALTH, &s, 5));
+	netplay::run_for(&sides, 1.5f);
+	assert(client.game().health == game::MAX_HEALTH);
 	host.world().set_block(feet, 0);
+	assert(host.session.kill(host.session.peers[0].id));
+	assert(netplay::run_until(&sides, fn bool(void* x) => ((Sides*)x).c.game().health < game::MAX_HEALTH, &s, 5));
 	// The host keeps what we have when we leave.
 	Data saved = host.session.saved_players();
 	defer saved.free();
 	Inventory back = inventory::new(&host.play.content);
 	back.deserialize(saved.get("Client").get("inventory"));
 	assert(back.count_of("core:planks") == 4); // (placed one, mined it back)
-}
-
-fn void chests_through_host() @test
-{
-	NetPlay* host = netplay::host(test_port(2));
-	defer host.free();
-	NetPlay* client = netplay::join(test_port(2), "Client", &host_frame, host);
-	assert(client);
-	defer client.free();
-	BlockPos chest = { 3, 100, 0 };
-	Sides s = { host, client, chest, "core:chest", 0 };
-	NetPlay*[2] sides = both_sides(&s);
-	host.world().set_block(chest, host.play.id("core:chest"));
-	host.game().entities.click(chest, 0, inventory::stack("core:cobblestone", 4));
-	assert(netplay::run_until(&sides, fn bool(void* x) => ((Sides*)x).c.play.block_at(((Sides*)x).p) == "core:chest", &s, 20));
-	// We open it (a right click), the host sends what's in it.
-	client.aim(chest.x + 0.5f, chest.y + 0.5f, chest.z + 0.5f);
-	client.input.use_pressed = true;
-	client.frame();
-	BlockPos opened;
-	assert(client.game().take_opened(&opened));
-	client.session.open_container(chest);
-	assert(netplay::run_until(&sides, fn bool(void* x)
-	{
-		BlockEntity* e = ((Sides*)x).c.game().entities.at(((Sides*)x).p);
-		return e && e.slots[0].id == "core:cobblestone" && e.slots[0].count == 4;
-	}, &s, 5));
-	// Take the cobblestone, put it in slot 1: the host does the same.
-	client.game().inventory_action(game::action("container", { chest.x, chest.y, chest.z, 0 }));
-	assert(client.game().inventory.cursor.id == "core:cobblestone" && client.game().inventory.cursor.count == 4);
-	client.game().inventory_action(game::action("container", { chest.x, chest.y, chest.z, 1 }));
-	assert(netplay::run_until(&sides, fn bool(void* x)
-	{
-		BlockEntity* e = ((Sides*)x).h.game().entities.at(((Sides*)x).p);
-		return e && e.slots[1].id == "core:cobblestone" && e.slots[1].count == 4 && e.slots[0].is_empty();
-	}, &s, 5));
-	assert(client.game().inventory.cursor.is_empty());
 }
 
 fn void chat_and_commands_through_host() @test
